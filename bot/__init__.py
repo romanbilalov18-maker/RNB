@@ -1,0 +1,1 @@
+"""Bot-1.0 trading bot package."""
