@@ -3,6 +3,21 @@ from dataclasses import dataclass, field
 from bot.models import VirtualPosition, VirtualTrade
 
 
+@dataclass(frozen=True)
+class PositionPerformance:
+    ticker: str
+    quantity: int
+    average_price: float
+    market_price: float
+    invested_value: float
+    current_value: float
+    unrealized_pnl: float
+    unrealized_return_pct: float
+    estimated_sell_commission: float
+    net_if_sold_now: float
+    net_return_pct_if_sold_now: float
+
+
 @dataclass
 class VirtualPortfolio:
     """Persistent virtual portfolio used for paper trading."""
@@ -69,6 +84,39 @@ class VirtualPortfolio:
                 raise ValueError(f"missing market price for {ticker}")
             value += position.quantity * price
         return value
+
+    def position_performance(self, market_prices: dict[str, float]) -> list[PositionPerformance]:
+        """Return mark-to-market performance for every open position."""
+        result = []
+
+        for ticker, position in self.positions.items():
+            market_price = market_prices.get(ticker)
+            if market_price is None:
+                raise ValueError(f"missing market price for {ticker}")
+
+            invested = position.quantity * position.average_price
+            current = position.quantity * market_price
+            unrealized = current - invested
+            sell_commission = current * self.commission_rate
+            net_if_sold = unrealized - sell_commission
+
+            result.append(
+                PositionPerformance(
+                    ticker=ticker,
+                    quantity=position.quantity,
+                    average_price=position.average_price,
+                    market_price=market_price,
+                    invested_value=invested,
+                    current_value=current,
+                    unrealized_pnl=unrealized,
+                    unrealized_return_pct=unrealized / invested * 100.0,
+                    estimated_sell_commission=sell_commission,
+                    net_if_sold_now=net_if_sold,
+                    net_return_pct_if_sold_now=net_if_sold / invested * 100.0,
+                )
+            )
+
+        return result
 
     def _validate_order(self, ticker: str, quantity: int, price: float) -> None:
         if not ticker.strip():
