@@ -27,8 +27,7 @@ class LiveMarketRunner:
     def run(self) -> LiveScanResult:
         shares_response = self.client.instruments.shares()
         shares = [
-            share
-            for share in shares_response.instruments
+            share for share in shares_response.instruments
             if self._is_tradable_rub_share(share)
         ]
         if not shares:
@@ -66,17 +65,16 @@ class LiveMarketRunner:
 
         candidates = []
         for share in shares:
-            key = str(
-                getattr(share, "uid", "")
-                or getattr(share, "figi", "")
-            )
+            key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             current = last_prices.get(key)
             previous_close = close_prices.get(key)
             if current is None or previous_close is None:
                 continue
-
-            daily_return = current / previous_close - 1.0
-            candidates.append((daily_return, str(getattr(share, "ticker", "") or ""), share))
+            candidates.append((
+                current / previous_close - 1.0,
+                str(getattr(share, "ticker", "") or ""),
+                share,
+            ))
 
         candidates.sort(key=lambda item: (-item[0], item[1]))
         selected_10 = [item[2] for item in candidates[:10]]
@@ -87,8 +85,7 @@ class LiveMarketRunner:
 
         for share in selected_10:
             instrument_id = str(
-                getattr(share, "uid", "")
-                or getattr(share, "figi", "")
+                getattr(share, "uid", "") or getattr(share, "figi", "")
             )
             response = self.client.market_data.get_candles(
                 instrument_id=instrument_id,
@@ -101,38 +98,36 @@ class LiveMarketRunner:
         analyses = []
         for share in selected_10:
             instrument_id = str(
-                getattr(share, "uid", "")
-                or getattr(share, "figi", "")
+                getattr(share, "uid", "") or getattr(share, "figi", "")
             )
-            history = histories[instrument_id]
-            analysis = self.analyzer.analyze(
-                instrument_id,
-                str(getattr(share, "ticker", "") or ""),
-                history,
+            analyses.append(
+                self.analyzer.analyze(
+                    instrument_id,
+                    str(getattr(share, "ticker", "") or ""),
+                    histories[instrument_id],
+                )
             )
-            analyses.append(analysis)
 
         analyses.sort(
             key=lambda item: (
-                -item.score,
-                -item.momentum,
-                item.volatility,
-                item.ticker,
+                -item.score, -item.momentum, item.volatility, item.ticker
             )
         )
-
         selected_3 = analyses[:3]
-        current_prices = {}
-        lot_sizes = {}
 
-        selected_by_id = {
-            str(getattr(share, "uid", "") or getattr(share, "figi", "")): share
-            for share in selected_10
-        }
-        for analysis in selected_3:
-            share = selected_by_id[analysis.instrument_id]
-            current_prices[analysis.ticker] = last_prices[analysis.instrument_id]
-            lot_sizes[analysis.ticker] = int(getattr(share, "lot", 1) or 1)
+        lot_sizes = {}
+        for share in selected_10:
+            ticker = str(getattr(share, "ticker", "") or "")
+            key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            if ticker and key in last_prices:
+                lot_sizes[ticker] = int(getattr(share, "lot", 1) or 1)
+
+        current_prices = {}
+        for share in shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            if ticker and key in last_prices:
+                current_prices[ticker] = last_prices[key]
 
         return LiveScanResult(
             selected_10=selected_10,
