@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +9,7 @@ from bot.virtual_portfolio import VirtualPortfolio
 
 
 class SQLitePortfolioStore:
-    """Persist the virtual portfolio and complete trade history in SQLite."""
+    """Persist the virtual portfolio, trade history and equity history in SQLite."""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -51,6 +50,12 @@ class SQLitePortfolioStore:
                     commission REAL NOT NULL,
                     realized_pnl REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS equity_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    equity REAL NOT NULL
+                );
                 """
             )
 
@@ -87,9 +92,7 @@ class SQLitePortfolioStore:
                     average_price=position["average_price"],
                 )
 
-            for trade in db.execute(
-                "SELECT * FROM trades ORDER BY id"
-            ):
+            for trade in db.execute("SELECT * FROM trades ORDER BY id"):
                 portfolio.trades.append(
                     VirtualTrade(
                         timestamp=datetime.fromisoformat(trade["timestamp"]),
@@ -104,7 +107,20 @@ class SQLitePortfolioStore:
 
             return portfolio
 
-    def save(self, portfolio: VirtualPortfolio) -> None:
+    def equity_history(self) -> list[float]:
+        with self._connect() as db:
+            return [
+                row["equity"]
+                for row in db.execute(
+                    "SELECT equity FROM equity_history ORDER BY id"
+                )
+            ]
+
+    def save(
+        self,
+        portfolio: VirtualPortfolio,
+        market_prices: dict[str, float] | None = None,
+    ) -> None:
         with self._connect() as db:
             db.execute(
                 """
@@ -161,5 +177,12 @@ class SQLitePortfolioStore:
                     for trade in portfolio.trades
                 ],
             )
+
+            if market_prices is not None:
+                equity = portfolio.equity(market_prices)
+                db.execute(
+                    "INSERT INTO equity_history (timestamp, equity) VALUES (?, ?)",
+                    (datetime.now().astimezone().isoformat(), equity),
+                )
 
             db.commit()
