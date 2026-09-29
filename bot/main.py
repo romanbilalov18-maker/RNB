@@ -33,11 +33,14 @@ def main() -> None:
             print(f"=== CYCLE {cycle} ===")
             print(f"Runtime limit: {run_duration_minutes:g} min")
             print(f"Cycle interval: {cycle_interval_minutes:g} min")
+            print(f"Take Profit: {config.take_profit_percent:g} %")
 
             result = LiveMarketRunner(client).run(
                 held_tickers=set(portfolio.positions)
             )
-            sell_trades, buy_trades = PaperExecutor().execute(portfolio, result)
+            sell_trades, buy_trades = PaperExecutor(
+                take_profit=config.take_profit_percent / 100.0
+            ).execute(portfolio, result)
 
             equity = portfolio.equity(result.current_prices)
             store.save(portfolio, result.current_prices)
@@ -51,6 +54,7 @@ def main() -> None:
                 buy_trades,
                 equity,
                 stats,
+                config.take_profit_percent,
             )
 
             remaining = deadline - time.monotonic()
@@ -81,6 +85,7 @@ def _print_cycle_result(
     buy_trades,
     equity,
     stats,
+    take_profit_percent,
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -107,19 +112,22 @@ def _print_cycle_result(
     print("Position decisions:")
     for ticker, position in portfolio.positions.items():
         analysis = result.analyses.get(ticker)
-        if analysis is None:
+        price = result.current_prices.get(ticker)
+        if analysis is None or price is None:
             action = "HOLD"
             reason = "нет свежего анализа"
-        elif analysis.momentum <= -0.02 and analysis.trend_strength < 0:
+        elif price / position.average_price - 1.0 >= take_profit_percent / 100.0:
             action = "SELL"
-            reason = "моментум и тренд стали отрицательными"
+            reason = f"достигнут Take Profit +{take_profit_percent:g}%"
         elif (
-            result.current_prices[ticker] / position.average_price - 1.0
-            - portfolio.commission_rate
+            price / position.average_price - 1.0 - portfolio.commission_rate
             <= -0.05
         ):
             action = "SELL"
-            reason = "достигнут лимит убытка"
+            reason = "достигнут лимит убытка -5%"
+        elif analysis.momentum <= -0.02 and analysis.trend_strength < 0:
+            action = "SELL"
+            reason = "моментум и тренд стали отрицательными"
         else:
             action = "HOLD"
             reason = "сигнал продажи отсутствует"
