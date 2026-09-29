@@ -10,6 +10,8 @@ from bot.stock_analysis import StockAnalysis, StockAnalyzer
 class LiveScanResult:
     selected_10: list[object]
     selected_3: list[StockAnalysis]
+    current_prices: dict[str, float]
+    lot_sizes: dict[str, int]
 
 
 class LiveMarketRunner:
@@ -119,7 +121,25 @@ class LiveMarketRunner:
             )
         )
 
-        return LiveScanResult(selected_10=selected_10, selected_3=analyses[:3])
+        selected_3 = analyses[:3]
+        current_prices = {}
+        lot_sizes = {}
+
+        selected_by_id = {
+            str(getattr(share, "uid", "") or getattr(share, "figi", "")): share
+            for share in selected_10
+        }
+        for analysis in selected_3:
+            share = selected_by_id[analysis.instrument_id]
+            current_prices[analysis.ticker] = last_prices[analysis.instrument_id]
+            lot_sizes[analysis.ticker] = int(getattr(share, "lot", 1) or 1)
+
+        return LiveScanResult(
+            selected_10=selected_10,
+            selected_3=selected_3,
+            current_prices=current_prices,
+            lot_sizes=lot_sizes,
+        )
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
