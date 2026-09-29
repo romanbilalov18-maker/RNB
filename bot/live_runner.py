@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import time
 
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 
@@ -104,12 +105,13 @@ class LiveMarketRunner:
             instrument_id = str(
                 getattr(share, "uid", "") or getattr(share, "figi", "")
             )
-            response = self.client.market_data.get_candles(
+            response = self._get_candles_with_retry(
                 instrument_id=instrument_id,
-                from_=start,
-                to=end,
-                interval=self._daily_interval(),
+                start=start,
+                end=end,
             )
+            if response is None:
+                continue
             histories[instrument_id] = list(response.candles)
 
         analyses = {}
@@ -158,6 +160,38 @@ class LiveMarketRunner:
             current_prices=current_prices,
             lot_sizes=lot_sizes,
         )
+
+
+    def _get_candles_with_retry(
+        self,
+        instrument_id: str,
+        start: datetime,
+        end: datetime,
+        attempts: int = 3,
+    ):
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.client.market_data.get_candles(
+                    instrument_id=instrument_id,
+                    from_=start,
+                    to=end,
+                    interval=self._daily_interval(),
+                )
+            except Exception as exc:
+                last_error = exc
+                print(
+                    f"GetCandles failed for {instrument_id} "
+                    f"(attempt {attempt}/{attempts}): {exc}"
+                )
+                if attempt < attempts:
+                    time.sleep(1.0 * attempt)
+
+        print(
+            f"Skipping {instrument_id} after {attempts} failed "
+            f"GetCandles attempts: {last_error}"
+        )
+        return None
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
