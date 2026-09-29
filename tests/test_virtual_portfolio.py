@@ -36,6 +36,21 @@ class TestVirtualPortfolio(unittest.TestCase):
         equity = portfolio.equity({"TEST": 120})
         self.assertAlmostEqual(equity, 10_199.5)
 
+    def test_position_performance_includes_exit_commission(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        timestamp = datetime.now(timezone.utc)
+        portfolio.buy("TEST", 10, 100, timestamp)
+
+        performance = portfolio.position_performance({"TEST": 110})[0]
+
+        self.assertAlmostEqual(performance.invested_value, 1_000.0)
+        self.assertAlmostEqual(performance.current_value, 1_100.0)
+        self.assertAlmostEqual(performance.unrealized_pnl, 100.0)
+        self.assertAlmostEqual(performance.unrealized_return_pct, 10.0)
+        self.assertAlmostEqual(performance.estimated_sell_commission, 1.1)
+        self.assertAlmostEqual(performance.net_if_sold_now, 98.9)
+        self.assertAlmostEqual(performance.net_return_pct_if_sold_now, 9.89)
+
 
 if __name__ == "__main__":
     unittest.main()
