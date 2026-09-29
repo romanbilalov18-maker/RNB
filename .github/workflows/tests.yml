@@ -52,6 +52,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore virtual portfolio
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: virtual-portfolio-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            virtual-portfolio-${{ github.ref_name }}-
+
+      - name: Set up portfolio directory
+        run: mkdir -p data
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -65,3 +76,9 @@ jobs:
           INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
           RUN_LIVE_TINVEST_TEST: "1"
         run: python -m bot.main
+
+      - name: Save virtual portfolio
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: virtual-portfolio-${{ github.ref_name }}-${{ github.run_id }}
