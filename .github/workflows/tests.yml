@@ -64,4 +64,4 @@ jobs:
         env:
           INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
           RUN_LIVE_TINVEST_TEST: "1"
-        run: python -m unittest tests/test_live_bot_start.py -v
+        run: python -m bot.main
