@@ -46,15 +46,13 @@ class PositionManager:
             price = prices.get(ticker)
 
             if analysis is None or price is None:
-                decisions.append(
-                    PositionDecision(ticker, "HOLD", "нет свежего анализа")
-                )
+                decisions.append(PositionDecision(ticker, "HOLD", "нет свежего анализа"))
                 continue
 
             gross_return = price / position.average_price - 1.0
             net_return = gross_return - portfolio.commission_rate
 
-            if net_return >= self.take_profit:
+            if gross_return >= self.take_profit:
                 decisions.append(
                     PositionDecision(ticker, "SELL", "достигнут Take Profit +5%")
                 )
@@ -74,9 +72,7 @@ class PositionManager:
                     )
                 )
             else:
-                decisions.append(
-                    PositionDecision(ticker, "HOLD", "сигнал продажи отсутствует")
-                )
+                decisions.append(PositionDecision(ticker, "HOLD", "сигнал продажи отсутствует"))
 
         return decisions
 
