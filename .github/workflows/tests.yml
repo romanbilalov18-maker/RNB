@@ -12,6 +12,16 @@ on:
         required: true
         default: false
         type: boolean
+      run_duration_minutes:
+        description: "Bot runtime in minutes"
+        required: true
+        default: "60"
+        type: number
+      cycle_interval_minutes:
+        description: "Minutes between trading cycles"
+        required: true
+        default: "5"
+        type: number
 
 jobs:
   unit-tests:
@@ -75,6 +85,8 @@ jobs:
         env:
           INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
           RUN_LIVE_TINVEST_TEST: "1"
+          RUN_DURATION_MINUTES: ${{ inputs.run_duration_minutes }}
+          CYCLE_INTERVAL_MINUTES: ${{ inputs.cycle_interval_minutes }}
         run: |
           python -m bot.main 2>&1 | tee data/live_tinvest.log
 
