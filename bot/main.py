@@ -24,6 +24,8 @@ def main() -> None:
     store.save(portfolio)
 
     equity = portfolio.equity(result.current_prices)
+    total_pnl = equity - portfolio.initial_balance
+    total_return_pct = total_pnl / portfolio.initial_balance * 100.0
 
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -31,6 +33,8 @@ def main() -> None:
     print("Realized P&L:", f"{portfolio.realized_pnl:.2f} RUB")
     print("Total commissions:", f"{portfolio.commissions:.2f} RUB")
     print("Virtual equity:", f"{equity:.2f} RUB")
+    print("Total P&L:", f"{total_pnl:.2f} RUB")
+    print("Total return:", f"{total_return_pct:.2f} %")
 
     print("Position decisions:")
     for ticker, position in portfolio.positions.items():
@@ -54,12 +58,25 @@ def main() -> None:
         print(f"- {ticker}: {action} — {reason}")
 
     print("Open positions:")
-    if portfolio.positions:
-        for ticker, position in portfolio.positions.items():
+    performances = portfolio.position_performance(result.current_prices)
+    if performances:
+        for performance in performances:
+            print(f"- {performance.ticker}")
+            print(f"  Quantity: {performance.quantity}")
+            print(f"  Average price: {performance.average_price:.2f} RUB")
+            print(f"  Market price: {performance.market_price:.2f} RUB")
+            print(f"  Invested: {performance.invested_value:.2f} RUB")
+            print(f"  Current value: {performance.current_value:.2f} RUB")
+            print(f"  Unrealized P&L: {performance.unrealized_pnl:.2f} RUB")
+            print(f"  Return: {performance.unrealized_return_pct:.2f} %")
             print(
-                f"- {ticker}: quantity={position.quantity}, "
-                f"average_price={position.average_price:.2f}, "
-                f"market_price={result.current_prices[ticker]:.2f}"
+                "  Estimated sell commission: "
+                f"{performance.estimated_sell_commission:.2f} RUB"
+            )
+            print(
+                "  Net if sold now: "
+                f"{performance.net_if_sold_now:.2f} RUB "
+                f"({performance.net_return_pct_if_sold_now:.2f} %)"
             )
     else:
         print("- none")
