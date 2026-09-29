@@ -148,4 +148,4 @@ class LiveMarketRunner:
     @staticmethod
     def _daily_interval():
         from t_tech.invest import CandleInterval
-        return CandleInterval.CANDLE_INTERVAL_1_DAY
+        return CandleInterval.CANDLE_INTERVAL_DAY
