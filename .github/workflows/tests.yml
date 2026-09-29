@@ -75,7 +75,17 @@ jobs:
         env:
           INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
           RUN_LIVE_TINVEST_TEST: "1"
-        run: python -m bot.main
+        run: |
+          python -m bot.main 2>&1 | tee data/live_tinvest.log
+
+      - name: Upload live test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-tinvest-log-${{ github.run_id }}
+          path: data/live_tinvest.log
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Save virtual portfolio
         uses: actions/cache/save@v4
