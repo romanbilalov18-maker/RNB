@@ -7,6 +7,7 @@ class Config:
     invest_token: str
     initial_virtual_balance: float = 10_000.0
     commission_rate: float = 0.0005
+    portfolio_db_path: str = "data/virtual_portfolio.sqlite3"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -16,14 +17,21 @@ class Config:
 
         balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "10000"))
         commission = float(os.getenv("VIRTUAL_COMMISSION_RATE", "0.0005"))
+        db_path = os.getenv(
+            "VIRTUAL_PORTFOLIO_DB",
+            "data/virtual_portfolio.sqlite3",
+        ).strip()
 
         if balance <= 0:
             raise ValueError("VIRTUAL_INITIAL_BALANCE must be positive")
         if commission < 0:
             raise ValueError("VIRTUAL_COMMISSION_RATE must not be negative")
+        if not db_path:
+            raise ValueError("VIRTUAL_PORTFOLIO_DB must not be empty")
 
         return cls(
             invest_token=token,
             initial_virtual_balance=balance,
             commission_rate=commission,
+            portfolio_db_path=db_path,
         )
