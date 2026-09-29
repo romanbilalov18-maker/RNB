@@ -1,0 +1,67 @@
+name: RNB Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_live_tinvest:
+        description: "Run live T-Invest market-data smoke test"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            --trusted-host opensource.tbank.ru \
+            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+            -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  live-tinvest-test:
+    name: Live T-Invest smoke test
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_tinvest == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            --trusted-host opensource.tbank.ru \
+            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+            -r requirements.txt
+
+      - name: Run live T-Invest test
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+          RUN_LIVE_TINVEST_TEST: "1"
+        run: python -m unittest tests/test_live_bot_start.py -v
