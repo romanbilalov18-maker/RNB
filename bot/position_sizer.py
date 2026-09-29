@@ -19,12 +19,12 @@ class PositionPlan:
 
 
 class PositionSizer:
-    """Size virtual positions using volatility, lot size, commission and cash."""
+    """Size new virtual positions against the whole portfolio."""
 
     def __init__(
         self,
         commission_rate: float,
-        max_position_weight: float = 0.70,
+        max_position_weight: float = 0.35,
     ):
         if commission_rate < 0:
             raise ValueError("commission_rate must not be negative")
@@ -34,13 +34,33 @@ class PositionSizer:
         self.commission_rate = commission_rate
         self.max_position_weight = max_position_weight
 
-    def plan(self, cash: float, analyses, prices, lot_sizes) -> list[PositionPlan]:
+    def plan(
+        self,
+        cash: float,
+        analyses,
+        prices,
+        lot_sizes,
+        existing_positions=None,
+        existing_values=None,
+        total_equity: float | None = None,
+    ) -> list[PositionPlan]:
         if cash <= 0:
             raise ValueError("cash must be positive")
         if not analyses:
             return []
 
+        existing_values = {
+            str(ticker): max(float(value), 0.0)
+            for ticker, value in (existing_values or {}).items()
+        }
+        existing_positions = set(existing_positions or existing_values)
+        if total_equity is None:
+            total_equity = cash + sum(existing_values.values())
+        if total_equity <= 0:
+            raise ValueError("total_equity must be positive")
+
         targets = self._target_weights(analyses)
+        tickers = [analysis.ticker for analysis in analyses]
         unit_costs = {
             analysis.ticker: prices[analysis.ticker]
             * lot_sizes[analysis.ticker]
@@ -48,18 +68,19 @@ class PositionSizer:
             for analysis in analyses
         }
 
-        max_lots = {
-            ticker: int(cash / cost)
-            for ticker, cost in unit_costs.items()
-        }
+        max_lots = {}
+        for ticker in tickers:
+            if ticker in existing_positions:
+                max_lots[ticker] = 0
+                continue
+            capacity = (
+                self.max_position_weight * total_equity
+                - existing_values.get(ticker, 0.0)
+            )
+            max_lots[ticker] = max(0, int(capacity / unit_costs[ticker]))
 
-        tickers = [analysis.ticker for analysis in analyses]
         best = None
-
-        ranges = [
-            range(max_lots[ticker] + 1)
-            for ticker in tickers
-        ]
+        ranges = [range(max_lots[ticker] + 1) for ticker in tickers]
 
         for lot_counts in product(*ranges):
             invested = sum(
@@ -69,12 +90,12 @@ class PositionSizer:
             if invested <= 0 or invested > cash + 1e-9:
                 continue
 
+            portfolio_value = total_equity + invested
             weights = {
                 ticker: (
-                    lots * unit_costs[ticker] / invested
-                    if invested > 0
-                    else 0.0
-                )
+                    existing_values.get(ticker, 0.0)
+                    + lots * unit_costs[ticker]
+                ) / portfolio_value
                 for ticker, lots in zip(tickers, lot_counts)
             }
 
@@ -84,24 +105,27 @@ class PositionSizer:
             ):
                 continue
 
+            new_value_weights = {
+                ticker: lots * unit_costs[ticker] / invested
+                if invested > 0 else 0.0
+                for ticker, lots in zip(tickers, lot_counts)
+            }
             deviation = sum(
-                (weights[ticker] - targets[ticker]) ** 2
+                (new_value_weights[ticker] - targets[ticker]) ** 2
                 for ticker in tickers
             )
-
             utilization = invested / cash
             objective = utilization - 0.50 * deviation
-
             candidate = (objective, invested, lot_counts, weights)
+
             if best is None or candidate[:2] > best[:2]:
                 best = candidate
 
         if best is None:
             return []
 
-        _, invested, lot_counts, weights = best
+        _, _, lot_counts, weights = best
         plans = []
-
         for analysis, lots in zip(analyses, lot_counts):
             if lots <= 0:
                 continue
