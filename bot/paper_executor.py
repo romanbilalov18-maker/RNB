@@ -11,8 +11,9 @@ from bot.virtual_portfolio import VirtualPortfolio
 class PaperExecutor:
     """Execute virtual sells first, then size new virtual buys."""
 
-    def __init__(self):
+    def __init__(self, max_position_weight: float = 0.35):
         self.position_manager = PositionManager()
+        self.max_position_weight = max_position_weight
 
     def execute(
         self,
@@ -30,19 +31,29 @@ class PaperExecutor:
             scan.current_prices,
         )
 
+        existing_values = {
+            ticker: position.quantity * scan.current_prices[ticker]
+            for ticker, position in portfolio.positions.items()
+            if ticker in scan.current_prices
+        }
+        total_equity = portfolio.equity(scan.current_prices)
+
         plans = PositionSizer(
             commission_rate=portfolio.commission_rate,
+            max_position_weight=self.max_position_weight,
         ).plan(
             cash=portfolio.cash,
             analyses=scan.selected_3,
             prices=scan.current_prices,
             lot_sizes=scan.lot_sizes,
+            existing_positions=set(portfolio.positions),
+            existing_values=existing_values,
+            total_equity=total_equity,
         )
 
         buy_trades = []
-        held_tickers = set(portfolio.positions)
         for plan in plans:
-            if plan.ticker in held_tickers:
+            if plan.ticker in portfolio.positions:
                 continue
             buy_trades.append(
                 portfolio.buy(
