@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 
@@ -41,8 +41,14 @@ class LiveMarketRunner:
         prices_response = self.client.market_data.get_last_prices(
             instrument_id=instrument_ids,
         )
+
+        from t_tech.invest import InstrumentClosePriceRequest
+
         close_response = self.client.market_data.get_close_prices(
-            instrument_id=instrument_ids,
+            instruments=[
+                InstrumentClosePriceRequest(instrument_id=instrument_id)
+                for instrument_id in instrument_ids
+            ],
         )
 
         last_prices = {
@@ -68,18 +74,15 @@ class LiveMarketRunner:
                 continue
 
             daily_return = current / previous_close - 1.0
-            candidates.append(
-                (
-                    daily_return,
-                    str(getattr(share, "ticker", "") or ""),
-                    share,
-                )
-            )
+            candidates.append((daily_return, str(getattr(share, "ticker", "") or ""), share))
 
         candidates.sort(key=lambda item: (-item[0], item[1]))
         selected_10 = [item[2] for item in candidates[:10]]
 
         histories = {}
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=self.history_days)
+
         for share in selected_10:
             instrument_id = str(
                 getattr(share, "uid", "")
@@ -87,10 +90,8 @@ class LiveMarketRunner:
             )
             response = self.client.market_data.get_candles(
                 instrument_id=instrument_id,
-                from_=datetime.now(timezone.utc).replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                ),
-                to=datetime.now(timezone.utc),
+                from_=start,
+                to=end,
                 interval=self._daily_interval(),
             )
             histories[instrument_id] = list(response.candles)
@@ -118,16 +119,11 @@ class LiveMarketRunner:
             )
         )
 
-        return LiveScanResult(
-            selected_10=selected_10,
-            selected_3=analyses[:3],
-        )
+        return LiveScanResult(selected_10=selected_10, selected_3=analyses[:3])
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
-        currency = str(
-            getattr(share, "currency", "") or ""
-        ).upper()
+        currency = str(getattr(share, "currency", "") or "").upper()
         return (
             currency in {"RUB", "RUR"}
             and bool(getattr(share, "api_trade_available_flag", True))
@@ -152,5 +148,4 @@ class LiveMarketRunner:
     @staticmethod
     def _daily_interval():
         from t_tech.invest import CandleInterval
-
         return CandleInterval.CANDLE_INTERVAL_1_DAY
