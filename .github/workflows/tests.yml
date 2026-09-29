@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      reset_virtual_portfolio:
+        description: "Start live test with a fresh virtual portfolio"
+        required: true
+        default: false
+        type: boolean
       run_duration_minutes:
         description: "Bot runtime in minutes"
         required: true
@@ -63,6 +68,7 @@ jobs:
           python-version: "3.11"
 
       - name: Restore virtual portfolio
+        if: inputs.reset_virtual_portfolio != true
         uses: actions/cache/restore@v4
         with:
           path: data
