@@ -161,6 +161,12 @@ class StockAnalyzer:
         value = getattr(candle, field, None)
         if value is None:
             raise ValueError(f"candle is missing {field}")
+
+        units = getattr(value, "units", None)
+        nano = getattr(value, "nano", None)
+        if units is not None:
+            return float(units) + float(nano or 0) / 1_000_000_000
+
         return float(value)
 
 
