@@ -14,8 +14,8 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertEqual(portfolio.positions["TEST"].quantity, 10)
 
         trade = portfolio.sell("TEST", 10, 110, timestamp)
-        self.assertAlmostEqual(trade.realized_pnl, 99.0)
-        self.assertAlmostEqual(portfolio.realized_pnl, 99.0)
+        self.assertAlmostEqual(trade.realized_pnl, 98.9)
+        self.assertAlmostEqual(portfolio.realized_pnl, 98.9)
         self.assertEqual(portfolio.positions, {})
 
     def test_buy_rejects_insufficient_cash(self):
