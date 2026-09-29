@@ -25,6 +25,43 @@ class TestPositionManager(unittest.TestCase):
 
         self.assertEqual(decisions[0].action, "HOLD")
 
+    def test_sells_when_take_profit_is_reached(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        analysis = SimpleNamespace(
+            ticker="AAA",
+            momentum=0.03,
+            trend_strength=0.01,
+        )
+
+        decisions = PositionManager().evaluate(
+            portfolio,
+            {"AAA": analysis},
+            {"AAA": 105},
+        )
+
+        self.assertEqual(decisions[0].action, "SELL")
+        self.assertIn("Take Profit", decisions[0].reason)
+
+    def test_holds_just_below_take_profit(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        analysis = SimpleNamespace(
+            ticker="AAA",
+            momentum=0.03,
+            trend_strength=0.01,
+        )
+
+        decisions = PositionManager().evaluate(
+            portfolio,
+            {"AAA": analysis},
+            {"AAA": 104.99},
+        )
+
+        self.assertEqual(decisions[0].action, "HOLD")
+
     def test_sells_when_stop_loss_is_reached(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
