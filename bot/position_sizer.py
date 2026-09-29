@@ -90,7 +90,7 @@ class PositionSizer:
             if invested <= 0 or invested > cash + 1e-9:
                 continue
 
-            portfolio_value = total_equity + invested
+            portfolio_value = total_equity
             weights = {
                 ticker: (
                     existing_values.get(ticker, 0.0)
