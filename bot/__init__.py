@@ -1,0 +1,1 @@
+"""RNB virtual trading bot."""
