@@ -5,7 +5,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Config:
     invest_token: str
-    initial_virtual_balance: float = 100_000.0
+    initial_virtual_balance: float = 10_000.0
     commission_rate: float = 0.0005
 
     @classmethod
@@ -14,7 +14,7 @@ class Config:
         if not token:
             raise ValueError("INVEST_TOKEN is not configured")
 
-        balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "100000"))
+        balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "10000"))
         commission = float(os.getenv("VIRTUAL_COMMISSION_RATE", "0.0005"))
 
         if balance <= 0:
