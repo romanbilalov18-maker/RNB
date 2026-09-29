@@ -18,6 +18,26 @@ class PositionPerformance:
     net_return_pct_if_sold_now: float
 
 
+@dataclass(frozen=True)
+class PortfolioStatistics:
+    total_trades: int
+    buy_trades: int
+    sell_trades: int
+    profitable_trades: int
+    losing_trades: int
+    win_rate_pct: float
+    best_realized_trade: float
+    worst_realized_trade: float
+    total_realized_pnl: float
+    total_commissions: float
+    current_equity: float
+    total_pnl: float
+    total_return_pct: float
+    peak_equity: float
+    max_drawdown: float
+    max_drawdown_pct: float
+
+
 @dataclass
 class VirtualPortfolio:
     """Persistent virtual portfolio used for paper trading."""
@@ -117,6 +137,54 @@ class VirtualPortfolio:
             )
 
         return result
+
+    def statistics(
+        self,
+        current_equity: float,
+        equity_history: list[float] | None = None,
+    ) -> PortfolioStatistics:
+        """Return cumulative trading and equity statistics."""
+        sells = [trade for trade in self.trades if trade.side == "SELL"]
+        buys = [trade for trade in self.trades if trade.side == "BUY"]
+        profitable = [trade for trade in sells if trade.realized_pnl > 0]
+        losing = [trade for trade in sells if trade.realized_pnl < 0]
+
+        history = list(equity_history or [])
+        if not history:
+            history = [self.initial_balance]
+        if not history or history[-1] != current_equity:
+            history.append(current_equity)
+
+        peak = history[0]
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        for value in history:
+            peak = max(peak, value)
+            drawdown = peak - value
+            drawdown_pct = drawdown / peak * 100.0 if peak else 0.0
+            max_drawdown = max(max_drawdown, drawdown)
+            max_drawdown_pct = max(max_drawdown_pct, drawdown_pct)
+
+        total_pnl = current_equity - self.initial_balance
+
+        return PortfolioStatistics(
+            total_trades=len(self.trades),
+            buy_trades=len(buys),
+            sell_trades=len(sells),
+            profitable_trades=len(profitable),
+            losing_trades=len(losing),
+            win_rate_pct=(len(profitable) / len(sells) * 100.0) if sells else 0.0,
+            best_realized_trade=max((trade.realized_pnl for trade in sells), default=0.0),
+            worst_realized_trade=min((trade.realized_pnl for trade in sells), default=0.0),
+            total_realized_pnl=self.realized_pnl,
+            total_commissions=self.commissions,
+            current_equity=current_equity,
+            total_pnl=total_pnl,
+            total_return_pct=total_pnl / self.initial_balance * 100.0,
+            peak_equity=peak,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_drawdown_pct,
+        )
 
     def _validate_order(self, ticker: str, quantity: int, price: float) -> None:
         if not ticker.strip():
