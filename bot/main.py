@@ -9,24 +9,76 @@ from t_tech.invest import Client
 
 def main() -> None:
     config = Config.from_env()
+    run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 1.0)
+    cycle_interval_minutes = _env_positive_float("CYCLE_INTERVAL_MINUTES", 5.0)
+    if cycle_interval_minutes > run_duration_minutes:
+        raise ValueError("CYCLE_INTERVAL_MINUTES must not exceed RUN_DURATION_MINUTES")
+
     store = SQLitePortfolioStore(config.portfolio_db_path)
     portfolio = store.load_or_create(
         initial_balance=config.initial_virtual_balance,
         commission_rate=config.commission_rate,
     )
 
+    deadline = time.monotonic() + run_duration_minutes * 60
+    cycle = 0
+
     with Client(config.invest_token) as client:
-        result = LiveMarketRunner(client).run(
-            held_tickers=set(portfolio.positions)
-        )
-        sell_trades, buy_trades = PaperExecutor().execute(portfolio, result)
+        while True:
+            cycle += 1
+            print()
+            print(f"=== CYCLE {cycle} ===")
+            print(f"Runtime limit: {run_duration_minutes:g} min")
+            print(f"Cycle interval: {cycle_interval_minutes:g} min")
 
-    equity = portfolio.equity(result.current_prices)
-    store.save(portfolio, result.current_prices)
+            result = LiveMarketRunner(client).run(
+                held_tickers=set(portfolio.positions)
+            )
+            sell_trades, buy_trades = PaperExecutor().execute(portfolio, result)
 
-    history = store.equity_history()
-    stats = portfolio.statistics(equity, history)
+            equity = portfolio.equity(result.current_prices)
+            store.save(portfolio, result.current_prices)
+            history = store.equity_history()
+            stats = portfolio.statistics(equity, history)
 
+            _print_cycle_result(
+                portfolio,
+                result,
+                sell_trades,
+                buy_trades,
+                equity,
+                stats,
+            )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print(f"Runtime limit reached after cycle {cycle}.")
+                break
+
+            sleep_seconds = min(cycle_interval_minutes * 60, remaining)
+            print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
+            time.sleep(sleep_seconds)
+
+
+def _env_positive_float(name: str, default: float) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive number") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive number")
+    return value
+
+
+def _print_cycle_result(
+    portfolio,
+    result,
+    sell_trades,
+    buy_trades,
+    equity,
+    stats,
+) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
     print("Virtual cash:", f"{portfolio.cash:.2f} RUB")
