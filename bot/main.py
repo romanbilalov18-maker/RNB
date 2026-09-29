@@ -16,20 +16,14 @@ def main() -> None:
     )
 
     with Client(config.invest_token) as client:
-        result = LiveMarketRunner(client).run()
-        trades = PaperExecutor().execute(portfolio, result)
+        result = LiveMarketRunner(client).run(
+            held_tickers=set(portfolio.positions)
+        )
+        sell_trades, buy_trades = PaperExecutor().execute(portfolio, result)
 
     store.save(portfolio)
 
-    market_prices = dict(result.current_prices)
-    for ticker in portfolio.positions:
-        if ticker not in market_prices:
-            market_prices[ticker] = _get_position_price(
-                result,
-                ticker,
-            )
-
-    equity = portfolio.equity(market_prices)
+    equity = portfolio.equity(result.current_prices)
 
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -37,14 +31,35 @@ def main() -> None:
     print("Realized P&L:", f"{portfolio.realized_pnl:.2f} RUB")
     print("Total commissions:", f"{portfolio.commissions:.2f} RUB")
     print("Virtual equity:", f"{equity:.2f} RUB")
-    print("Open positions:")
 
+    print("Position decisions:")
+    for ticker, position in portfolio.positions.items():
+        analysis = result.analyses.get(ticker)
+        if analysis is None:
+            action = "HOLD"
+            reason = "нет свежего анализа"
+        elif analysis.momentum <= -0.02 and analysis.trend_strength < 0:
+            action = "SELL"
+            reason = "моментум и тренд стали отрицательными"
+        elif (
+            result.current_prices[ticker] / position.average_price - 1.0
+            - portfolio.commission_rate
+            <= -0.05
+        ):
+            action = "SELL"
+            reason = "достигнут лимит убытка"
+        else:
+            action = "HOLD"
+            reason = "сигнал продажи отсутствует"
+        print(f"- {ticker}: {action} — {reason}")
+
+    print("Open positions:")
     if portfolio.positions:
         for ticker, position in portfolio.positions.items():
             print(
                 f"- {ticker}: quantity={position.quantity}, "
                 f"average_price={position.average_price:.2f}, "
-                f"market_price={market_prices.get(ticker, 0):.2f}"
+                f"market_price={result.current_prices[ticker]:.2f}"
             )
     else:
         print("- none")
@@ -54,25 +69,23 @@ def main() -> None:
         ticker = analysis.ticker
         print(
             f"- {ticker}: price={result.current_prices[ticker]:.2f}, "
-            f"lot={result.lot_sizes[ticker]}, "
-            f"score={analysis.score:.4f}"
+            f"lot={result.lot_sizes[ticker]}, score={analysis.score:.4f}"
         )
 
-    print("Virtual trades this cycle:")
-    for trade in trades:
+    print("Virtual SELL trades this cycle:")
+    for trade in sell_trades:
         print(
-            f"- {trade.side} {trade.ticker}: "
-            f"quantity={trade.quantity}, price={trade.price:.2f}, "
-            f"commission={trade.commission:.2f}"
+            f"- SELL {trade.ticker}: quantity={trade.quantity}, "
+            f"price={trade.price:.2f}, commission={trade.commission:.2f}, "
+            f"P&L={trade.realized_pnl:.2f}"
         )
 
-
-def _get_position_price(result, ticker: str) -> float:
-    if ticker in result.current_prices:
-        return result.current_prices[ticker]
-    raise ValueError(
-        f"Current market price for held position {ticker} was not returned"
-    )
+    print("Virtual BUY trades this cycle:")
+    for trade in buy_trades:
+        print(
+            f"- BUY {trade.ticker}: quantity={trade.quantity}, "
+            f"price={trade.price:.2f}, commission={trade.commission:.2f}"
+        )
 
 
 if __name__ == "__main__":
