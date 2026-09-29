@@ -36,6 +36,28 @@ class TestVirtualPortfolio(unittest.TestCase):
         equity = portfolio.equity({"TEST": 120})
         self.assertAlmostEqual(equity, 10_199.5)
 
+    def test_statistics_counts_trades_and_drawdown(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        timestamp = datetime.now(timezone.utc)
+        portfolio.buy("TEST", 10, 100, timestamp)
+        portfolio.sell("TEST", 10, 110, timestamp)
+
+        stats = portfolio.statistics(
+            current_equity=10_098.9,
+            equity_history=[10_000.0, 9_500.0, 10_098.9],
+        )
+
+        self.assertEqual(stats.total_trades, 2)
+        self.assertEqual(stats.buy_trades, 1)
+        self.assertEqual(stats.sell_trades, 1)
+        self.assertEqual(stats.profitable_trades, 1)
+        self.assertEqual(stats.losing_trades, 0)
+        self.assertAlmostEqual(stats.win_rate_pct, 100.0)
+        self.assertAlmostEqual(stats.best_realized_trade, 98.9)
+        self.assertAlmostEqual(stats.worst_realized_trade, 98.9)
+        self.assertAlmostEqual(stats.max_drawdown, 500.0)
+        self.assertAlmostEqual(stats.max_drawdown_pct, 5.0)
+
     def test_position_performance_includes_exit_commission(self):
         portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
         timestamp = datetime.now(timezone.utc)
