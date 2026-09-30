@@ -42,16 +42,18 @@ class PositionManager:
         decisions = []
 
         for ticker, position in portfolio.positions.items():
-            analysis = analyses.get(ticker)
             price = prices.get(ticker)
 
-            if analysis is None or price is None:
-                decisions.append(PositionDecision(ticker, "HOLD", "нет свежего анализа"))
+            if price is None:
+                decisions.append(PositionDecision(ticker, "HOLD", "нет свежей цены"))
                 continue
 
             gross_return = price / position.average_price - 1.0
             net_return = gross_return - portfolio.commission_rate
 
+            # Take Profit and Stop Loss depend only on the actual market
+            # price and must be checked before strategy analysis. A temporary
+            # candle-analysis failure must never block a price-based exit.
             if gross_return >= self.take_profit:
                 decisions.append(
                     PositionDecision(
@@ -60,11 +62,20 @@ class PositionManager:
                         f"достигнут Take Profit +{self.take_profit * 100:g}%",
                     )
                 )
-            elif net_return <= self.stop_loss:
+                continue
+
+            if net_return <= self.stop_loss:
                 decisions.append(
                     PositionDecision(ticker, "SELL", "достигнут лимит убытка -5%")
                 )
-            elif (
+                continue
+
+            analysis = analyses.get(ticker)
+            if analysis is None:
+                decisions.append(PositionDecision(ticker, "HOLD", "нет свежего анализа"))
+                continue
+
+            if (
                 analysis.momentum <= self.negative_momentum
                 and analysis.trend_strength < 0
             ):
@@ -76,7 +87,9 @@ class PositionManager:
                     )
                 )
             else:
-                decisions.append(PositionDecision(ticker, "HOLD", "сигнал продажи отсутствует"))
+                decisions.append(
+                    PositionDecision(ticker, "HOLD", "сигнал продажи отсутствует")
+                )
 
         return decisions
 
