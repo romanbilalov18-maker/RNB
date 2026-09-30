@@ -38,9 +38,12 @@ class PaperExecutor:
             if ticker in scan.current_prices
         }
         total_equity = portfolio.equity(scan.current_prices)
+        # After selling, immediately reuse the freed cash. The primary
+        # strategy remains TOP-3, but if a TOP-3 candidate is unavailable,
+        # walk through the full ranked candidate list from this scan.
         eligible_analyses = [
             analysis
-            for analysis in scan.selected_3
+            for analysis in scan.buy_candidates
             if analysis.ticker not in recently_sold
         ]
 
