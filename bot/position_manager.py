@@ -20,13 +20,13 @@ class PositionManager:
     def __init__(
         self,
         stop_loss: float = -0.05,
-        take_profit: float = 0.05,
+        take_profit: float = 0.0015,
         negative_momentum: float = -0.02,
     ):
         if stop_loss >= 0:
             raise ValueError("stop_loss must be negative")
-        if take_profit <= 0:
-            raise ValueError("take_profit must be positive")
+        if take_profit < 0.0015:
+            raise ValueError("take_profit must be at least 0.15%")
         if negative_momentum >= 0:
             raise ValueError("negative_momentum must be negative")
         self.stop_loss = stop_loss
@@ -54,7 +54,11 @@ class PositionManager:
 
             if gross_return >= self.take_profit:
                 decisions.append(
-                    PositionDecision(ticker, "SELL", "достигнут Take Profit +5%")
+                    PositionDecision(
+                        ticker,
+                        "SELL",
+                        f"достигнут Take Profit +{self.take_profit * 100:g}%",
+                    )
                 )
             elif net_return <= self.stop_loss:
                 decisions.append(
