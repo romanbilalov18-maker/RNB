@@ -41,10 +41,17 @@ class PaperExecutor:
         # After selling, immediately reuse the freed cash. The primary
         # strategy remains TOP-3, but if a TOP-3 candidate is unavailable,
         # walk through the full ranked candidate list from this scan.
+        blocked_reentries = self._blocked_reentries(
+            portfolio,
+            scan.analyses,
+        )
         eligible_analyses = [
             analysis
             for analysis in scan.buy_candidates
-            if analysis.ticker not in recently_sold
+            if (
+                analysis.ticker not in recently_sold
+                and analysis.ticker not in blocked_reentries
+            )
         ]
 
         plans = PositionSizer(
@@ -74,3 +81,33 @@ class PaperExecutor:
             )
 
         return sell_trades, buy_trades
+
+    @staticmethod
+    def _blocked_reentries(
+        portfolio: VirtualPortfolio,
+        analyses: dict,
+    ) -> set[str]:
+        """Block re-entry while a previously losing exit still has a negative signal.
+
+        The block is derived from the persistent trade history, so it survives
+        between cycles and process restarts without adding another database field.
+        Once the signal recovers, the ticker becomes eligible again.
+        """
+        last_trade_by_ticker = {}
+        for trade in portfolio.trades:
+            last_trade_by_ticker[trade.ticker] = trade
+
+        blocked = set()
+        for ticker, trade in last_trade_by_ticker.items():
+            if trade.side != "SELL" or trade.realized_pnl >= 0:
+                continue
+
+            analysis = analyses.get(ticker)
+            if analysis is None:
+                blocked.add(ticker)
+                continue
+
+            if analysis.momentum <= -0.02 and analysis.trend_strength < 0:
+                blocked.add(ticker)
+
+        return blocked
