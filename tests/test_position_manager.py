@@ -20,7 +20,7 @@ class TestPositionManager(unittest.TestCase):
         decisions = PositionManager().evaluate(
             portfolio,
             {"AAA": analysis},
-            {"AAA": 103},
+            {"AAA": 100.14},
         )
 
         self.assertEqual(decisions[0].action, "HOLD")
@@ -38,7 +38,7 @@ class TestPositionManager(unittest.TestCase):
         decisions = PositionManager().evaluate(
             portfolio,
             {"AAA": analysis},
-            {"AAA": 105},
+            {"AAA": 100.15},
         )
 
         self.assertEqual(decisions[0].action, "SELL")
@@ -57,7 +57,7 @@ class TestPositionManager(unittest.TestCase):
         decisions = PositionManager().evaluate(
             portfolio,
             {"AAA": analysis},
-            {"AAA": 104.99},
+            {"AAA": 100.149},
         )
 
         self.assertEqual(decisions[0].action, "HOLD")
