@@ -31,6 +31,11 @@ class PaperExecutor:
             scan.current_prices,
         )
         recently_sold = {trade.ticker for trade in sell_trades}
+        sell_decision_tickers = {
+            decision.ticker
+            for decision in decisions
+            if decision.action == "SELL"
+        }
 
         existing_values = {
             ticker: position.quantity * scan.current_prices[ticker]
@@ -50,6 +55,7 @@ class PaperExecutor:
             for analysis in scan.buy_candidates
             if (
                 analysis.ticker not in recently_sold
+                and analysis.ticker not in sell_decision_tickers
                 and analysis.ticker not in blocked_reentries
             )
         ]
@@ -69,7 +75,11 @@ class PaperExecutor:
 
         buy_trades = []
         for plan in plans:
-            if plan.ticker in portfolio.positions or plan.ticker in recently_sold:
+            if (
+                plan.ticker in portfolio.positions
+                or plan.ticker in recently_sold
+                or plan.ticker in sell_decision_tickers
+            ):
                 continue
             buy_trades.append(
                 portfolio.buy(
