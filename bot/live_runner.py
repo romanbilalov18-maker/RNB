@@ -11,6 +11,7 @@ from bot.stock_analysis import StockAnalysis, StockAnalyzer
 class LiveScanResult:
     selected_10: list[object]
     selected_3: list[StockAnalysis]
+    buy_candidates: list[StockAnalysis]
     analyses: dict[str, StockAnalysis]
     current_prices: dict[str, float]
     lot_sizes: dict[str, int]
@@ -156,6 +157,7 @@ class LiveMarketRunner:
         return LiveScanResult(
             selected_10=selected_10,
             selected_3=ranked_selected[:3],
+            buy_candidates=ranked_selected,
             analyses=analyses,
             current_prices=current_prices,
             lot_sizes=lot_sizes,
