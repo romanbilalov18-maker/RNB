@@ -87,7 +87,7 @@ class PaperExecutor:
         portfolio: VirtualPortfolio,
         analyses: dict,
     ) -> set[str]:
-        """Block re-entry while a previously losing exit still has a negative signal.
+        """Block re-entry after a SELL while the ticker remains weak.
 
         The block is derived from the persistent trade history, so it survives
         between cycles and process restarts without adding another database field.
@@ -99,7 +99,7 @@ class PaperExecutor:
 
         blocked = set()
         for ticker, trade in last_trade_by_ticker.items():
-            if trade.side != "SELL" or trade.realized_pnl >= 0:
+            if trade.side != "SELL":
                 continue
 
             analysis = analyses.get(ticker)
