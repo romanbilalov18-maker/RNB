@@ -62,6 +62,20 @@ class TestPositionManager(unittest.TestCase):
 
         self.assertEqual(decisions[0].action, "HOLD")
 
+
+    def test_take_profit_works_without_fresh_analysis(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        decisions = PositionManager().evaluate(
+            portfolio,
+            {},
+            {"AAA": 100.15},
+        )
+
+        self.assertEqual(decisions[0].action, "SELL")
+        self.assertIn("Take Profit", decisions[0].reason)
+
     def test_sells_when_stop_loss_is_reached(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
