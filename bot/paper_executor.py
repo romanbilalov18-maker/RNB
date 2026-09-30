@@ -11,7 +11,7 @@ from bot.virtual_portfolio import VirtualPortfolio
 class PaperExecutor:
     """Execute virtual sells first, then size new virtual buys."""
 
-    def __init__(self, max_position_weight: float = 0.35, take_profit: float = 0.05):
+    def __init__(self, max_position_weight: float = 0.35, take_profit: float = 0.0015):
         self.position_manager = PositionManager(take_profit=take_profit)
         self.max_position_weight = max_position_weight
 
