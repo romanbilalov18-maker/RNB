@@ -28,6 +28,8 @@ class PortfolioStatistics:
     win_rate_pct: float
     best_realized_trade: float
     worst_realized_trade: float
+    average_profitable_trade: float
+    average_losing_trade: float
     total_realized_pnl: float
     total_commissions: float
     current_equity: float
@@ -176,6 +178,16 @@ class VirtualPortfolio:
             win_rate_pct=(len(profitable) / len(sells) * 100.0) if sells else 0.0,
             best_realized_trade=max((trade.realized_pnl for trade in sells), default=0.0),
             worst_realized_trade=min((trade.realized_pnl for trade in sells), default=0.0),
+            average_profitable_trade=(
+                sum(trade.realized_pnl for trade in profitable) / len(profitable)
+                if profitable
+                else 0.0
+            ),
+            average_losing_trade=(
+                sum(trade.realized_pnl for trade in losing) / len(losing)
+                if losing
+                else 0.0
+            ),
             total_realized_pnl=self.realized_pnl,
             total_commissions=self.commissions,
             current_equity=current_equity,
