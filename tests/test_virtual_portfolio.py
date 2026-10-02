@@ -55,6 +55,8 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(stats.win_rate_pct, 100.0)
         self.assertAlmostEqual(stats.best_realized_trade, 98.9)
         self.assertAlmostEqual(stats.worst_realized_trade, 98.9)
+        self.assertAlmostEqual(stats.average_profitable_trade, 98.9)
+        self.assertAlmostEqual(stats.average_losing_trade, 0.0)
         self.assertAlmostEqual(stats.max_drawdown, 500.0)
         self.assertAlmostEqual(stats.max_drawdown_pct, 5.0)
 
