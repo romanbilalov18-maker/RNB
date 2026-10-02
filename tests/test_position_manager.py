@@ -62,7 +62,6 @@ class TestPositionManager(unittest.TestCase):
 
         self.assertEqual(decisions[0].action, "HOLD")
 
-
     def test_take_profit_works_without_fresh_analysis(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
@@ -93,6 +92,42 @@ class TestPositionManager(unittest.TestCase):
         )
 
         self.assertEqual(decisions[0].action, "SELL")
+
+    def test_sells_at_exact_effective_stop_loss_after_commission(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        analysis = SimpleNamespace(
+            ticker="AAA",
+            momentum=0.0,
+            trend_strength=0.01,
+        )
+
+        decisions = PositionManager().evaluate(
+            portfolio,
+            {"AAA": analysis},
+            {"AAA": 95.05},
+        )
+
+        self.assertEqual(decisions[0].action, "SELL")
+
+    def test_holds_just_above_effective_stop_loss_after_commission(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        analysis = SimpleNamespace(
+            ticker="AAA",
+            momentum=0.0,
+            trend_strength=0.01,
+        )
+
+        decisions = PositionManager().evaluate(
+            portfolio,
+            {"AAA": analysis},
+            {"AAA": 95.051},
+        )
+
+        self.assertEqual(decisions[0].action, "HOLD")
 
     def test_sells_on_negative_momentum_and_trend(self):
         portfolio = VirtualPortfolio(10_000)
