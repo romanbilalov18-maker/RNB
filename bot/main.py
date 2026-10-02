@@ -105,6 +105,8 @@ def _print_cycle_result(
     print(f"- Win rate: {stats.win_rate_pct:.2f} %")
     print(f"- Best realized trade: {stats.best_realized_trade:.2f} RUB")
     print(f"- Worst realized trade: {stats.worst_realized_trade:.2f} RUB")
+    print(f"- Average profitable trade: {stats.average_profitable_trade:.2f} RUB")
+    print(f"- Average losing trade: {stats.average_losing_trade:.2f} RUB")
     print(f"- Peak equity: {stats.peak_equity:.2f} RUB")
     print(f"- Max drawdown: {stats.max_drawdown:.2f} RUB")
     print(f"- Max drawdown: {stats.max_drawdown_pct:.2f} %")
