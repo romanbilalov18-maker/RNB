@@ -64,7 +64,11 @@ class PositionManager:
                 )
                 continue
 
-            if net_return <= self.stop_loss:
+            # Use a tiny tolerance for the boundary comparison so that a
+            # mathematically exact Stop Loss is not missed because of binary
+            # floating-point rounding (e.g. -0.05 represented slightly above
+            # or below its decimal value).
+            if net_return <= self.stop_loss + 1e-12:
                 decisions.append(
                     PositionDecision(ticker, "SELL", "достигнут лимит убытка -5%")
                 )
