@@ -13,7 +13,7 @@ from bot.intelligence.levels.level_09.models.level_09_result import Level9Result
 from bot.intelligence.levels.level_10.models.level_10_result import Level10Result
 from bot.intelligence.levels.level_11.models.level_11_result import Level11Result
 from bot.intelligence.levels.level_12.models.level_12_result import Level12Result
-
+from bot.intelligence.levels.level_13.models.level_13_result import Level13Result
 
 @dataclass(frozen=True)
 class IntelligenceResult:
@@ -30,6 +30,7 @@ class IntelligenceResult:
     level_10: Level10Result
     level_11: Level11Result
     level_12: Level12Result
+    level_13: Level13Result
     overall_score: float
     overall_confidence: float
     overall_consistency: float
@@ -39,10 +40,6 @@ class IntelligenceResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name, value in (
-            ("overall_score", self.overall_score),
-            ("overall_confidence", self.overall_confidence),
-            ("overall_consistency", self.overall_consistency),
-        ):
+        for name, value in (("overall_score", self.overall_score), ("overall_confidence", self.overall_confidence), ("overall_consistency", self.overall_consistency)):
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
