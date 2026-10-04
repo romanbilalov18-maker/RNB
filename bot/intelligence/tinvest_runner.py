@@ -8,8 +8,8 @@ from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
 
 
-def _build_snapshot(analysis, current_price: float, lot_size: int) -> MarketSnapshot:
-    previous_price = analysis.last_price
+def _build_snapshot(analysis, current_price: float, previous_close: float, lot_size: int) -> MarketSnapshot:
+    previous_price = previous_close
     liquidity = min(max(analysis.volume_ratio / 2.0, 0.0), 1.0)
     return MarketSnapshot(
         symbol=analysis.ticker,
@@ -41,9 +41,13 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         current_price = scan.current_prices.get(analysis.ticker)
         if current_price is None:
             continue
+        previous_close = scan.previous_closes.get(analysis.ticker)
+        if previous_close is None:
+            continue
         snapshot = _build_snapshot(
             analysis,
             current_price,
+            previous_close,
             scan.lot_sizes.get(analysis.ticker, 1),
         )
         intelligence = pipeline.analyze(snapshot)
