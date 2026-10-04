@@ -47,7 +47,7 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
             scan.lot_sizes.get(analysis.ticker, 1),
         )
         intelligence = pipeline.analyze(snapshot)
-        results.append((analysis, intelligence))
+        results.append((analysis, intelligence, current_price))
 
     return results
 
@@ -63,11 +63,11 @@ def main() -> None:
     print(f"Analyzed instruments: {len(results)}")
     print("-" * 72)
 
-    for analysis, result in results:
+    for analysis, result, current_price in results:
         print(
             f"{analysis.ticker}: "
-            f"price={analysis.last_price:.4f} "
-            f"market_price={result.level_01.metrics.get('change', 0.0):+.4%} "
+            f"price={current_price:.4f} "
+            f"daily_change={result.level_01.analyzer_results[0].metrics.get('change', 0.0):+.4%} "
             f"intelligence={result.overall_score:.4f} "
             f"confidence={result.overall_confidence:.4f} "
             f"consistency={result.overall_consistency:.4f}"
