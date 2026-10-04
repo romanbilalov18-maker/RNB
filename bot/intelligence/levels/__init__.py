@@ -1,0 +1,1 @@
+"""Ordered intelligence levels."""
