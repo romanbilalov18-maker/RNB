@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import time
 
@@ -16,6 +16,7 @@ class LiveScanResult:
     current_prices: dict[str, float]
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
+    latest_candles: dict[str, object] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
@@ -162,6 +163,14 @@ class LiveMarketRunner:
             if ticker and key in last_prices:
                 current_prices[ticker] = last_prices[key]
 
+        latest_candles = {}
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            candles = histories.get(key, ())
+            if ticker and candles:
+                latest_candles[ticker] = candles[-1]
+
         return LiveScanResult(
             selected_10=selected_10,
             selected_3=ranked_selected[:3],
@@ -170,8 +179,8 @@ class LiveMarketRunner:
             current_prices=current_prices,
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
+            latest_candles=latest_candles,
         )
-
 
     def _get_candles_with_retry(
         self,
