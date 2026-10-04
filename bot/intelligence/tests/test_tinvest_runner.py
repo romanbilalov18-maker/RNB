@@ -14,7 +14,7 @@ class TInvestIntelligenceRunnerTests(unittest.TestCase):
             volatility = 0.02
             momentum = 0.04
 
-        snapshot = _build_snapshot(Analysis(), 101.0, 100)
+        snapshot = _build_snapshot(Analysis(), 101.0, 100.0, 100)
         self.assertIsInstance(snapshot, MarketSnapshot)
         self.assertEqual(snapshot.symbol, "TEST")
         self.assertEqual(snapshot.price, 101.0)
