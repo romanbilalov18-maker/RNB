@@ -67,7 +67,7 @@ def main() -> None:
         print(
             f"{analysis.ticker}: "
             f"price={analysis.last_price:.4f} "
-            f"market_price={result.level_01.metadata.get('market_price', result.level_01.score):.4f} "
+            f"market_price={result.level_01.metrics.get('change', 0.0):+.4%} "
             f"intelligence={result.overall_score:.4f} "
             f"confidence={result.overall_confidence:.4f} "
             f"consistency={result.overall_consistency:.4f}"
