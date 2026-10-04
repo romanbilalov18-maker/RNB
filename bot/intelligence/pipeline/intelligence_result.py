@@ -14,6 +14,8 @@ from bot.intelligence.levels.level_10.models.level_10_result import Level10Resul
 from bot.intelligence.levels.level_11.models.level_11_result import Level11Result
 from bot.intelligence.levels.level_12.models.level_12_result import Level12Result
 from bot.intelligence.levels.level_13.models.level_13_result import Level13Result
+from bot.intelligence.levels.level_14.models.level_14_result import Level14Result
+
 
 @dataclass(frozen=True)
 class IntelligenceResult:
@@ -31,6 +33,7 @@ class IntelligenceResult:
     level_11: Level11Result
     level_12: Level12Result
     level_13: Level13Result
+    level_14: Level14Result
     overall_score: float
     overall_confidence: float
     overall_consistency: float
