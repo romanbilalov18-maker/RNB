@@ -13,6 +13,7 @@ from bot.intelligence.levels.level_09.level_09_engine import Level9Engine
 from bot.intelligence.levels.level_10.level_10_engine import Level10Engine
 from bot.intelligence.levels.level_11.level_11_engine import Level11Engine
 from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
+from bot.intelligence.levels.level_12.level_12_engine import Level12Engine
 
 from .intelligence_result import IntelligenceResult
 
@@ -22,7 +23,7 @@ def _bounded(value: float) -> float:
 
 
 class IntelligencePipeline:
-    """Run Levels 1-11 without trading side effects."""
+    """Run Levels 1-12 without trading side effects."""
 
     def __init__(self, learning_observations: tuple[LearningObservation, ...] = ()) -> None:
         self.learning_observations = learning_observations
@@ -34,23 +35,23 @@ class IntelligencePipeline:
         self.level_09 = Level9Engine()
         self.level_10 = Level10Engine()
         self.level_11 = Level11Engine()
+        self.level_12 = Level12Engine()
 
     def analyze(self, snapshot: MarketSnapshot) -> IntelligenceResult:
-        level_01_analyzers = analyze_level_01(snapshot)
-        level_01_confidence = sum(r.confidence for r in level_01_analyzers) / len(level_01_analyzers) if level_01_analyzers else 0.0
-        level_01_consistency = 1.0 - (max(r.score for r in level_01_analyzers) - min(r.score for r in level_01_analyzers)) if level_01_analyzers else 0.0
+        analyzers = analyze_level_01(snapshot)
+        confidence = sum(r.confidence for r in analyzers) / len(analyzers) if analyzers else 0.0
+        consistency = 1.0 - (max(r.score for r in analyzers) - min(r.score for r in analyzers)) if analyzers else 0.0
         level_01 = Level1Result(
             symbol=snapshot.symbol,
-            score=aggregate_level_01(level_01_analyzers),
-            confidence=_bounded(level_01_confidence),
-            consistency=_bounded(level_01_consistency),
-            analyzer_results=level_01_analyzers,
-            strengths=tuple(r.analyzer for r in level_01_analyzers if r.score >= 0.70),
-            weaknesses=tuple(r.analyzer for r in level_01_analyzers if r.score <= 0.30),
-            warnings=tuple(dict.fromkeys(w for r in level_01_analyzers for w in r.warnings)),
+            score=aggregate_level_01(analyzers),
+            confidence=_bounded(confidence),
+            consistency=_bounded(consistency),
+            analyzer_results=analyzers,
+            strengths=tuple(r.analyzer for r in analyzers if r.score >= 0.70),
+            weaknesses=tuple(r.analyzer for r in analyzers if r.score <= 0.30),
+            warnings=tuple(dict.fromkeys(w for r in analyzers for w in r.warnings)),
             metadata={"version": "1.0"},
         )
-
         level_02 = analyze_level_02(snapshot, level_01)
         level_03 = analyze_level_03(snapshot, level_02)
         level_04 = self.level_04.analyze(snapshot, level_03)
@@ -61,32 +62,25 @@ class IntelligencePipeline:
         level_09 = self.level_09.analyze(snapshot, level_05, level_06, level_08)
         level_10 = self.level_10.analyze(snapshot, level_05, level_06, level_07, level_08, level_09)
         level_11 = self.level_11.analyze(snapshot.symbol, self.learning_observations)
+        level_12 = self.level_12.analyze(snapshot, level_04, level_07, level_10)
 
         warnings = tuple(dict.fromkeys(
             list(level_01.warnings) + list(level_02.warnings) + list(level_03.warnings) +
             list(level_04.warnings) + list(level_05.warnings) + list(level_06.warnings) +
             list(level_07.warnings) + list(level_08.warnings) + list(level_09.warnings) +
-            list(level_10.warnings) + list(level_11.warnings)
+            list(level_10.warnings) + list(level_11.warnings) + list(level_12.warnings)
         ))
-
         return IntelligenceResult(
             symbol=snapshot.symbol,
-            level_01=level_01,
-            level_02=level_02,
-            level_03=level_03,
-            level_04=level_04,
-            level_05=level_05,
-            level_06=level_06,
-            level_07=level_07,
-            level_08=level_08,
-            level_09=level_09,
-            level_10=level_10,
-            level_11=level_11,
+            level_01=level_01, level_02=level_02, level_03=level_03,
+            level_04=level_04, level_05=level_05, level_06=level_06,
+            level_07=level_07, level_08=level_08, level_09=level_09,
+            level_10=level_10, level_11=level_11, level_12=level_12,
             overall_score=level_10.score,
             overall_confidence=level_10.confidence,
             overall_consistency=level_10.consistency,
             strengths=tuple(dict.fromkeys(list(level_10.strengths) + list(level_09.strengths) + list(level_08.strengths))),
             weaknesses=tuple(dict.fromkeys(list(level_10.weaknesses) + list(level_09.weaknesses) + list(level_08.weaknesses))),
             warnings=warnings,
-            metadata={"version": "1.0", "levels": 11, "learning_samples": len(self.learning_observations)},
+            metadata={"version": "1.0", "levels": 12, "learning_samples": len(self.learning_observations)},
         )
