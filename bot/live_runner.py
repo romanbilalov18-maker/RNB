@@ -14,6 +14,7 @@ class LiveScanResult:
     buy_candidates: list[StockAnalysis]
     analyses: dict[str, StockAnalysis]
     current_prices: dict[str, float]
+    previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
 
 
@@ -147,6 +148,13 @@ class LiveMarketRunner:
             if ticker and key in last_prices:
                 lot_sizes[ticker] = int(getattr(share, "lot", 1) or 1)
 
+        previous_closes = {}
+        for share in shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            if ticker and key in close_prices:
+                previous_closes[ticker] = close_prices[key]
+
         current_prices = {}
         for share in shares:
             ticker = str(getattr(share, "ticker", "") or "")
@@ -160,6 +168,7 @@ class LiveMarketRunner:
             buy_candidates=ranked_selected,
             analyses=analyses,
             current_prices=current_prices,
+            previous_closes=previous_closes,
             lot_sizes=lot_sizes,
         )
 
