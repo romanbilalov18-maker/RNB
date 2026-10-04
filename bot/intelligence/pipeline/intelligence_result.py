@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict
-
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
 from bot.intelligence.levels.level_02.models.level_02_result import Level2Result
 from bot.intelligence.levels.level_03.models.level_03_result import Level3Result
@@ -15,7 +14,7 @@ from bot.intelligence.levels.level_11.models.level_11_result import Level11Resul
 from bot.intelligence.levels.level_12.models.level_12_result import Level12Result
 from bot.intelligence.levels.level_13.models.level_13_result import Level13Result
 from bot.intelligence.levels.level_14.models.level_14_result import Level14Result
-
+from bot.intelligence.levels.level_15.models.level_15_result import Level15Result
 
 @dataclass(frozen=True)
 class IntelligenceResult:
@@ -34,6 +33,7 @@ class IntelligenceResult:
     level_12: Level12Result
     level_13: Level13Result
     level_14: Level14Result
+    level_15: Level15Result
     overall_score: float
     overall_confidence: float
     overall_consistency: float
