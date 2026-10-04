@@ -1,0 +1,43 @@
+name: Intelligence Level 13 Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "bot/intelligence/levels/level_13/**"
+      - "bot/intelligence/tests/levels/level_13/**"
+      - ".github/workflows/intelligence-level-13.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "bot/intelligence/levels/level_13/**"
+      - "bot/intelligence/tests/levels/level_13/**"
+      - ".github/workflows/intelligence-level-13.yml"
+  workflow_dispatch:
+
+jobs:
+  level-13-test:
+    name: Intelligence Level 13
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            --trusted-host opensource.tbank.ru \
+            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+            -r requirements.txt
+
+      - name: Run standalone Level 13 test
+        run: python -m unittest bot.intelligence.tests.levels.level_13.test_level_13 -v
