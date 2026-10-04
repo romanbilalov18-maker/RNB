@@ -1,0 +1,63 @@
+name: Intelligence Market Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "Monitoring duration in minutes"
+        required: true
+        default: "60"
+        type: string
+      interval_minutes:
+        description: "Interval between market scans in minutes"
+        required: true
+        default: "5"
+        type: string
+      limit:
+        description: "Number of instruments per cycle"
+        required: true
+        default: "10"
+        type: string
+
+jobs:
+  intelligence-monitor:
+    name: Real T-Invest Intelligence Monitor (Read-Only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    env:
+      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+      MONITOR_DURATION_MINUTES: ${{ inputs.duration_minutes }}
+      MONITOR_INTERVAL_MINUTES: ${{ inputs.interval_minutes }}
+      MONITOR_LIMIT: ${{ inputs.limit }}
+      MONITOR_OUTPUT: data/intelligence_monitor.jsonl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            --trusted-host opensource.tbank.ru \
+            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+            -r requirements.txt
+
+      - name: Verify token is configured
+        run: test -n "$INVEST_TOKEN"
+
+      - name: Run Intelligence Market Monitor
+        run: python -m bot.intelligence.market_monitor
+
+      - name: Upload monitor data
+        uses: actions/upload-artifact@v4
+        with:
+          name: intelligence-market-monitor
+          path: data/intelligence_monitor.jsonl
+          if-no-files-found: error
+          retention-days: 30
