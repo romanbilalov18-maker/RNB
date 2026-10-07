@@ -23,7 +23,7 @@ jobs:
   intelligence-monitor:
     name: Real T-Invest Intelligence Monitor (Read-Only)
     runs-on: ubuntu-latest
-    timeout-minutes: 130
+    timeout-minutes: 360
     env:
       INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
       MONITOR_DURATION_MINUTES: ${{ inputs.duration_minutes }}
