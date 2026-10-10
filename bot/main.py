@@ -4,6 +4,7 @@ import os
 import time
 
 from bot.config import Config
+from bot.decision_audit import DecisionAuditStore
 from bot.intelligence.decision_engine import DecisionEngine
 from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
@@ -20,6 +21,7 @@ def main() -> None:
         raise ValueError("CYCLE_INTERVAL_MINUTES must not exceed RUN_DURATION_MINUTES")
 
     store = SQLitePortfolioStore(config.portfolio_db_path)
+    audit_store = DecisionAuditStore("data/decision_audit.sqlite")
     portfolio = store.load_or_create(
         initial_balance=config.initial_virtual_balance,
         commission_rate=config.commission_rate,
@@ -48,6 +50,16 @@ def main() -> None:
 
             equity = portfolio.equity(result.current_prices)
             store.save(portfolio, result.current_prices)
+            audit_count = audit_store.record_cycle(
+                cycle_id=f"{cycle}:{time.time_ns()}",
+                decisions=decisions,
+                virtual_trades=[*sell_trades, *buy_trades],
+                equity=equity,
+                cash=portfolio.cash,
+                total_commissions=portfolio.commissions,
+            )
+            print(f"Decision audit: recorded {audit_count} ticker observations")
+            print(f"Decision audit summary: {audit_store.summary()}")
             history = store.equity_history()
             stats = portfolio.statistics(equity, history)
 
