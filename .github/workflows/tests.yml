@@ -73,6 +73,29 @@ jobs:
       - name: Set up portfolio directory
         run: mkdir -p data
 
+      - name: Verify restored state
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          portfolio = Path("data/virtual_portfolio.sqlite3")
+          audit = Path("data/decision_audit.sqlite")
+          if portfolio.exists():
+              with sqlite3.connect(portfolio) as db:
+                  row = db.execute("SELECT initial_balance, cash, realized_pnl, commissions FROM portfolio WHERE id = 1").fetchone()
+                  trades = db.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+              print(f"RESTORED_PORTFOLIO found=1 state={row} trades={trades}")
+          else:
+              print("RESTORED_PORTFOLIO found=0 (first run or cache miss)")
+          if audit.exists():
+              with sqlite3.connect(audit) as db:
+                  observations, cycles = db.execute("SELECT COUNT(*), COUNT(DISTINCT cycle_id) FROM decision_audit").fetchone()
+              print(f"RESTORED_AUDIT found=1 observations={observations} cycles={cycles}")
+          else:
+              print("RESTORED_AUDIT found=0 (first run or cache miss)")
+          PY
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -99,7 +122,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Verify persisted state
+        if: always()
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          for name, table in (("data/virtual_portfolio.sqlite3", "trades"), ("data/decision_audit.sqlite", "decision_audit")):
+              path = Path(name)
+              if not path.exists():
+                  print(f"PERSISTED_STATE {name}: missing")
+                  continue
+              with sqlite3.connect(path) as db:
+                  rows = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                  print(f"PERSISTED_STATE {name}: rows={rows}")
+                  if table == "decision_audit":
+                      cycles = db.execute("SELECT COUNT(DISTINCT cycle_id) FROM decision_audit").fetchone()[0]
+                      print(f"PERSISTED_STATE decision_audit cycles={cycles}")
+          PY
+
       - name: Save virtual portfolio
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: data
