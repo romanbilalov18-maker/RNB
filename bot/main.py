@@ -4,6 +4,7 @@ import os
 import time
 
 from bot.config import Config
+from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
 from bot.portfolio_store import SQLitePortfolioStore
@@ -38,6 +39,7 @@ def main() -> None:
             result = LiveMarketRunner(client).run(
                 held_tickers=set(portfolio.positions)
             )
+            intelligence_results = analyze_scan(result)
             sell_trades, buy_trades = PaperExecutor(
                 take_profit=config.take_profit_percent / 100.0
             ).execute(portfolio, result)
@@ -55,6 +57,7 @@ def main() -> None:
                 equity,
                 stats,
                 config.take_profit_percent,
+                intelligence_results,
             )
 
             remaining = deadline - time.monotonic()
@@ -86,6 +89,7 @@ def _print_cycle_result(
     equity,
     stats,
     take_profit_percent,
+    intelligence_results=None,
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -111,7 +115,21 @@ def _print_cycle_result(
     print(f"- Max drawdown: {stats.max_drawdown:.2f} RUB")
     print(f"- Max drawdown: {stats.max_drawdown_pct:.2f} %")
 
-    print("Position decisions:")
+    print("Intelligence L1-L15:")
+    if intelligence_results:
+        for ticker, intelligence in sorted(
+            intelligence_results.items(),
+            key=lambda item: (-item[1].overall_score, item[0]),
+        ):
+            print(
+                f"- {ticker}: score={intelligence.overall_score:.4f}, "
+                f"confidence={intelligence.overall_confidence:.4f}, "
+                f"consistency={intelligence.overall_consistency:.4f}"
+            )
+    else:
+        print("- no valid Intelligence results")
+
+    print("Position decisions (existing rules; Decision Engine not connected yet):")
     for ticker, position in portfolio.positions.items():
         analysis = result.analyses.get(ticker)
         price = result.current_prices.get(ticker)
