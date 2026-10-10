@@ -4,6 +4,7 @@ import os
 import time
 
 from bot.config import Config
+from bot.intelligence.decision_engine import DecisionEngine
 from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
@@ -40,6 +41,7 @@ def main() -> None:
                 held_tickers=set(portfolio.positions)
             )
             intelligence_results = analyze_scan(result)
+            decisions = _evaluate_decisions(intelligence_results, portfolio)
             sell_trades, buy_trades = PaperExecutor(
                 take_profit=config.take_profit_percent / 100.0
             ).execute(portfolio, result)
@@ -58,6 +60,7 @@ def main() -> None:
                 stats,
                 config.take_profit_percent,
                 intelligence_results,
+                decisions,
             )
 
             remaining = deadline - time.monotonic()
@@ -81,6 +84,14 @@ def _env_positive_float(name: str, default: float) -> float:
     return value
 
 
+def _evaluate_decisions(intelligence_results, portfolio):
+    """Create informational recommendations; never influences execution."""
+    return DecisionEngine().evaluate(
+        intelligence_results,
+        held_tickers=set(portfolio.positions),
+    )
+
+
 def _print_cycle_result(
     portfolio,
     result,
@@ -90,6 +101,7 @@ def _print_cycle_result(
     stats,
     take_profit_percent,
     intelligence_results=None,
+    decisions=None,
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -129,7 +141,21 @@ def _print_cycle_result(
     else:
         print("- no valid Intelligence results")
 
-    print("Position decisions (existing rules; Decision Engine not connected yet):")
+    print("Decision Engine recommendations (informational only; execution unchanged):")
+    if decisions:
+        for ticker, decision in sorted(decisions.items()):
+            metrics = ""
+            if decision.score is not None:
+                metrics = (
+                    f" | score={decision.score:.4f}"
+                    f" confidence={decision.confidence:.4f}"
+                    f" consistency={decision.consistency:.4f}"
+                )
+            print(f"- {ticker}: {decision.action} — {decision.reason}{metrics}")
+    else:
+        print("- no recommendations")
+
+    print("Position decisions (existing execution rules):")
     for ticker, position in portfolio.positions.items():
         analysis = result.analyses.get(ticker)
         price = result.current_prices.get(ticker)
