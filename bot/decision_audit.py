@@ -102,7 +102,9 @@ class DecisionAuditStore:
         for ticker in sorted(set(decisions) | set(actions)):
             decision, trades = decisions.get(ticker), actions.get(ticker, [])
             candles = candle_history.get(ticker, [])
+            # Anchor to the latest completed daily close so price and session date agree.
             anchor_date = self._session_date(candles[-1]) if candles else None
+            anchor_price = self._price(getattr(candles[-1], "close", None)) if candles else None
             rows.append((
                 cycle_id, now, ticker, getattr(decision, "action", "NO_RECOMMENDATION"),
                 getattr(decision, "reason", "нет рекомендации"), getattr(decision, "score", None),
@@ -110,7 +112,7 @@ class DecisionAuditStore:
                 "+".join(t.side for t in trades) if trades else "NO_TRADE",
                 sum(int(t.quantity) for t in trades), sum(float(t.commission) for t in trades),
                 sum(float(t.realized_pnl) for t in trades), float(equity), float(cash),
-                float(total_commissions), self._price(current_prices.get(ticker)), anchor_date,
+                float(total_commissions), anchor_price, anchor_date,
             ))
         with self._connect() as db:
             db.executemany("""
@@ -166,6 +168,27 @@ class DecisionAuditStore:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (anchor["id"], horizon, target["session_date"], float(target["close_price"]),
                       raw, net, correct, now))
+
+    def pending_tickers(self) -> set[str]:
+        """Tickers whose recorded decisions still lack one or more forward horizons."""
+        with self._connect() as db:
+            rows = db.execute("""
+                SELECT DISTINCT a.ticker
+                FROM decision_audit AS a
+                WHERE a.anchor_price IS NOT NULL
+                  AND a.anchor_session_date IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM (
+                          SELECT 1 AS horizon UNION ALL SELECT 3 UNION ALL SELECT 5
+                      ) AS required
+                      WHERE NOT EXISTS (
+                          SELECT 1 FROM decision_outcomes AS o
+                          WHERE o.audit_id = a.id
+                            AND o.horizon_sessions = required.horizon
+                      )
+                  )
+            """).fetchall()
+        return {str(row["ticker"]) for row in rows}
 
     def summary(self) -> dict:
         with self._connect() as db:

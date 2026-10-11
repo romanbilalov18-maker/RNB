@@ -49,7 +49,12 @@ class DecisionAuditStoreTests(unittest.TestCase):
             decision = {"AAA": SimpleNamespace(action="BUY", reason="test", score=.8, confidence=.8, consistency=.8)}
             history = [candle("2026-10-01", 100)]
             store.record_cycle("anchor", decision, [], equity=1000, cash=1000, total_commissions=0,
-                current_prices={"AAA": 100}, candle_history={"AAA": history}, commission_rate=.001)
+                current_prices={"AAA": 120}, candle_history={"AAA": history}, commission_rate=.001)
+            self.assertEqual(store.pending_tickers(), {"AAA"})
+            with store._connect() as db:
+                anchor = db.execute("SELECT anchor_price, anchor_session_date FROM decision_audit").fetchone()
+            self.assertEqual(anchor["anchor_price"], 100)
+            self.assertEqual(anchor["anchor_session_date"], "2026-10-01")
             future = [candle("2026-10-02", 101), candle("2026-10-05", 102),
                 candle("2026-10-06", 99), candle("2026-10-07", 103), candle("2026-10-08", 104)]
             store.record_cycle("later", {}, [], equity=1000, cash=1000, total_commissions=0,
@@ -59,6 +64,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual([r["horizon_sessions"] for r in outcomes], [1, 3, 5])
             self.assertEqual([r["target_price"] for r in outcomes], [101, 99, 104])
             self.assertEqual([r["direction_correct"] for r in outcomes], [1, 0, 1])
+            self.assertEqual(store.pending_tickers(), set())
 
 if __name__ == "__main__":
     unittest.main()

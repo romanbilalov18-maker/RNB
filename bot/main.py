@@ -42,7 +42,8 @@ def main() -> None:
             print(f"Take Profit: {config.take_profit_percent:g} %")
 
             result = LiveMarketRunner(client).run(
-                held_tickers=set(portfolio.positions)
+                held_tickers=set(portfolio.positions),
+                tracked_tickers=audit_store.pending_tickers(),
             )
             intelligence_results = analyze_scan(result)
             decisions = _evaluate_decisions(intelligence_results, portfolio)
