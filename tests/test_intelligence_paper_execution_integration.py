@@ -84,7 +84,7 @@ class IntelligencePaperExecutionIntegrationTests(unittest.TestCase):
         self.assertEqual(self.portfolio.trades, [])
 
     def test_existing_take_profit_exit_works_when_buy_allowlist_empty(self):
-        self.portfolio.buy("AAA", 10, 100.0, datetime.now(timezone.utc))
+        self.portfolio.buy("AAA", 9, 100.0, datetime.now(timezone.utc))
         self.scan.analyses = {"AAA": self.aaa}
         self.scan.buy_candidates = [self.aaa]
         self.scan.current_prices = {"AAA": 102.0}
