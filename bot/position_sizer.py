@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import product
+import math
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,10 @@ class PositionSizer:
         commission_rate: float,
         max_position_weight: float = 0.35,
     ):
+        if not math.isfinite(commission_rate):
+            raise ValueError("commission_rate must be finite")
+        if not math.isfinite(max_position_weight):
+            raise ValueError("max_position_weight must be finite")
         if commission_rate < 0:
             raise ValueError("commission_rate must not be negative")
         if not 0 < max_position_weight <= 1:
