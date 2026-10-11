@@ -10,12 +10,11 @@ from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
 from bot.portfolio_store import SQLitePortfolioStore
-from t_tech.invest import Client
 
 
 def main() -> None:
     config = Config.from_env()
-    run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 1.0)
+    run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 60.0)
     cycle_interval_minutes = _env_positive_float("CYCLE_INTERVAL_MINUTES", 5.0)
     if cycle_interval_minutes > run_duration_minutes:
         raise ValueError("CYCLE_INTERVAL_MINUTES must not exceed RUN_DURATION_MINUTES")
@@ -29,6 +28,10 @@ def main() -> None:
 
     deadline = time.monotonic() + run_duration_minutes * 60
     cycle = 0
+
+    # Import the broker SDK only for an actual live run. Unit tests can import
+    # this module without network access to the official SDK package index.
+    from t_tech.invest import Client
 
     with Client(config.invest_token) as client:
         while True:
