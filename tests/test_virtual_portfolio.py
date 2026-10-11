@@ -44,7 +44,7 @@ class TestVirtualPortfolio(unittest.TestCase):
 
         stats = portfolio.statistics(
             current_equity=10_097.9,
-            equity_history=[10_000.0, 9_500.0, 10_098.9],
+            equity_history=[10_000.0, 9_500.0, 10_097.9],
         )
 
         self.assertEqual(stats.total_trades, 2)
