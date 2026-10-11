@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 
 from bot.stock_analysis import StockAnalysis
 from bot.virtual_portfolio import VirtualPortfolio
@@ -23,6 +24,8 @@ class PositionManager:
         take_profit: float = 0.0015,
         negative_momentum: float = -0.02,
     ):
+        if not all(math.isfinite(value) for value in (stop_loss, take_profit, negative_momentum)):
+            raise ValueError("exit thresholds must be finite")
         if stop_loss >= 0:
             raise ValueError("stop_loss must be negative")
         if take_profit < 0.0015:
