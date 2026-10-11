@@ -17,6 +17,7 @@ class LiveScanResult:
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
     latest_candles: dict[str, object] = field(default_factory=dict)
+    candle_history: dict[str, list[object]] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
@@ -164,12 +165,14 @@ class LiveMarketRunner:
                 current_prices[ticker] = last_prices[key]
 
         latest_candles = {}
+        candle_history = {}
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             candles = histories.get(key, ())
             if ticker and candles:
                 latest_candles[ticker] = candles[-1]
+                candle_history[ticker] = list(candles)
 
         return LiveScanResult(
             selected_10=selected_10,
@@ -180,6 +183,7 @@ class LiveMarketRunner:
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
             latest_candles=latest_candles,
+            candle_history=candle_history,
         )
 
     def _get_candles_with_retry(

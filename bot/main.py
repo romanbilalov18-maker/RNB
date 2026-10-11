@@ -57,6 +57,9 @@ def main() -> None:
                 equity=equity,
                 cash=portfolio.cash,
                 total_commissions=portfolio.commissions,
+                current_prices=result.current_prices,
+                candle_history=result.candle_history,
+                commission_rate=portfolio.commission_rate,
             )
             print(f"Decision audit: recorded {audit_count} ticker observations")
             print(f"Decision audit summary: {audit_store.summary()}")
