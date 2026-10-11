@@ -25,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
       MONITOR_DURATION_MINUTES: ${{ inputs.duration_minutes }}
       MONITOR_INTERVAL_MINUTES: ${{ inputs.interval_minutes }}
       MONITOR_LIMIT: ${{ inputs.limit }}
@@ -44,14 +43,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install \
-            --trusted-host opensource.tbank.ru \
             --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
             -r requirements.txt
 
       - name: Verify token is configured
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
         run: test -n "$INVEST_TOKEN"
 
       - name: Run Intelligence Market Monitor
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
         run: python -m bot.intelligence.market_monitor
 
       - name: Upload monitor data
