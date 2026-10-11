@@ -19,16 +19,52 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Diagnose official T-Bank package index
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
-            --trusted-host opensource.tbank.ru \
-            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
-            -r requirements.txt
+          python - <<'PY'
+          import urllib.error
+          import urllib.request
+
+          url = "https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple/t-tech-investments/"
+          try:
+              request = urllib.request.Request(url, method="GET")
+              with urllib.request.urlopen(request, timeout=12) as response:
+                  print(f"TBANK_INDEX_HTTP_STATUS={response.status}")
+          except (urllib.error.URLError, TimeoutError, OSError) as exc:
+              print(f"TBANK_INDEX_CONNECTIVITY_ERROR={type(exc).__name__}: {exc}")
+          PY
+
+      - name: Install dependencies from official T-Bank index
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        run: |
+          python -m pip install --upgrade pip --retries 1 --timeout 15
+          for attempt in 1 2 3; do
+            echo "Official T-Bank SDK install attempt ${attempt}/3"
+            if python -m pip install \
+              --retries 1 \
+              --timeout 15 \
+              --trusted-host opensource.tbank.ru \
+              --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+              -r requirements.txt; then
+              python -c "from t_tech.invest import Client; print('TINVEST_SDK_IMPORT_OK')"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "ERROR: Official T-Bank package index is unreachable or the required package is unavailable."
+          echo "No unverified SDK mirror was used."
+          exit 1
 
       - name: Verify token is configured
-        run: test -n "$INVEST_TOKEN"
+        run: |
+          if [ -z "$INVEST_TOKEN" ]; then
+            echo "ERROR: GitHub secret INVEST_TOKEN is empty or missing."
+            exit 1
+          fi
+          echo "INVEST_TOKEN_CONFIGURED=1"
 
       - name: Run real T-Invest Intelligence
         run: python -m bot.intelligence.tinvest_runner
