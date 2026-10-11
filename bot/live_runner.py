@@ -17,6 +17,7 @@ class LiveScanResult:
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
     latest_candles: dict[str, object] = field(default_factory=dict)
+    candle_history: dict[str, list[object]] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
@@ -29,8 +30,13 @@ class LiveMarketRunner:
         self.history_days = history_days
         self.analyzer = StockAnalyzer(min_history=20, momentum_period=10)
 
-    def run(self, held_tickers: set[str] | None = None) -> LiveScanResult:
+    def run(
+        self,
+        held_tickers: set[str] | None = None,
+        tracked_tickers: set[str] | None = None,
+    ) -> LiveScanResult:
         held_tickers = held_tickers or set()
+        tracked_tickers = tracked_tickers or set()
 
         shares_response = self.client.instruments.shares()
         shares = [
@@ -90,12 +96,13 @@ class LiveMarketRunner:
             str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             for share in selected_10
         }
-        held_shares = [
+        required_tickers = held_tickers | tracked_tickers
+        required_shares = [
             share for share in shares
-            if str(getattr(share, "ticker", "") or "") in held_tickers
+            if str(getattr(share, "ticker", "") or "") in required_tickers
         ]
         analysis_shares = list(selected_10)
-        for share in held_shares:
+        for share in required_shares:
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             if key not in selected_ids:
                 analysis_shares.append(share)
@@ -164,12 +171,14 @@ class LiveMarketRunner:
                 current_prices[ticker] = last_prices[key]
 
         latest_candles = {}
+        candle_history = {}
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             candles = histories.get(key, ())
             if ticker and candles:
                 latest_candles[ticker] = candles[-1]
+                candle_history[ticker] = list(candles)
 
         return LiveScanResult(
             selected_10=selected_10,
@@ -180,6 +189,7 @@ class LiveMarketRunner:
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
             latest_candles=latest_candles,
+            candle_history=candle_history,
         )
 
     def _get_candles_with_retry(

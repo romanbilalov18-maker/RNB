@@ -13,6 +13,9 @@ from bot.portfolio_store import SQLitePortfolioStore
 
 
 def main() -> None:
+    # Import the external broker SDK only when running the live bot, not for unit tests.
+    from t_tech.invest import Client
+
     config = Config.from_env()
     run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 60.0)
     cycle_interval_minutes = _env_positive_float("CYCLE_INTERVAL_MINUTES", 5.0)
@@ -43,7 +46,8 @@ def main() -> None:
             print(f"Take Profit: {config.take_profit_percent:g} %")
 
             result = LiveMarketRunner(client).run(
-                held_tickers=set(portfolio.positions)
+                held_tickers=set(portfolio.positions),
+                tracked_tickers=audit_store.pending_tickers(),
             )
             intelligence_results = analyze_scan(result)
             decisions = _evaluate_decisions(intelligence_results, portfolio)
@@ -60,6 +64,9 @@ def main() -> None:
                 equity=equity,
                 cash=portfolio.cash,
                 total_commissions=portfolio.commissions,
+                current_prices=result.current_prices,
+                candle_history=result.candle_history,
+                commission_rate=portfolio.commission_rate,
             )
             print(f"Decision audit: recorded {audit_count} ticker observations")
             print(f"Decision audit summary: {audit_store.summary()}")
