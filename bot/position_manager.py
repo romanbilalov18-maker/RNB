@@ -48,13 +48,14 @@ class PositionManager:
                 decisions.append(PositionDecision(ticker, "HOLD", "нет свежей цены"))
                 continue
 
-            gross_return = price / position.average_price - 1.0
-            net_return = gross_return - portfolio.commission_rate
+            entry_cost_per_share = position.average_price * (1.0 + portfolio.commission_rate)
+            exit_proceeds_per_share = price * (1.0 - portfolio.commission_rate)
+            net_return = exit_proceeds_per_share / entry_cost_per_share - 1.0
 
             # Take Profit and Stop Loss depend only on the actual market
             # price and must be checked before strategy analysis. A temporary
             # candle-analysis failure must never block a price-based exit.
-            if gross_return >= self.take_profit:
+            if net_return >= self.take_profit:
                 decisions.append(
                     PositionDecision(
                         ticker,
