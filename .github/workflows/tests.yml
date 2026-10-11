@@ -37,8 +37,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Unit tests use local/fake market data and should not depend on T-Bank uptime.
-
+      # Unit tests use local/fake data; they must not depend on T-Bank package-index uptime.
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
@@ -55,6 +54,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Restore virtual portfolio
         uses: actions/cache/restore@v4
@@ -90,27 +91,27 @@ jobs:
               print("RESTORED_AUDIT found=0 (first run or cache miss)")
           PY
 
-      - name: Install dependencies
+      - name: Install T-Invest SDK and dependencies
         run: |
           python -m pip install --upgrade pip
-          # The official T-Bank package index can time out intermittently.
-          # Retry transient failures, but never fall back to an untrusted/incompatible index.
-          for attempt in 1 2 3 4; do
+          # Only use the official T-Bank index. Retry transient outages; never install an
+          # unrelated or incompatible package from a fallback index.
+          for attempt in 1 2 3 4 5 6; do
             if python -m pip install \
-              --retries 2 \
-              --timeout 30 \
+              --retries 5 \
+              --timeout 60 \
               --trusted-host opensource.tbank.ru \
               --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
               -r requirements.txt; then
               exit 0
             fi
-            if [ "$attempt" -lt 4 ]; then
-              delay=$((attempt * 10))
-              echo "Dependency install failed (attempt $attempt/4); retrying in $delay seconds..."
+            if [ "$attempt" -lt 6 ]; then
+              delay=$((attempt * 15))
+              echo "Official T-Bank package index unavailable (attempt $attempt/6); retrying in $delay seconds..."
               sleep "$delay"
             fi
           done
-          echo "Dependency installation failed after 4 attempts against the official T-Bank index."
+          echo "ERROR: Could not install t-tech-investments from the official T-Bank index after 6 attempts."
           exit 1
 
       - name: Run live T-Invest test
@@ -120,6 +121,7 @@ jobs:
           RUN_DURATION_MINUTES: ${{ inputs.run_duration_minutes }}
           CYCLE_INTERVAL_MINUTES: ${{ inputs.cycle_interval_minutes }}
         run: |
+          set -o pipefail
           python -m bot.main 2>&1 | tee data/live_tinvest.log
 
       - name: Upload live test log
