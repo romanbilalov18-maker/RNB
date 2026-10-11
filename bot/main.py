@@ -10,10 +10,12 @@ from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
 from bot.portfolio_store import SQLitePortfolioStore
-from t_tech.invest import Client
 
 
 def main() -> None:
+    # Import the external broker SDK only when running the live bot, not for unit tests.
+    from t_tech.invest import Client
+
     config = Config.from_env()
     run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 1.0)
     cycle_interval_minutes = _env_positive_float("CYCLE_INTERVAL_MINUTES", 5.0)
