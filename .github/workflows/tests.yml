@@ -94,25 +94,38 @@ jobs:
       - name: Install T-Invest SDK and dependencies
         run: |
           python -m pip install --upgrade pip
-          # Only use the official T-Bank index. Retry transient outages; never install an
-          # unrelated or incompatible package from a fallback index.
-          for attempt in 1 2 3 4 5 6; do
-            if python -m pip install \
-              --retries 5 \
-              --timeout 60 \
-              --trusted-host opensource.tbank.ru \
-              --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
-              -r requirements.txt; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 6 ]; then
-              delay=$((attempt * 15))
-              echo "Official T-Bank package index unavailable (attempt $attempt/6); retrying in $delay seconds..."
-              sleep "$delay"
-            fi
-          done
-          echo "ERROR: Could not install t-tech-investments from the official T-Bank index after 6 attempts."
-          exit 1
+
+          # Prefer the official T-Bank package index. Use short timeouts so an
+          # unreachable index cannot consume the entire live-test window.
+          if python -m pip install \
+            --retries 1 \
+            --timeout 15 \
+            --trusted-host opensource.tbank.ru \
+            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
+            -r requirements.txt; then
+            echo "Installed T-Invest SDK from the official T-Bank package index."
+          else
+            echo "Official package index unavailable; trying the SDK source archive hosted by the same official T-Bank repository."
+            # The SDK source is pinned to an official upstream commit. PyPI is used
+            # only for its ordinary third-party dependencies, not for the SDK package.
+            python -m pip install \
+              --retries 2 \
+              --timeout 30 \
+              --index-url https://pypi.org/simple \
+              "https://opensource.tbank.ru/invest/invest-python/-/archive/5b12913b/invest-python-5b12913b.tar.gz"
+          fi
+
+          python -c "from t_tech.invest import Client; print('TINVEST_SDK_IMPORT_OK')"
+
+      - name: Verify token is configured
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+        run: |
+          if [ -z "$INVEST_TOKEN" ]; then
+            echo "ERROR: GitHub secret INVEST_TOKEN is empty or missing."
+            exit 1
+          fi
+          echo "INVEST_TOKEN_CONFIGURED=1"
 
       - name: Run live T-Invest test
         env:
