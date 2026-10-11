@@ -14,8 +14,8 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertEqual(portfolio.positions["TEST"].quantity, 10)
 
         trade = portfolio.sell("TEST", 10, 110, timestamp)
-        self.assertAlmostEqual(trade.realized_pnl, 98.9)
-        self.assertAlmostEqual(portfolio.realized_pnl, 98.9)
+        self.assertAlmostEqual(trade.realized_pnl, 97.9)
+        self.assertAlmostEqual(portfolio.realized_pnl, 97.9)
         self.assertEqual(portfolio.positions, {})
 
     def test_buy_rejects_insufficient_cash(self):
@@ -43,7 +43,7 @@ class TestVirtualPortfolio(unittest.TestCase):
         portfolio.sell("TEST", 10, 110, timestamp)
 
         stats = portfolio.statistics(
-            current_equity=10_098.9,
+            current_equity=10_097.9,
             equity_history=[10_000.0, 9_500.0, 10_098.9],
         )
 
@@ -53,9 +53,9 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertEqual(stats.profitable_trades, 1)
         self.assertEqual(stats.losing_trades, 0)
         self.assertAlmostEqual(stats.win_rate_pct, 100.0)
-        self.assertAlmostEqual(stats.best_realized_trade, 98.9)
-        self.assertAlmostEqual(stats.worst_realized_trade, 98.9)
-        self.assertAlmostEqual(stats.average_profitable_trade, 98.9)
+        self.assertAlmostEqual(stats.best_realized_trade, 97.9)
+        self.assertAlmostEqual(stats.worst_realized_trade, 97.9)
+        self.assertAlmostEqual(stats.average_profitable_trade, 97.9)
         self.assertAlmostEqual(stats.average_losing_trade, 0.0)
         self.assertAlmostEqual(stats.max_drawdown, 500.0)
         self.assertAlmostEqual(stats.max_drawdown_pct, 5.0)
@@ -72,8 +72,8 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(performance.unrealized_pnl, 100.0)
         self.assertAlmostEqual(performance.unrealized_return_pct, 10.0)
         self.assertAlmostEqual(performance.estimated_sell_commission, 1.1)
-        self.assertAlmostEqual(performance.net_if_sold_now, 98.9)
-        self.assertAlmostEqual(performance.net_return_pct_if_sold_now, 9.89)
+        self.assertAlmostEqual(performance.net_if_sold_now, 97.9)
+        self.assertAlmostEqual(performance.net_return_pct_if_sold_now, 9.79)
 
 
 if __name__ == "__main__":

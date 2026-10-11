@@ -87,7 +87,8 @@ class VirtualPortfolio:
             raise ValueError("insufficient virtual position")
         gross = quantity * price
         commission = gross * self.commission_rate
-        realized_pnl = quantity * (price - position.average_price) - commission
+        entry_commission = quantity * position.average_price * self.commission_rate
+        realized_pnl = quantity * (price - position.average_price) - commission - entry_commission
         self.cash += gross - commission
         self.realized_pnl += realized_pnl
         self.commissions += commission
@@ -120,7 +121,8 @@ class VirtualPortfolio:
             current = position.quantity * market_price
             unrealized = current - invested
             sell_commission = current * self.commission_rate
-            net_if_sold = unrealized - sell_commission
+            entry_commission = invested * self.commission_rate
+            net_if_sold = unrealized - sell_commission - entry_commission
 
             result.append(
                 PositionPerformance(

@@ -1,3 +1,4 @@
+import math
 import os
 from dataclasses import dataclass
 
@@ -16,13 +17,25 @@ class Config:
         if not token:
             raise ValueError("INVEST_TOKEN is not configured")
 
-        balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "10000"))
-        commission = float(os.getenv("VIRTUAL_COMMISSION_RATE", "0.0005"))
-        take_profit = float(os.getenv("TAKE_PROFIT_PERCENT", "0.15"))
+        try:
+            balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "10000"))
+            commission = float(os.getenv("VIRTUAL_COMMISSION_RATE", "0.0005"))
+            take_profit = float(os.getenv("TAKE_PROFIT_PERCENT", "0.15"))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Virtual portfolio numeric settings must be valid numbers") from exc
+
         db_path = os.getenv(
             "VIRTUAL_PORTFOLIO_DB",
             "data/virtual_portfolio.sqlite3",
         ).strip()
+
+        for name, value in (
+            ("VIRTUAL_INITIAL_BALANCE", balance),
+            ("VIRTUAL_COMMISSION_RATE", commission),
+            ("TAKE_PROFIT_PERCENT", take_profit),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
 
         if balance <= 0:
             raise ValueError("VIRTUAL_INITIAL_BALANCE must be positive")
