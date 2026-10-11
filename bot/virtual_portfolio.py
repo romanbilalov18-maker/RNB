@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import math
 
 from bot.models import VirtualPosition, VirtualTrade
 
@@ -53,6 +54,10 @@ class VirtualPortfolio:
     commissions: float = 0.0
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.initial_balance):
+            raise ValueError("initial_balance must be finite")
+        if not math.isfinite(self.commission_rate):
+            raise ValueError("commission_rate must be finite")
         if self.initial_balance <= 0:
             raise ValueError("initial_balance must be positive")
         if self.commission_rate < 0:
