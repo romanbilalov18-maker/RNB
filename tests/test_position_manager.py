@@ -38,7 +38,7 @@ class TestPositionManager(unittest.TestCase):
         decisions = PositionManager().evaluate(
             portfolio,
             {"AAA": analysis},
-            {"AAA": 100.15},
+            {"AAA": 100.21},
         )
 
         self.assertEqual(decisions[0].action, "SELL")
