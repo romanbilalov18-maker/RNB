@@ -7,9 +7,6 @@ jobs:
   real-market-intelligence:
     name: Real T-Invest Intelligence (Read-Only)
     runs-on: ubuntu-latest
-    env:
-      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +41,6 @@ jobs:
             if python -m pip install \
               --retries 1 \
               --timeout 15 \
-              --trusted-host opensource.tbank.ru \
               --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
               -r requirements.txt; then
               python -c "from t_tech.invest import Client; print('TINVEST_SDK_IMPORT_OK')"
@@ -59,6 +55,8 @@ jobs:
           exit 1
 
       - name: Verify token is configured
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
         run: |
           if [ -z "$INVEST_TOKEN" ]; then
             echo "ERROR: GitHub secret INVEST_TOKEN is empty or missing."
@@ -67,4 +65,6 @@ jobs:
           echo "INVEST_TOKEN_CONFIGURED=1"
 
       - name: Run real T-Invest Intelligence
+        env:
+          INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
         run: python -m bot.intelligence.tinvest_runner
