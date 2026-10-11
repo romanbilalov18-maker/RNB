@@ -19,6 +19,7 @@ class PaperExecutor:
         self,
         portfolio: VirtualPortfolio,
         scan: LiveScanResult,
+        eligible_buy_tickers: set[str] | None = None,
     ) -> tuple[list, list]:
         decisions = self.position_manager.evaluate(
             portfolio,
@@ -54,7 +55,8 @@ class PaperExecutor:
             analysis
             for analysis in scan.buy_candidates
             if (
-                analysis.ticker not in recently_sold
+                (eligible_buy_tickers is None or analysis.ticker in eligible_buy_tickers)
+                and analysis.ticker not in recently_sold
                 and analysis.ticker not in sell_decision_tickers
                 and analysis.ticker not in blocked_reentries
             )

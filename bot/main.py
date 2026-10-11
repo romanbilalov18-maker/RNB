@@ -51,9 +51,20 @@ def main() -> None:
             )
             intelligence_results = analyze_scan(result)
             decisions = _evaluate_decisions(intelligence_results, portfolio)
+            # Only explicit BUY recommendations from a valid L1-L15 result may
+            # authorize new virtual entries. Existing PositionManager exits and
+            # PositionSizer risk/cash/commission controls remain authoritative.
+            eligible_buy_tickers = {
+                ticker for ticker, decision in decisions.items()
+                if decision.action == "BUY"
+            }
             sell_trades, buy_trades = PaperExecutor(
                 take_profit=config.take_profit_percent / 100.0
-            ).execute(portfolio, result)
+            ).execute(
+                portfolio,
+                result,
+                eligible_buy_tickers=eligible_buy_tickers,
+            )
 
             equity = portfolio.equity(result.current_prices)
             store.save(portfolio, result.current_prices)
@@ -107,7 +118,7 @@ def _env_positive_float(name: str, default: float) -> float:
 
 
 def _evaluate_decisions(intelligence_results, portfolio):
-    """Create informational recommendations; never influences execution."""
+    """Convert L1-L15 aggregate results into cycle recommendations."""
     return DecisionEngine().evaluate(
         intelligence_results,
         held_tickers=set(portfolio.positions),
@@ -163,7 +174,7 @@ def _print_cycle_result(
     else:
         print("- no valid Intelligence results")
 
-    print("Decision Engine recommendations (informational only; execution unchanged):")
+    print("Decision Engine recommendations (BUY gates new virtual entries):")
     if decisions:
         for ticker, decision in sorted(decisions.items()):
             metrics = ""
