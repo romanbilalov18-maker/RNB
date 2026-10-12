@@ -33,12 +33,8 @@ jobs:
           set -euo pipefail
           cert_dir="$RUNNER_TEMP/tbank-certs"
           mkdir -p "$cert_dir"
-          curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \\
-            https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer \\
-            -o "$cert_dir/root.cer"
-          curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \\
-            https://gu-st.ru/content/Other/doc/russian_trusted_sub_ca.cer \\
-            -o "$cert_dir/sub.cer"
+          curl --fail --show-error --silent --location --proto '=https' --tlsv1.2  https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer  -o "$cert_dir/root.cer"
+          curl --fail --show-error --silent --location --proto '=https' --tlsv1.2  https://gu-st.ru/content/Other/doc/russian_trusted_sub_ca.cer  -o "$cert_dir/sub.cer"
           for name in root sub; do
             cert="$cert_dir/$name.cer"
             if openssl x509 -in "$cert" -noout >/dev/null 2>&1; then
@@ -47,8 +43,7 @@ jobs:
               openssl x509 -inform DER -in "$cert" -out "$cert_dir/$name.pem"
             fi
           done
-          cat /etc/ssl/certs/ca-certificates.crt "$cert_dir/root.pem" "$cert_dir/sub.pem" \\
-            > "$RUNNER_TEMP/tbank-ca-bundle.pem"
+          cat /etc/ssl/certs/ca-certificates.crt "$cert_dir/root.pem" "$cert_dir/sub.pem"  > "$RUNNER_TEMP/tbank-ca-bundle.pem"
           echo "SSL_CERT_FILE=$RUNNER_TEMP/tbank-ca-bundle.pem" >> "$GITHUB_ENV"
           echo "Configured system CA bundle plus T-Bank trusted certificates."
 
