@@ -75,11 +75,9 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     if limit <= 0:
         raise ValueError("limit must be positive")
 
-    # Read-only: LiveMarketRunner only requests market data and candles.
     client = TInvestClient(token)
-    with client._client() as raw_client:
-        market_runner = LiveMarketRunner(raw_client, history_days=30)
-        scan = market_runner.run()
+    market_runner = LiveMarketRunner(client, history_days=30)
+    scan = market_runner.run()
 
     pipeline = IntelligencePipeline()
     results = []

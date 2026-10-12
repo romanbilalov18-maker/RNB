@@ -38,9 +38,9 @@ class LiveMarketRunner:
         held_tickers = held_tickers or set()
         tracked_tickers = tracked_tickers or set()
 
-        shares_response = self.client.instruments.shares()
+        shares_response = self.client.shares()
         shares = [
-            share for share in shares_response.instruments
+            share for share in shares_response
             if self._is_tradable_rub_share(share)
         ]
         if not shares:
@@ -52,27 +52,17 @@ class LiveMarketRunner:
         ]
         instrument_ids = [value for value in instrument_ids if value]
 
-        prices_response = self.client.market_data.get_last_prices(
-            instrument_id=instrument_ids,
-        )
-
-        from t_tech.invest import InstrumentClosePriceRequest
-
-        close_response = self.client.market_data.get_close_prices(
-            instruments=[
-                InstrumentClosePriceRequest(instrument_id=instrument_id)
-                for instrument_id in instrument_ids
-            ],
-        )
+        prices = self.client.last_prices(instrument_ids)
+        closes = self.client.close_prices(instrument_ids)
 
         last_prices = {
             self._instrument_key(item): self._quotation(item.price)
-            for item in prices_response.last_prices
+            for item in prices
             if self._quotation(item.price) > 0
         }
         close_prices = {
             self._instrument_key(item): self._quotation(item.price)
-            for item in close_response.close_prices
+            for item in closes
             if self._quotation(item.price) > 0
         }
 
@@ -122,7 +112,7 @@ class LiveMarketRunner:
             )
             if response is None:
                 continue
-            histories[instrument_id] = list(response.candles)
+            histories[instrument_id] = list(response)
 
         analyses = {}
         for share in analysis_shares:
@@ -132,7 +122,7 @@ class LiveMarketRunner:
             ticker = str(getattr(share, "ticker", "") or "")
             try:
                 analyses[ticker] = self.analyzer.analyze(
-                    instrument_id, ticker, histories[instrument_id]
+                    instrument_id, ticker, histories.get(instrument_id, ())
                 )
             except ValueError:
                 continue
@@ -202,11 +192,10 @@ class LiveMarketRunner:
         last_error = None
         for attempt in range(1, attempts + 1):
             try:
-                return self.client.market_data.get_candles(
+                return self.client.candles(
                     instrument_id=instrument_id,
-                    from_=start,
-                    to=end,
-                    interval=self._daily_interval(),
+                    start=start,
+                    end=end,
                 )
             except Exception as exc:
                 last_error = exc
@@ -246,8 +235,3 @@ class LiveMarketRunner:
         if units is None:
             return float(value)
         return float(units) + float(nano or 0) / 1_000_000_000
-
-    @staticmethod
-    def _daily_interval():
-        from t_tech.invest import CandleInterval
-        return CandleInterval.CANDLE_INTERVAL_DAY

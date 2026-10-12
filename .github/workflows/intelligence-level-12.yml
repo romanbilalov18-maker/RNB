@@ -31,13 +31,5 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
-            --trusted-host opensource.tbank.ru \
-            --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
-            -r requirements.txt
-
       - name: Run standalone Level 12 test
         run: python -m unittest bot.intelligence.tests.levels.level_12.test_level_12 -v

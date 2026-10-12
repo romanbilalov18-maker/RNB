@@ -11,13 +11,12 @@ class TestLiveBotStart(unittest.TestCase):
 
     def test_bot_connects_and_reads_stock_market(self):
         from bot.config import Config
-        from t_tech.invest import Client
+        from bot.tinvest_client import TInvestClient
 
         config = Config.from_env()
 
-        with Client(config.invest_token) as client:
-            response = client.instruments.shares()
-            shares = list(response.instruments)
+        with TInvestClient(config.invest_token) as client:
+            shares = client.shares()
 
             self.assertGreater(len(shares), 0, "T-Invest returned no shares")
 
@@ -44,12 +43,10 @@ class TestLiveBotStart(unittest.TestCase):
             ]
             instrument_ids = [value for value in instrument_ids if value]
 
-            prices = client.market_data.get_last_prices(
-                instrument_id=instrument_ids,
-            )
+            prices = client.last_prices(instrument_ids)
 
             self.assertGreater(
-                len(prices.last_prices),
+                len(prices),
                 0,
                 "T-Invest returned no current prices",
             )
