@@ -65,7 +65,10 @@ class VirtualPortfolio:
         if self.cash is None:
             self.cash = self.initial_balance
 
-    def buy(self, ticker: str, quantity: int, price: float, timestamp) -> VirtualTrade:
+    def buy(
+        self, ticker: str, quantity: int, price: float, timestamp,
+        reason: str = "BUY accepted by PositionSizer",
+    ) -> VirtualTrade:
         self._validate_order(ticker, quantity, price)
         gross = quantity * price
         commission = gross * self.commission_rate
@@ -81,11 +84,17 @@ class VirtualPortfolio:
         position.average_price = (old_value + gross) / position.quantity
         self.cash -= total
         self.commissions += commission
-        trade = VirtualTrade(timestamp, ticker, "BUY", quantity, price, commission, 0.0)
+        trade = VirtualTrade(
+            timestamp, ticker, "BUY", quantity, price, commission, 0.0,
+            reason=reason, entry_price=price,
+        )
         self.trades.append(trade)
         return trade
 
-    def sell(self, ticker: str, quantity: int, price: float, timestamp) -> VirtualTrade:
+    def sell(
+        self, ticker: str, quantity: int, price: float, timestamp,
+        reason: str = "not recorded",
+    ) -> VirtualTrade:
         self._validate_order(ticker, quantity, price)
         position = self.positions.get(ticker)
         if position is None or quantity > position.quantity:
@@ -100,7 +109,10 @@ class VirtualPortfolio:
         position.quantity -= quantity
         if position.quantity == 0:
             del self.positions[ticker]
-        trade = VirtualTrade(timestamp, ticker, "SELL", quantity, price, commission, realized_pnl)
+        trade = VirtualTrade(
+            timestamp, ticker, "SELL", quantity, price, commission, realized_pnl,
+            reason=reason, entry_price=position.average_price,
+        )
         self.trades.append(trade)
         return trade
 
