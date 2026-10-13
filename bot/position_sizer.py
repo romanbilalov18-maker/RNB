@@ -195,33 +195,40 @@ class PositionSizer:
         counts = [0] * len(tickers)
         best = None
 
-        # Greedily add feasible lots, choosing the best resulting objective.
-        # Every accepted state respects cash and concentration constraints.
-        while True:
-            next_best = None
-            for index, ticker in enumerate(tickers):
-                if counts[index] >= max_lots[ticker]:
-                    continue
-                trial = counts.copy()
-                trial[index] += 1
-                candidate = self._evaluate(
-                    trial, tickers, unit_costs, existing_values, targets,
-                    cash, total_equity,
-                )
-                if candidate is not None and (
-                    next_best is None or candidate[:2] > next_best[:2]
-                ):
-                    next_best = candidate
-            if next_best is None:
-                break
-            counts = list(next_best[2])
-            best = next_best
+        # Add lots in progressively smaller batches. This avoids one Python
+        # iteration per lot when low-priced assets allow very large positions.
+        max_batch = max(max_lots.values(), default=0)
+        batch = 1
+        while batch * 2 <= max_batch:
+            batch *= 2
+
+        while batch >= 1:
+            while True:
+                next_best = None
+                for index, ticker in enumerate(tickers):
+                    if counts[index] + batch > max_lots[ticker]:
+                        continue
+                    trial = counts.copy()
+                    trial[index] += batch
+                    candidate = self._evaluate(
+                        trial, tickers, unit_costs, existing_values, targets,
+                        cash, total_equity,
+                    )
+                    if candidate is not None and (
+                        next_best is None or candidate[:2] > next_best[:2]
+                    ):
+                        next_best = candidate
+                if next_best is None:
+                    break
+                counts = list(next_best[2])
+                best = next_best
+            batch //= 2
 
         if best is None:
             return None
 
-        # Improve the greedy allocation through one-lot transfers. The finite
-        # state space and strict objective improvement prevent cycling.
+        # Improve the allocation with one-lot transfers. Each accepted move
+        # strictly improves the objective and preserves feasibility.
         while True:
             improved = best
             current = list(best[2])
