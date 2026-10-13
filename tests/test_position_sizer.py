@@ -272,5 +272,85 @@ class TestPositionSizer(unittest.TestCase):
                 ))
 
 
+    def test_heuristic_quality_matrix_against_exact_optimizer(self):
+        # Small cases are deliberately forced through the heuristic so its
+        # allocation quality can be compared with the exhaustive optimum.
+        scenarios = [
+            {"cash": 500.0, "equity": 1_000.0, "prices": {"A": 17.0, "B": 29.0, "C": 43.0}},
+            {"cash": 350.0, "equity": 900.0, "prices": {"A": 23.0, "B": 37.0, "C": 61.0}},
+            {"cash": 800.0, "equity": 2_000.0, "prices": {"A": 31.0, "B": 47.0, "C": 73.0}},
+        ]
+        analyses = [
+            SimpleNamespace(ticker="A", volatility=0.07),
+            SimpleNamespace(ticker="B", volatility=0.13),
+            SimpleNamespace(ticker="C", volatility=0.22),
+        ]
+
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                kwargs = dict(
+                    cash=scenario["cash"],
+                    analyses=analyses,
+                    prices=scenario["prices"],
+                    lot_sizes={"A": 1, "B": 1, "C": 1},
+                    existing_values={},
+                    total_equity=scenario["equity"],
+                )
+                exact_sizer = PositionSizer(
+                    commission_rate=0.002,
+                    max_position_weight=0.35,
+                )
+                exact_plans = exact_sizer.plan(**kwargs)
+
+                heuristic_sizer = PositionSizer(
+                    commission_rate=0.002,
+                    max_position_weight=0.35,
+                )
+                with patch.object(PositionSizer, "EXACT_SEARCH_LIMIT", 1):
+                    heuristic_plans = heuristic_sizer.plan(**kwargs)
+
+                self.assertTrue(exact_plans)
+                self.assertTrue(heuristic_plans)
+                self.assertLessEqual(
+                    sum(plan.total_cost for plan in heuristic_plans),
+                    scenario["cash"] + 1e-9,
+                )
+                self.assertTrue(all(
+                    plan.actual_weight <= 0.35 + 1e-9
+                    for plan in heuristic_plans
+                ))
+
+                targets = PositionSizer._target_weights(analyses)
+                tickers = [item.ticker for item in analyses]
+                unit_costs = {
+                    ticker: scenario["prices"][ticker] * 1.002
+                    for ticker in tickers
+                }
+                ranges = [
+                    range(int(0.35 * scenario["equity"] / unit_costs[ticker]) + 1)
+                    for ticker in tickers
+                ]
+                exact_reference = exact_sizer._exhaustive_best(
+                    tickers, ranges, unit_costs, {}, targets,
+                    scenario["cash"], scenario["equity"],
+                )
+                heuristic_counts = tuple(
+                    next((plan.lots for plan in heuristic_plans if plan.ticker == ticker), 0)
+                    for ticker in tickers
+                )
+                heuristic_result = heuristic_sizer._evaluate(
+                    heuristic_counts, tickers, unit_costs, {}, targets,
+                    scenario["cash"], scenario["equity"],
+                )
+                self.assertIsNotNone(exact_reference)
+                self.assertIsNotNone(heuristic_result)
+                # A heuristic may be suboptimal, but these bounded small cases
+                # should remain within 10% of the exact objective.
+                self.assertGreaterEqual(
+                    heuristic_result[0],
+                    exact_reference[0] * 0.90,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
