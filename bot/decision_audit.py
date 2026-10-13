@@ -25,10 +25,15 @@ class DecisionAuditStore:
                     virtual_commission REAL NOT NULL DEFAULT 0, realized_pnl REAL NOT NULL DEFAULT 0,
                     equity REAL NOT NULL, cash REAL NOT NULL, total_commissions REAL NOT NULL,
                     anchor_price REAL, anchor_session_date TEXT,
+                    execution_reason TEXT NOT NULL DEFAULT '',
+                    entry_price REAL, execution_price REAL,
                     UNIQUE(cycle_id, ticker))
             """)
             self._ensure_column(db, "decision_audit", "anchor_price", "REAL")
             self._ensure_column(db, "decision_audit", "anchor_session_date", "TEXT")
+            self._ensure_column(db, "decision_audit", "execution_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(db, "decision_audit", "entry_price", "REAL")
+            self._ensure_column(db, "decision_audit", "execution_price", "REAL")
             db.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_ticker ON decision_audit(ticker, recorded_at)")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS market_session_prices (
@@ -113,14 +118,18 @@ class DecisionAuditStore:
                 sum(int(t.quantity) for t in trades), sum(float(t.commission) for t in trades),
                 sum(float(t.realized_pnl) for t in trades), float(equity), float(cash),
                 float(total_commissions), anchor_price, anchor_date,
+                " | ".join(str(getattr(t, "reason", "not recorded")) for t in trades),
+                next((float(t.entry_price) for t in trades if getattr(t, "entry_price", None) is not None), None),
+                trades[-1].price if trades else None,
             ))
         with self._connect() as db:
             db.executemany("""
                 INSERT INTO decision_audit (
                     cycle_id, recorded_at, ticker, recommendation, reason, score, confidence,
                     consistency, virtual_action, virtual_quantity, virtual_commission, realized_pnl,
-                    equity, cash, total_commissions, anchor_price, anchor_session_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    equity, cash, total_commissions, anchor_price, anchor_session_date,
+                    execution_reason, entry_price, execution_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cycle_id, ticker) DO NOTHING
             """, rows)
             for ticker, candles in candle_history.items():
