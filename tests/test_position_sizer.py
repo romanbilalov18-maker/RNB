@@ -113,5 +113,99 @@ class TestPositionSizer(unittest.TestCase):
         exact.assert_called_once()
 
 
+    def test_heuristic_respects_constraints_and_is_compared_with_exact_reference(self):
+        analyses = [
+            SimpleNamespace(ticker="A", volatility=0.08),
+            SimpleNamespace(ticker="B", volatility=0.12),
+            SimpleNamespace(ticker="C", volatility=0.20),
+        ]
+        prices = {"A": 73.0, "B": 121.0, "C": 189.0}
+        lot_sizes = {"A": 2, "B": 1, "C": 1}
+        cash = 2_000.0
+        equity = 5_000.0
+        commission_rate = 0.002
+        max_weight = 0.35
+
+        exact_sizer = PositionSizer(
+            commission_rate=commission_rate,
+            max_position_weight=max_weight,
+        )
+        exact_plans = exact_sizer.plan(
+            cash=cash,
+            analyses=analyses,
+            prices=prices,
+            lot_sizes=lot_sizes,
+            existing_values={"OLD": 1_000.0},
+            total_equity=equity,
+        )
+
+        heuristic_sizer = PositionSizer(
+            commission_rate=commission_rate,
+            max_position_weight=max_weight,
+        )
+        with patch.object(PositionSizer, "EXACT_SEARCH_LIMIT", 1):
+            heuristic_plans = heuristic_sizer.plan(
+                cash=cash,
+                analyses=analyses,
+                prices=prices,
+                lot_sizes=lot_sizes,
+                existing_values={"OLD": 1_000.0},
+                total_equity=equity,
+            )
+
+        self.assertTrue(exact_plans)
+        self.assertTrue(heuristic_plans)
+        self.assertLessEqual(
+            sum(plan.total_cost for plan in heuristic_plans),
+            cash + 1e-9,
+        )
+        self.assertLessEqual(
+            max(plan.actual_weight for plan in heuristic_plans),
+            max_weight + 1e-9,
+        )
+        self.assertTrue(all(plan.lots >= 1 for plan in heuristic_plans))
+        self.assertTrue(all(
+            plan.quantity == plan.lots * plan.lot_size
+            for plan in heuristic_plans
+        ))
+
+        # Compare allocations using the same objective inputs. The heuristic
+        # is not required to match the exact optimum, but its result must be
+        # feasible and its objective cannot exceed the exact reference.
+        tickers = [analysis.ticker for analysis in analyses]
+        targets = PositionSizer._target_weights(analyses)
+        unit_costs = {
+            ticker: prices[ticker] * lot_sizes[ticker] * (1 + commission_rate)
+            for ticker in tickers
+        }
+        existing_values = {"OLD": 1_000.0}
+        exact_counts = tuple(
+            next((p.lots for p in exact_plans if p.ticker == ticker), 0)
+            for ticker in tickers
+        )
+        heuristic_counts = tuple(
+            next((p.lots for p in heuristic_plans if p.ticker == ticker), 0)
+            for ticker in tickers
+        )
+        ranges = [
+            range(max(0, int((max_weight * equity - existing_values.get(ticker, 0))
+                             / unit_costs[ticker])) + 1)
+            for ticker in tickers
+        ]
+        exact_reference = exact_sizer._exhaustive_best(
+            tickers, ranges, unit_costs, existing_values, targets, cash, equity
+        )
+        heuristic_result = heuristic_sizer._evaluate(
+            heuristic_counts, tickers, unit_costs, existing_values, targets,
+            cash, equity,
+        )
+        self.assertIsNotNone(exact_reference)
+        self.assertIsNotNone(heuristic_result)
+        self.assertLessEqual(
+            heuristic_result[0],
+            exact_reference[0] + 1e-12,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
