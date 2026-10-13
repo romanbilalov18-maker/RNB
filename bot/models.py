@@ -26,3 +26,5 @@ class VirtualTrade:
     price: float
     commission: float
     realized_pnl: float
+    reason: str = "not recorded"
+    entry_price: float | None = None
