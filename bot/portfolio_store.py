@@ -48,7 +48,9 @@ class SQLitePortfolioStore:
                     quantity INTEGER NOT NULL,
                     price REAL NOT NULL,
                     commission REAL NOT NULL,
-                    realized_pnl REAL NOT NULL
+                    realized_pnl REAL NOT NULL,
+                    reason TEXT NOT NULL DEFAULT 'not recorded',
+                    entry_price REAL
                 );
 
                 CREATE TABLE IF NOT EXISTS equity_history (
@@ -58,6 +60,11 @@ class SQLitePortfolioStore:
                 );
                 """
             )
+            trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
+            if "reason" not in trade_columns:
+                db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
+            if "entry_price" not in trade_columns:
+                db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
 
     def load_or_create(
         self,
@@ -102,6 +109,8 @@ class SQLitePortfolioStore:
                         price=trade["price"],
                         commission=trade["commission"],
                         realized_pnl=trade["realized_pnl"],
+                        reason=trade["reason"],
+                        entry_price=trade["entry_price"],
                     )
                 )
 
@@ -161,8 +170,8 @@ class SQLitePortfolioStore:
                 """
                 INSERT INTO trades
                     (timestamp, ticker, side, quantity, price,
-                     commission, realized_pnl)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     commission, realized_pnl, reason, entry_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -173,6 +182,8 @@ class SQLitePortfolioStore:
                         trade.price,
                         trade.commission,
                         trade.realized_pnl,
+                        trade.reason,
+                        trade.entry_price,
                     )
                     for trade in portfolio.trades
                 ],
