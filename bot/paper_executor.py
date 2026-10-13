@@ -20,6 +20,7 @@ class PaperExecutor:
         portfolio: VirtualPortfolio,
         scan: LiveScanResult,
         eligible_buy_tickers: set[str] | None = None,
+        eligible_buy_reasons: dict[str, str] | None = None,
     ) -> tuple[list, list]:
         decisions = self.position_manager.evaluate(
             portfolio,
@@ -89,6 +90,9 @@ class PaperExecutor:
                     quantity=plan.quantity,
                     price=plan.price,
                     timestamp=datetime.now(timezone.utc),
+                    reason=(eligible_buy_reasons or {}).get(
+                        plan.ticker, "BUY accepted by PositionSizer"
+                    ),
                 )
             )
 
