@@ -120,7 +120,7 @@ class DecisionAuditStore:
                 float(total_commissions), anchor_price, anchor_date,
                 " | ".join(str(getattr(t, "reason", "not recorded")) for t in trades),
                 next((float(t.entry_price) for t in trades if getattr(t, "entry_price", None) is not None), None),
-                trades[-1].price if trades else None,
+                getattr(trades[-1], "price", None) if trades else None,
             ))
         with self._connect() as db:
             db.executemany("""
