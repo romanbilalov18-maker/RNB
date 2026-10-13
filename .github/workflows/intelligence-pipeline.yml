@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - "bot/intelligence/**"
+      - "tests/test_paper_cycle_persistence.py"
       - ".github/workflows/intelligence-pipeline.yml"
   pull_request:
     branches:
       - main
     paths:
       - "bot/intelligence/**"
+      - "tests/test_paper_cycle_persistence.py"
       - ".github/workflows/intelligence-pipeline.yml"
   workflow_dispatch:
 
@@ -29,8 +31,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      # This pipeline test uses the local intelligence modules and synthetic market data.
-      # Keep it independent of the T-Bank package index; SDK installation belongs in
-      # the separate live T-Invest smoke test.
+      # These tests use local intelligence modules and synthetic market data.
+      # Keep them independent of the T-Bank package index; SDK installation belongs
+      # in the separate live T-Invest smoke test.
       - name: Run standalone Pipeline test
         run: python -m unittest bot.intelligence.tests.pipeline.test_intelligence_pipeline -v
+
+      - name: Run paper cycle and persistence integration tests
+        run: python -m unittest discover -s tests -p 'test_paper_cycle_persistence.py' -v
