@@ -38,4 +38,4 @@ jobs:
         run: python -m unittest bot.intelligence.tests.pipeline.test_intelligence_pipeline -v
 
       - name: Run paper cycle and persistence integration tests
-        run: python -m unittest tests.test_paper_cycle_persistence -v
+        run: python -m unittest discover -s tests -p 'test_paper_cycle_persistence.py' -v
