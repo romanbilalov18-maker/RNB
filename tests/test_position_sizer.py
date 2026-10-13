@@ -207,5 +207,70 @@ class TestPositionSizer(unittest.TestCase):
         )
 
 
+    def test_heuristic_handles_tight_cash_commission_and_existing_positions(self):
+        scenarios = [
+            {
+                "cash": 250.0,
+                "equity": 1_000.0,
+                "prices": {"A": 48.0, "B": 79.0, "C": 120.0},
+                "lot_sizes": {"A": 1, "B": 1, "C": 1},
+                "existing_positions": set(),
+                "existing_values": {},
+                "commission_rate": 0.01,
+                "max_weight": 0.35,
+            },
+            {
+                "cash": 600.0,
+                "equity": 2_000.0,
+                "prices": {"A": 50.0, "B": 75.0, "C": 110.0},
+                "lot_sizes": {"A": 2, "B": 1, "C": 1},
+                "existing_positions": {"A"},
+                "existing_values": {"A": 500.0},
+                "commission_rate": 0.005,
+                "max_weight": 0.35,
+            },
+        ]
+
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                analyses = [
+                    SimpleNamespace(ticker="A", volatility=0.08),
+                    SimpleNamespace(ticker="B", volatility=0.15),
+                    SimpleNamespace(ticker="C", volatility=0.25),
+                ]
+                sizer = PositionSizer(
+                    commission_rate=scenario["commission_rate"],
+                    max_position_weight=scenario["max_weight"],
+                )
+                with patch.object(PositionSizer, "EXACT_SEARCH_LIMIT", 1):
+                    plans = sizer.plan(
+                        cash=scenario["cash"],
+                        analyses=analyses,
+                        prices=scenario["prices"],
+                        lot_sizes=scenario["lot_sizes"],
+                        existing_positions=scenario["existing_positions"],
+                        existing_values=scenario["existing_values"],
+                        total_equity=scenario["equity"],
+                    )
+
+                self.assertLessEqual(
+                    sum(plan.total_cost for plan in plans),
+                    scenario["cash"] + 1e-9,
+                )
+                self.assertNotIn(
+                    "A" if "A" in scenario["existing_positions"] else "__none__",
+                    {plan.ticker for plan in plans},
+                )
+                self.assertTrue(all(plan.lots >= 1 for plan in plans))
+                self.assertTrue(all(
+                    plan.quantity == plan.lots * plan.lot_size
+                    for plan in plans
+                ))
+                self.assertTrue(all(
+                    plan.actual_weight <= scenario["max_weight"] + 1e-9
+                    for plan in plans
+                ))
+
+
 if __name__ == "__main__":
     unittest.main()
