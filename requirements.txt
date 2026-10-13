@@ -1,1 +1,2 @@
-t-tech-investments==1.51.0
+# Official T-Invest SDK wheel hosted by the vendor's GitHub organization while opensource.tbank.ru is unavailable.
+https://github.com/Invest-SDK/invest-python/raw/refs/heads/master/t_tech_investments-1.51.0-py3-none-any.whl

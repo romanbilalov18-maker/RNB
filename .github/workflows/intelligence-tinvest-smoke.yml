@@ -16,43 +16,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Diagnose official T-Bank package index
-        run: |
-          python - <<'PY'
-          import urllib.error
-          import urllib.request
-
-          url = "https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple/t-tech-investments/"
-          try:
-              request = urllib.request.Request(url, method="GET")
-              with urllib.request.urlopen(request, timeout=12) as response:
-                  print(f"TBANK_INDEX_HTTP_STATUS={response.status}")
-          except (urllib.error.URLError, TimeoutError, OSError) as exc:
-              print(f"TBANK_INDEX_CONNECTIVITY_ERROR={type(exc).__name__}: {exc}")
-          PY
-
-      - name: Install dependencies from official T-Bank index
+      - name: Install T-Invest SDK and dependencies
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: "1"
         run: |
-          python -m pip install --upgrade pip --retries 1 --timeout 15
-          for attempt in 1 2 3; do
-            echo "Official T-Bank SDK install attempt ${attempt}/3"
-            if python -m pip install \
-              --retries 1 \
-              --timeout 15 \
-              --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple \
-              -r requirements.txt; then
-              python -c "from t_tech.invest import Client; print('TINVEST_SDK_IMPORT_OK')"
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              sleep "$((attempt * 5))"
-            fi
-          done
-          echo "ERROR: Official T-Bank package index is unreachable or the required package is unavailable."
-          echo "No unverified SDK mirror was used."
-          exit 1
+          python -m pip install --upgrade pip --retries 1 --timeout 30
+          python -m pip install --retries 2 --timeout 30 -r requirements.txt
+          python -c "from t_tech.invest import Client; print('TINVEST_SDK_IMPORT_OK')"
 
       - name: Verify token is configured
         env:
