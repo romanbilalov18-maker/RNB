@@ -23,7 +23,9 @@ def main() -> None:
         raise ValueError("CYCLE_INTERVAL_MINUTES must not exceed RUN_DURATION_MINUTES")
 
     store = SQLitePortfolioStore(config.portfolio_db_path)
-    audit_store = DecisionAuditStore("data/decision_audit.sqlite")
+    audit_store = DecisionAuditStore(
+        os.getenv("DECISION_AUDIT_DB", "data/decision_audit.sqlite")
+    )
     portfolio = store.load_or_create(
         initial_balance=config.initial_virtual_balance,
         commission_rate=config.commission_rate,

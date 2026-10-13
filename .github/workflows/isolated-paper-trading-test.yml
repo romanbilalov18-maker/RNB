@@ -1,0 +1,81 @@
+name: Isolated Paper Trading Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "Maximum runtime in minutes (1-5)"
+        required: true
+        default: "1"
+        type: string
+      interval_minutes:
+        description: "Interval between cycles in minutes"
+        required: true
+        default: "1"
+        type: string
+
+jobs:
+  paper-trading:
+    name: Real Market Data + Isolated Virtual Portfolio
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+      RUN_DURATION_MINUTES: ${{ inputs.duration_minutes }}
+      CYCLE_INTERVAL_MINUTES: ${{ inputs.interval_minutes }}
+      VIRTUAL_INITIAL_BALANCE: "10000"
+      VIRTUAL_COMMISSION_RATE: "0.0005"
+      TAKE_PROFIT_PERCENT: "0.15"
+      VIRTUAL_PORTFOLIO_DB: data/paper_test/virtual_portfolio.sqlite3
+      DECISION_AUDIT_DB: data/paper_test/decision_audit.sqlite
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --retries 1 --timeout 30
+          python -m pip install --retries 2 --timeout 30 -r requirements.txt
+
+      - name: Verify token is configured
+        run: |
+          if [ -z "$INVEST_TOKEN" ]; then
+            echo "ERROR: GitHub secret INVEST_TOKEN is empty or missing."
+            exit 1
+          fi
+          echo "INVEST_TOKEN_CONFIGURED=1"
+
+      - name: Validate short test settings
+        run: |
+          python - <<'PY'
+          import os
+          duration = float(os.environ["RUN_DURATION_MINUTES"])
+          interval = float(os.environ["CYCLE_INTERVAL_MINUTES"])
+          if not (0 < duration <= 5):
+              raise SystemExit("duration_minutes must be between 0 and 5")
+          if not (0 < interval <= duration):
+              raise SystemExit("interval_minutes must be positive and no greater than duration_minutes")
+          print(f"TEST_RUNTIME_MINUTES={duration:g}")
+          print(f"CYCLE_INTERVAL_MINUTES={interval:g}")
+          print("EXECUTION_MODE=PAPER_ONLY")
+          print(f"PORTFOLIO_DB={os.environ['VIRTUAL_PORTFOLIO_DB']}")
+          print(f"DECISION_AUDIT_DB={os.environ['DECISION_AUDIT_DB']}")
+          PY
+
+      - name: Run isolated paper trading cycle
+        run: python -u -m bot.main
+
+      - name: Upload isolated paper test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-paper-trading-results
+          path: data/paper_test/
+          if-no-files-found: warn
+          retention-days: 14
