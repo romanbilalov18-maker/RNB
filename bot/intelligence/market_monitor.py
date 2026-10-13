@@ -35,7 +35,10 @@ def _record(analysis, result, current_price: float, timestamp: str) -> dict:
         "timestamp": timestamp,
         "symbol": analysis.ticker,
         "price": float(current_price),
+        # Backward-compatible field name; this is the change from the
+        # snapshot's previous_price, not necessarily the exchange's daily change.
         "daily_change": float(change) if change is not None else None,
+        "price_change_from_previous": float(change) if change is not None else None,
         "intelligence": float(result.overall_score),
         "confidence": float(result.overall_confidence),
         "consistency": float(result.overall_consistency),
@@ -53,6 +56,7 @@ def run_monitor(
     output_path: str = "data/intelligence_monitor.jsonl",
     sleep_fn=time.sleep,
     run_fn=run_real_market_intelligence,
+    clock_fn=time.monotonic,
 ) -> int:
     if not token.strip():
         raise ValueError("T-Invest token is required")
@@ -70,6 +74,7 @@ def run_monitor(
     total_records = 0
 
     for cycle in range(cycles):
+        cycle_started = clock_fn()
         timestamp = datetime.now(timezone.utc).isoformat()
         results = run_fn(token, limit=limit)
         if not results:
@@ -83,7 +88,7 @@ def run_monitor(
                         ensure_ascii=False,
                         sort_keys=True,
                     )
-                    + "\n"
+                    + "\\n"
                 )
                 total_records += 1
 
@@ -93,7 +98,10 @@ def run_monitor(
         )
 
         if cycle + 1 < cycles:
-            sleep_fn(interval_minutes * 60)
+            # Keep scan start times approximately interval_minutes apart,
+            # accounting for time spent fetching and analyzing market data.
+            elapsed = max(0.0, clock_fn() - cycle_started)
+            sleep_fn(max(0.0, interval_minutes * 60 - elapsed))
 
     return total_records
 
