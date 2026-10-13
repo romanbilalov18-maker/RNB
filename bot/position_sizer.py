@@ -20,7 +20,16 @@ class PositionPlan:
 
 
 class PositionSizer:
-    """Size new virtual positions against the whole portfolio."""
+    """Size new virtual positions against the whole portfolio.
+
+    Small search spaces use the original exhaustive optimizer. Large spaces
+    use a bounded deterministic greedy/local-search optimizer to avoid the
+    Cartesian-product explosion. The heuristic preserves the same feasibility
+    checks and objective, but may choose a different allocation for large
+    cases; small cases remain exact and are used as regression references.
+    """
+
+    EXACT_SEARCH_LIMIT = 100_000
 
     def __init__(
         self,
@@ -84,47 +93,19 @@ class PositionSizer:
             )
             max_lots[ticker] = max(0, int(capacity / unit_costs[ticker]))
 
-        best = None
         ranges = [range(max_lots[ticker] + 1) for ticker in tickers]
+        combinations = math.prod(len(values) for values in ranges)
 
-        for lot_counts in product(*ranges):
-            invested = sum(
-                lots * unit_costs[ticker]
-                for ticker, lots in zip(tickers, lot_counts)
+        if combinations <= self.EXACT_SEARCH_LIMIT:
+            best = self._exhaustive_best(
+                tickers, ranges, unit_costs, existing_values, targets,
+                cash, total_equity,
             )
-            if invested <= 0 or invested > cash + 1e-9:
-                continue
-
-            portfolio_value = total_equity
-            weights = {
-                ticker: (
-                    existing_values.get(ticker, 0.0)
-                    + lots * unit_costs[ticker]
-                ) / portfolio_value
-                for ticker, lots in zip(tickers, lot_counts)
-            }
-
-            if any(
-                weight > self.max_position_weight + 1e-9
-                for weight in weights.values()
-            ):
-                continue
-
-            new_value_weights = {
-                ticker: lots * unit_costs[ticker] / invested
-                if invested > 0 else 0.0
-                for ticker, lots in zip(tickers, lot_counts)
-            }
-            deviation = sum(
-                (new_value_weights[ticker] - targets[ticker]) ** 2
-                for ticker in tickers
+        else:
+            best = self._heuristic_best(
+                tickers, max_lots, unit_costs, existing_values, targets,
+                cash, total_equity,
             )
-            utilization = invested / cash
-            objective = utilization - 0.50 * deviation
-            candidate = (objective, invested, lot_counts, weights)
-
-            if best is None or candidate[:2] > best[:2]:
-                best = candidate
 
         if best is None:
             return []
@@ -158,6 +139,111 @@ class PositionSizer:
             )
 
         return plans
+
+    def _evaluate(
+        self, lot_counts, tickers, unit_costs, existing_values, targets,
+        cash, total_equity,
+    ):
+        invested = sum(
+            lots * unit_costs[ticker]
+            for ticker, lots in zip(tickers, lot_counts)
+        )
+        if invested <= 0 or invested > cash + 1e-9:
+            return None
+
+        weights = {
+            ticker: (
+                existing_values.get(ticker, 0.0) + lots * unit_costs[ticker]
+            ) / total_equity
+            for ticker, lots in zip(tickers, lot_counts)
+        }
+        if any(
+            weight > self.max_position_weight + 1e-9
+            for weight in weights.values()
+        ):
+            return None
+
+        deviation = sum(
+            (
+                lots * unit_costs[ticker] / invested - targets[ticker]
+            ) ** 2
+            for ticker, lots in zip(tickers, lot_counts)
+        )
+        objective = invested / cash - 0.50 * deviation
+        return objective, invested, tuple(lot_counts), weights
+
+    def _exhaustive_best(
+        self, tickers, ranges, unit_costs, existing_values, targets,
+        cash, total_equity,
+    ):
+        best = None
+        for lot_counts in product(*ranges):
+            candidate = self._evaluate(
+                lot_counts, tickers, unit_costs, existing_values, targets,
+                cash, total_equity,
+            )
+            if candidate is not None and (
+                best is None or candidate[:2] > best[:2]
+            ):
+                best = candidate
+        return best
+
+    def _heuristic_best(
+        self, tickers, max_lots, unit_costs, existing_values, targets,
+        cash, total_equity,
+    ):
+        counts = [0] * len(tickers)
+        best = None
+
+        # Greedily add feasible lots, choosing the best resulting objective.
+        # Every accepted state respects cash and concentration constraints.
+        while True:
+            next_best = None
+            for index, ticker in enumerate(tickers):
+                if counts[index] >= max_lots[ticker]:
+                    continue
+                trial = counts.copy()
+                trial[index] += 1
+                candidate = self._evaluate(
+                    trial, tickers, unit_costs, existing_values, targets,
+                    cash, total_equity,
+                )
+                if candidate is not None and (
+                    next_best is None or candidate[:2] > next_best[:2]
+                ):
+                    next_best = candidate
+            if next_best is None:
+                break
+            counts = list(next_best[2])
+            best = next_best
+
+        if best is None:
+            return None
+
+        # Improve the greedy allocation through one-lot transfers. The finite
+        # state space and strict objective improvement prevent cycling.
+        while True:
+            improved = best
+            current = list(best[2])
+            for source, source_ticker in enumerate(tickers):
+                if current[source] <= 0:
+                    continue
+                for destination, destination_ticker in enumerate(tickers):
+                    if source == destination or current[destination] >= max_lots[destination_ticker]:
+                        continue
+                    trial = current.copy()
+                    trial[source] -= 1
+                    trial[destination] += 1
+                    candidate = self._evaluate(
+                        trial, tickers, unit_costs, existing_values, targets,
+                        cash, total_equity,
+                    )
+                    if candidate is not None and candidate[:2] > improved[:2]:
+                        improved = candidate
+            if improved[:2] <= best[:2]:
+                break
+            best = improved
+        return best
 
     @staticmethod
     def _target_weights(analyses) -> dict[str, float]:
