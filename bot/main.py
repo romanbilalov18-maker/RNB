@@ -257,14 +257,16 @@ def _print_cycle_result(
         print(
             f"- SELL {trade.ticker}: quantity={trade.quantity}, "
             f"price={trade.price:.2f}, commission={trade.commission:.2f}, "
-            f"P&L={trade.realized_pnl:.2f}"
+            f"entry_price={trade.entry_price if trade.entry_price is not None else 'unknown'}, "
+            f"reason={trade.reason}, P&L={trade.realized_pnl:.2f}"
         )
 
     print("Virtual BUY trades this cycle:")
     for trade in buy_trades:
         print(
             f"- BUY {trade.ticker}: quantity={trade.quantity}, "
-            f"price={trade.price:.2f}, commission={trade.commission:.2f}"
+            f"price={trade.price:.2f}, commission={trade.commission:.2f}, "
+            f"reason={trade.reason}"
         )
 
 
