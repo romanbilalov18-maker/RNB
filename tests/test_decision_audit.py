@@ -66,5 +66,52 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual([r["direction_correct"] for r in outcomes], [1, 0, 1])
             self.assertEqual(store.pending_tickers(), set())
 
+    def test_ignores_incomplete_current_daily_candle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            today = datetime.now(timezone.utc).date().isoformat()
+            yesterday = (datetime.now(timezone.utc).date() - __import__("datetime").timedelta(days=1)).isoformat()
+            history = [candle(yesterday, 100), candle(today, 999)]
+            store.record_cycle(
+                "cycle-current",
+                {"AAA": SimpleNamespace(action="BUY", reason="test")},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": history},
+            )
+            with store._connect() as db:
+                anchor = db.execute(
+                    "SELECT anchor_price, anchor_session_date FROM decision_audit"
+                ).fetchone()
+                prices = db.execute(
+                    "SELECT session_date, close_price FROM market_session_prices ORDER BY session_date"
+                ).fetchall()
+            self.assertEqual(anchor["anchor_price"], 100)
+            self.assertEqual(anchor["anchor_session_date"], yesterday)
+            self.assertEqual([(row["session_date"], row["close_price"]) for row in prices], [(yesterday, 100)])
+
+    def test_wait_outcomes_are_not_counted_as_directional_predictions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            base = datetime.now(timezone.utc).date()
+            history = [
+                candle((base - __import__("datetime").timedelta(days=7-i)).isoformat(), 100+i)
+                for i in range(7)
+            ]
+            store.record_cycle(
+                "wait-anchor",
+                {"AAA": SimpleNamespace(action="WAIT", reason="no signal")},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": history},
+            )
+            summary = store.summary()
+            self.assertTrue(summary["forward_outcomes"])
+            self.assertTrue(all(row["scored"] == 0 for row in summary["forward_outcomes"]))
+
 if __name__ == "__main__":
     unittest.main()
