@@ -60,12 +60,18 @@ def main() -> None:
                 ticker for ticker, decision in decisions.items()
                 if decision.action == "BUY"
             }
+            eligible_buy_reasons = {
+                ticker: decision.reason
+                for ticker, decision in decisions.items()
+                if decision.action == "BUY"
+            }
             sell_trades, buy_trades = PaperExecutor(
                 take_profit=config.take_profit_percent / 100.0
             ).execute(
                 portfolio,
                 result,
                 eligible_buy_tickers=eligible_buy_tickers,
+                eligible_buy_reasons=eligible_buy_reasons,
             )
 
             equity = portfolio.equity(result.current_prices)
