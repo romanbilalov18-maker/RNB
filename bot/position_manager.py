@@ -125,6 +125,7 @@ class PositionManager:
                     quantity=position.quantity,
                     price=price,
                     timestamp=timestamp,
+                    reason=decision.reason,
                 )
             )
 
