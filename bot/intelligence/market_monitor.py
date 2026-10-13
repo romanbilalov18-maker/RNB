@@ -88,7 +88,7 @@ def run_monitor(
                         ensure_ascii=False,
                         sort_keys=True,
                     )
-                    + "\\n"
+                    + "\n"
                 )
                 total_records += 1
 
