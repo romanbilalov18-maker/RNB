@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping
 
@@ -81,6 +81,27 @@ class DecisionAuditStore:
         return None
 
     @staticmethod
+    def _is_completed_daily_candle(candle: object, now: datetime | None = None) -> bool:
+        """Return whether a daily candle is safely beyond its full 24-hour interval."""
+        now = now or datetime.now(timezone.utc)
+        value = getattr(candle, "time", None) or getattr(candle, "timestamp", None)
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                try:
+                    value = date.fromisoformat(value[:10])
+                except ValueError:
+                    return False
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc) + timedelta(days=1) <= now
+        if isinstance(value, date):
+            return value < now.date()
+        return False
+
+    @staticmethod
     def _price(value: object) -> float | None:
         if value is None:
             return None
@@ -106,8 +127,12 @@ class DecisionAuditStore:
         rows, now = [], datetime.now(timezone.utc).isoformat()
         for ticker in sorted(set(decisions) | set(actions)):
             decision, trades = decisions.get(ticker), actions.get(ticker, [])
-            candles = candle_history.get(ticker, [])
-            # Anchor to the latest completed daily close so price and session date agree.
+            candles = [
+                candle for candle in candle_history.get(ticker, [])
+                if self._is_completed_daily_candle(candle)
+            ]
+            # Exclude the current, potentially incomplete daily candle from both
+            # the anchor and the forward-outcome price series.
             anchor_date = self._session_date(candles[-1]) if candles else None
             anchor_price = self._price(getattr(candles[-1], "close", None)) if candles else None
             rows.append((
@@ -130,10 +155,14 @@ class DecisionAuditStore:
                     equity, cash, total_commissions, anchor_price, anchor_session_date,
                     execution_reason, entry_price, execution_price)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(cycle_id, ticker) DO NOTHING
+                ON CONFLICT(cycle_id, ticker) DO UPDATE SET
+                    anchor_price=COALESCE(decision_audit.anchor_price, excluded.anchor_price),
+                    anchor_session_date=COALESCE(decision_audit.anchor_session_date, excluded.anchor_session_date)
             """, rows)
-            for ticker, candles in candle_history.items():
-                for candle in candles:
+            for ticker, raw_candles in candle_history.items():
+                for candle in raw_candles:
+                    if not self._is_completed_daily_candle(candle):
+                        continue
                     session = self._session_date(candle)
                     close = self._price(getattr(candle, "close", None))
                     if session and close:
@@ -184,9 +213,9 @@ class DecisionAuditStore:
             rows = db.execute("""
                 SELECT DISTINCT a.ticker
                 FROM decision_audit AS a
-                WHERE a.anchor_price IS NOT NULL
-                  AND a.anchor_session_date IS NOT NULL
-                  AND EXISTS (
+                WHERE (
+                  a.anchor_price IS NULL OR a.anchor_session_date IS NULL
+                  OR EXISTS (
                       SELECT 1 FROM (
                           SELECT 1 AS horizon UNION ALL SELECT 3 UNION ALL SELECT 5
                       ) AS required
@@ -196,6 +225,7 @@ class DecisionAuditStore:
                             AND o.horizon_sessions = required.horizon
                       )
                   )
+                )
             """).fetchall()
         return {str(row["ticker"]) for row in rows}
 
