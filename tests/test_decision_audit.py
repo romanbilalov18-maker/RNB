@@ -96,7 +96,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
             base = datetime.now(timezone.utc).date()
-            history = [
+            days = [
                 candle((base - __import__("datetime").timedelta(days=7-i)).isoformat(), 100+i)
                 for i in range(7)
             ]
@@ -107,10 +107,19 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 equity=1000,
                 cash=1000,
                 total_commissions=0,
-                candle_history={"AAA": history},
+                candle_history={"AAA": days[:1]},
+            )
+            store.record_cycle(
+                "wait-followup",
+                {},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": days},
             )
             summary = store.summary()
-            self.assertTrue(summary["forward_outcomes"])
+            self.assertEqual([row["horizon_sessions"] for row in summary["forward_outcomes"]], [1, 3, 5])
             self.assertTrue(all(row["scored"] == 0 for row in summary["forward_outcomes"]))
 
 if __name__ == "__main__":
