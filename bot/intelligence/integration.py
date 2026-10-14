@@ -122,6 +122,8 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
             "average_price": float(getattr(position, "average_price", 0.0)),
             "market_value": float(market_price or 0.0) * int(getattr(position, "quantity", 0)),
             "sector": getattr(scan, "sector_by_ticker", {}).get(symbol),
+            "historical_return_dates": list(sorted(_returns_by_date(getattr(scan, "candle_history", {}).get(symbol, ())))),
+            "historical_returns": [value for _, value in sorted(_returns_by_date(getattr(scan, "candle_history", {}).get(symbol, ())).items())],
         })
 
     return MarketSnapshot(
@@ -151,6 +153,7 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         peer_return=peer_return,
         peer_count=len(sector_changes),
         historical_returns=tuple(own_returns[day] for day in sorted(own_returns)),
+        historical_return_dates=tuple(sorted(own_returns)),
         market_return_history=market_history,
         correlation_asset_returns=correlation_asset_returns,
         sector_return_history=sector_history,
