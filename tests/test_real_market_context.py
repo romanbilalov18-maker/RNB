@@ -81,6 +81,21 @@ class RealMarketContextTests(unittest.TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertIn("cross_asset_history_insufficient", result.warnings)
 
+    def test_concentration_confidence_drops_when_a_position_cannot_be_valued(self):
+        snapshot = MarketSnapshot(
+            symbol="AAA",
+            price=101.0,
+            portfolio_context_available=True,
+            portfolio_positions=(
+                {"symbol": "HELD", "market_value": 500.0, "market_value_available": True},
+                {"symbol": "MISSING", "market_value": 0.0, "market_value_available": False},
+            ),
+        )
+        result = concentration_risk.analyze(snapshot, SimpleNamespace())
+        self.assertAlmostEqual(result.metrics["valuation_coverage"], 0.5)
+        self.assertAlmostEqual(result.confidence, 0.25)
+        self.assertIn("some_position_market_values_unavailable", result.warnings)
+
     def test_confirmed_empty_portfolio_is_not_mistaken_for_missing_context(self):
         snapshot = MarketSnapshot(
             symbol="AAA",
