@@ -325,14 +325,19 @@ class DecisionAuditStore:
         }
 
     def pending_tickers(self) -> set[str]:
-        """Tickers whose recorded decisions still lack one or more forward horizons."""
+        """Tickers with valid anchors that still need one or more forward horizons.
+
+        Legacy rows without decision-time prices cannot be scored safely. Exclude
+        them rather than tracking their tickers forever and repeatedly fetching
+        history that cannot repair the missing anchor.
+        """
         with self._connect() as db:
             rows = db.execute("""
                 SELECT DISTINCT a.ticker
                 FROM decision_audit AS a
-                WHERE (
-                  a.anchor_price IS NULL OR a.anchor_session_date IS NULL
-                  OR EXISTS (
+                WHERE a.anchor_price IS NOT NULL
+                  AND a.anchor_session_date IS NOT NULL
+                  AND EXISTS (
                       SELECT 1 FROM (
                           SELECT 1 AS horizon UNION ALL SELECT 3 UNION ALL SELECT 5
                       ) AS required
@@ -342,7 +347,6 @@ class DecisionAuditStore:
                             AND o.horizon_sessions = required.horizon
                       )
                   )
-                )
             """).fetchall()
         return {str(row["ticker"]) for row in rows}
 
