@@ -13,7 +13,7 @@ def analyze(snapshot: MarketSnapshot) -> tuple[AnalyzerResult, ...]:
 
 def aggregate(results: tuple[AnalyzerResult, ...]) -> float:
     """Average only analyzers backed by available source data."""
-    observed = [result for result in results if result.confidence > 0]
+    observed = [result for result in results if result.confidence > 0 and result.analyzer != "data_quality"]
     if not observed:
         return 0.0
     return sum(result.score * result.confidence for result in observed) / sum(result.confidence for result in observed)
