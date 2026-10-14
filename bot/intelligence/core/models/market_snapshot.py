@@ -45,6 +45,8 @@ class MarketSnapshot:
     peer_return_history: tuple[float, ...] = ()
     historical_volume_ratios: tuple[float, ...] = ()
     portfolio_positions: tuple[dict, ...] = ()
+    # Distinguishes a known empty portfolio from a missing portfolio input.
+    portfolio_context_available: bool = False
 
     def price_change(self) -> Optional[float]:
         if self.previous_price is None or self.previous_price == 0:
