@@ -300,12 +300,17 @@ def evaluate_pressure_walk_forward(
     threshold_candidates: tuple[float, ...] = (0.55, 0.65, 0.75),
     min_train_outcomes: int = 20,
 ) -> dict:
-    """Chronological train/holdout evaluation with horizon-safe split boundaries.
+    """Select a pressure threshold on training data and evaluate it on later data.
 
-    Training outcomes are retained only when their entire forward horizon ends
-    before the split. Holdout signals begin on/after the split and can use
-    earlier candles as historical context, but not as outcome labels.
+    Training outcomes are eligible only if their full forward horizon ends
+    strictly before the split. Holdout signals begin on/after the split.
     """
+    if not horizons or any(not isinstance(h, int) or h < 1 for h in horizons):
+        raise ValueError("horizons must contain positive integers")
+    if not isfinite(signal_threshold) or not 0.0 <= signal_threshold <= 1.0:
+        raise ValueError("signal_threshold must be between 0 and 1")
+    if not isfinite(round_trip_cost) or round_trip_cost < 0:
+        raise ValueError("round_trip_cost must be finite and non-negative")
     if not isfinite(train_fraction) or not 0.5 <= train_fraction <= 0.85:
         raise ValueError("train_fraction must be between 0.5 and 0.85")
     if not threshold_candidates or any(
@@ -324,9 +329,11 @@ def evaluate_pressure_walk_forward(
     bars.sort()
     if len(bars) < max(horizons) + 12:
         return {
-            "symbol": symbol, "bars": len(bars), "split_date": None,
+            "symbol": symbol,
+            "bars": len(bars),
+            "split_date": None,
             "selected_threshold": signal_threshold,
-            "baseline_threshold": signal_threshold,
+            "baseline_threshold": 0.65 if 0.65 in threshold_candidates else signal_threshold,
             "threshold_selection": {
                 "selection_source": "training outcomes only",
                 "minimum_training_outcomes": min_train_outcomes,
@@ -335,29 +342,118 @@ def evaluate_pressure_walk_forward(
                 "eligible_threshold_count": 0,
                 "fallback_used": True,
             },
-            "train": {"outcomes": [], "summary": {}},
-            "holdout": {"outcomes": [], "summary": {}},
-            "baseline_holdout": {"outcomes": [], "summary": {}},
+            "train": {"signals": 0, "outcomes": [], "summary": {}},
+            "holdout": {"signals": 0, "outcomes": [], "summary": {}},
+            "baseline_holdout": {"signals": 0, "outcomes": [], "summary": {}},
             "warnings": ["walk_forward_history_insufficient"],
             "methodology": {
-            "chronological_split": True,
-            "train_fraction": train_fraction,
-            "train_outcomes_end_before_split": True,
-            "holdout_signals_start_on_or_after_split": True,
-            "lookahead": False,
-            "regime_source": (
-                "equal_weight_scanned_universe_proxy"
-                if market_regime_by_date else "unclassified_no_market_proxy"
-            ),
-            "initial_signal_threshold": signal_threshold,
-            "threshold_candidates": list(sorted(set(threshold_candidates))),
-            "threshold_selection_uses_training_only": True,
-            "round_trip_cost": round_trip_cost,
-        },
-        "baseline_holdout": {
-            "signals": len({(item["signal_date"], item["signal"]) for item in baseline_holdout_outcomes}),
-            "outcomes": baseline_holdout_outcomes,
-            "summary": summarize(baseline_holdout_outcomes),
+                "chronological_split": True,
+                "lookahead": False,
+                "threshold_selection_uses_training_only": True,
+            },
+        }
+
+    split_index = min(len(bars) - 1, max(1, int(len(bars) * train_fraction)))
+    split_date = bars[split_index][0]
+    candidates = tuple(sorted(set(threshold_candidates)))
+    full_by_threshold = {
+        threshold: evaluate_pressure_history(
+            candles,
+            symbol=symbol,
+            horizons=horizons,
+            signal_threshold=threshold,
+            round_trip_cost=round_trip_cost,
+            market_regime_by_date=market_regime_by_date,
+        )
+        for threshold in candidates
+    }
+
+    # Tune only on outcomes whose full forward horizon is before the split.
+    threshold_scores = {}
+    train_by_threshold = {}
+    for threshold, report in full_by_threshold.items():
+        train_items = [
+            item for item in report["outcomes"] if item["outcome_date"] < split_date
+        ]
+        train_by_threshold[threshold] = train_items
+        threshold_scores[threshold] = (
+            fmean(item["net_forward_return"] for item in train_items)
+            if len(train_items) >= min_train_outcomes else None
+        )
+
+    eligible = [threshold for threshold, score in threshold_scores.items() if score is not None]
+    baseline_threshold = 0.65 if 0.65 in full_by_threshold else min(
+        candidates, key=lambda value: abs(value - 0.65)
+    )
+    selected_threshold = (
+        max(eligible, key=lambda threshold: (
+            threshold_scores[threshold], threshold == baseline_threshold
+        ))
+        if eligible else baseline_threshold
+    )
+
+    selected_report = full_by_threshold[selected_threshold]
+    train_outcomes = train_by_threshold[selected_threshold]
+    holdout_outcomes = [
+        item for item in selected_report["outcomes"] if item["signal_date"] >= split_date
+    ]
+    baseline_report = full_by_threshold[baseline_threshold]
+    baseline_holdout_outcomes = [
+        item for item in baseline_report["outcomes"] if item["signal_date"] >= split_date
+    ]
+
+    def summarize(items: list[dict]) -> dict:
+        summary = {}
+        regimes = sorted({item["market_regime"] for item in items}) or ["UNCLASSIFIED"]
+        for horizon in horizons:
+            for signal in ("BUY_PRESSURE", "SELL_PRESSURE"):
+                for regime in regimes:
+                    subset = [
+                        item for item in items
+                        if item["horizon"] == horizon
+                        and item["signal"] == signal
+                        and item["market_regime"] == regime
+                    ]
+                    summary[f"{signal.lower()}_h{horizon}_{regime.lower()}"] = {
+                        "count": len(subset),
+                        "win_rate_after_costs": (
+                            sum(item["correct_after_costs"] for item in subset) / len(subset)
+                            if subset else None
+                        ),
+                        "mean_forward_return": (
+                            fmean(item["forward_return"] for item in subset) if subset else None
+                        ),
+                        "mean_net_directional_return": (
+                            fmean(item["net_forward_return"] for item in subset) if subset else None
+                        ),
+                        "false_signal_rate": (
+                            sum(not item["correct_after_costs"] for item in subset) / len(subset)
+                            if subset else None
+                        ),
+                    }
+        return summary
+
+    warnings = list(dict.fromkeys(
+        warning
+        for report in full_by_threshold.values()
+        for warning in report["warnings"]
+    ))
+    if len(holdout_outcomes) < 30:
+        warnings.append("holdout_has_fewer_than_30_outcomes")
+
+    return {
+        "symbol": symbol,
+        "bars": len(bars),
+        "split_date": split_date,
+        "selected_threshold": selected_threshold,
+        "baseline_threshold": baseline_threshold,
+        "threshold_selection": {
+            "selection_source": "training outcomes only",
+            "minimum_training_outcomes": min_train_outcomes,
+            "scores_mean_net_directional_return": threshold_scores,
+            "selected_threshold_score": threshold_scores[selected_threshold],
+            "eligible_threshold_count": len(eligible),
+            "fallback_used": not bool(eligible),
         },
         "train": {
             "signals": len({(item["signal_date"], item["signal"]) for item in train_outcomes}),
@@ -369,10 +465,12 @@ def evaluate_pressure_walk_forward(
             "outcomes": holdout_outcomes,
             "summary": summarize(holdout_outcomes),
         },
-        "warnings": list(dict.fromkeys(
-            full["warnings"] +
-            (["holdout_has_fewer_than_30_outcomes"] if len(holdout_outcomes) < 30 else [])
-        )),
+        "baseline_holdout": {
+            "signals": len({(item["signal_date"], item["signal"]) for item in baseline_holdout_outcomes}),
+            "outcomes": baseline_holdout_outcomes,
+            "summary": summarize(baseline_holdout_outcomes),
+        },
+        "warnings": warnings,
         "methodology": {
             "chronological_split": True,
             "train_fraction": train_fraction,
@@ -383,8 +481,9 @@ def evaluate_pressure_walk_forward(
                 "equal_weight_scanned_universe_proxy"
                 if market_regime_by_date else "unclassified_no_market_proxy"
             ),
-            "horizons": list(horizons),
-            "signal_threshold": signal_threshold,
+            "initial_signal_threshold": signal_threshold,
+            "threshold_candidates": list(candidates),
+            "threshold_selection_uses_training_only": True,
             "round_trip_cost": round_trip_cost,
         },
     }
