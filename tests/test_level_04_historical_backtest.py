@@ -138,6 +138,34 @@ class Level4HistoricalBacktestTests(unittest.TestCase):
         self.assertTrue(all(item["market_regime"] == regimes[item["signal_date"]]
                             for item in report["train"]["outcomes"] + report["holdout"]["outcomes"]))
 
+    def test_threshold_is_selected_from_training_only_and_baseline_is_reported(self):
+        closes = [100.0]
+        for index in range(1, 181):
+            closes.append(closes[-1] * (1.011 if index % 6 in (0, 1, 2, 3) else 0.987))
+        report = evaluate_pressure_walk_forward(
+            make_candles(closes), symbol="TEST", horizons=(1, 3, 5),
+            signal_threshold=0.65, train_fraction=0.7,
+            threshold_candidates=(0.55, 0.65, 0.75), min_train_outcomes=10,
+        )
+        self.assertIn(report["selected_threshold"], (0.55, 0.65, 0.75))
+        self.assertEqual(report["baseline_threshold"], 0.65)
+        self.assertTrue(report["methodology"]["threshold_selection_uses_training_only"])
+        self.assertEqual(
+            set(report["threshold_selection"]["scores_mean_net_directional_return"]),
+            {0.55, 0.65, 0.75},
+        )
+        split_date = report["split_date"]
+        self.assertTrue(all(item["outcome_date"] < split_date for item in report["train"]["outcomes"]))
+        self.assertTrue(all(item["signal_date"] >= split_date for item in report["holdout"]["outcomes"]))
+        self.assertTrue(all(item["signal_date"] >= split_date for item in report["baseline_holdout"]["outcomes"]))
+
+    def test_walk_forward_rejects_invalid_threshold_candidates(self):
+        candles = make_candles([100.0 + index for index in range(40)])
+        with self.assertRaises(ValueError):
+            evaluate_pressure_walk_forward(candles, threshold_candidates=(0.5, 1.1))
+        with self.assertRaises(ValueError):
+            evaluate_pressure_walk_forward(candles, threshold_candidates=())
+
     def test_invalid_configuration_is_rejected(self):
         with self.assertRaises(ValueError):
             evaluate_pressure_history(make_candles([100.0] * 10), horizons=(0,))
