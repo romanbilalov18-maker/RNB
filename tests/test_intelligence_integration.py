@@ -93,6 +93,14 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.portfolio_positions[0]["market_value"], 297.0)
         self.assertTrue(snapshot.portfolio_context_available)
 
+    def test_does_not_fall_back_to_sector_aggregate_when_peer_prices_are_missing(self):
+        self.scan.sector_by_ticker = {"AAA": "TECH"}
+        self.scan.sector_returns = {"TECH": 0.25}
+        snapshot = build_market_snapshot(self.scan, self.scan.analyses["AAA"])
+        self.assertIsNone(snapshot.sector_return)
+        self.assertIsNone(snapshot.peer_return)
+        self.assertEqual(snapshot.peer_count, 0)
+
     def test_builds_real_market_context_from_scan_history(self):
         self.scan.market_return = 0.012
         self.scan.market_breadth = 0.64
