@@ -96,6 +96,37 @@ class RealMarketContextTests(unittest.TestCase):
         self.assertAlmostEqual(result.confidence, 0.05)
         self.assertIn("some_position_market_values_unavailable", result.warnings)
 
+    def test_diversification_confidence_reflects_missing_sector_labels(self):
+        snapshot = MarketSnapshot(
+            symbol="AAA", price=101.0, portfolio_context_available=True,
+            portfolio_positions=(
+                {"symbol": "ONE", "market_value": 400.0, "sector": "TECH"},
+                {"symbol": "TWO", "market_value": 300.0, "sector": None},
+            ),
+        )
+        result = diversification_value.analyze(snapshot, SimpleNamespace())
+        self.assertEqual(result.score, 1.0)
+        self.assertAlmostEqual(result.confidence, 0.1)
+        self.assertAlmostEqual(result.metrics["sector_coverage"], 0.5)
+        self.assertIn("some_position_sectors_unavailable", result.warnings)
+
+    def test_unknown_sector_exposure_does_not_inflate_portfolio_compatibility(self):
+        snapshot = MarketSnapshot(
+            symbol="AAA", price=101.0, sector="TECH",
+            portfolio_positions=(
+                {"symbol": "TECH1", "market_value": 500.0, "sector": "TECH"},
+                {"symbol": "UNKNOWN", "market_value": 500.0, "sector": None},
+            ),
+            portfolio_context_available=True,
+        )
+        result = portfolio_compatibility.analyze(
+            snapshot, SimpleNamespace(), SimpleNamespace()
+        )
+        self.assertEqual(result.score, 0.0)
+        self.assertAlmostEqual(result.metrics["existing_sector_weight"], 1.0)
+        self.assertAlmostEqual(result.metrics["known_sector_exposure"], 0.5)
+        self.assertIn("some_position_sectors_unavailable", result.warnings)
+
     def test_confirmed_empty_portfolio_is_not_mistaken_for_missing_context(self):
         snapshot = MarketSnapshot(
             symbol="AAA",
