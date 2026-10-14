@@ -28,6 +28,41 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.trades[0].ticker, "TEST")
 
+    def test_equity_history_tracks_market_revaluation_across_saves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("TEST", 10, 100, datetime.now(timezone.utc))
+
+            store.save(portfolio, {"TEST": 100})
+            store.save(portfolio, {"TEST": 120})
+
+            history = store.equity_history()
+            self.assertEqual(len(history), 2)
+            self.assertAlmostEqual(history[0], 9_999.0)
+            self.assertAlmostEqual(history[1], 10_199.0)
+
+            restored = store.load_or_create(20_000, 0.002)
+            self.assertAlmostEqual(restored.equity({"TEST": 120}), 10_199.0)
+            self.assertEqual(len(restored.trades), 1)
+            self.assertEqual(restored.positions["TEST"].quantity, 10)
+
+    def test_missing_market_price_does_not_append_equity_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("TEST", 1, 100, datetime.now(timezone.utc))
+            store.save(portfolio, {"TEST": 100})
+            history_before = store.equity_history()
+
+            with self.assertRaisesRegex(ValueError, "missing market price for TEST"):
+                store.save(portfolio, {})
+
+            self.assertEqual(store.equity_history(), history_before)
+            restored = store.load_or_create(10_000, 0.0005)
+            self.assertEqual(restored.positions["TEST"].quantity, 1)
+            self.assertEqual(len(restored.trades), 1)
+
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
