@@ -21,6 +21,12 @@ def _pearson(pairs: list[tuple[float, float]]) -> float | None:
 def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     positions = getattr(snapshot, "portfolio_positions", ())
     if not positions:
+        if getattr(snapshot, "portfolio_context_available", False):
+            return AnalyzerResult(
+                "correlation_risk", 0.0, 1.0,
+                {"position_count": 0, "positions_with_valid_history": 0, "weighted_absolute_correlation": 0.0},
+                ["portfolio_confirmed_empty"],
+            )
         return AnalyzerResult("correlation_risk", 0.0, 0.0, {"position_count": 0}, ["portfolio_positions_not_available"])
     candidate = dict(zip(snapshot.historical_return_dates, snapshot.historical_returns))
     correlations = []
