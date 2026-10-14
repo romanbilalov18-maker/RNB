@@ -46,7 +46,7 @@ def _returns_by_date(candles) -> dict[str, float]:
     return result
 
 
-def _aligned_peer_history(scan, ticker: str, target_returns: dict[str, float], sector: str | None = None) -> tuple[float, ...]:
+def _aligned_peer_series(scan, ticker: str, target_returns: dict[str, float], sector: str | None = None) -> tuple[tuple[float, ...], tuple[float, ...]]:
     peer_series = []
     for peer, candles in getattr(scan, "candle_history", {}).items():
         if peer == ticker:
@@ -56,12 +56,14 @@ def _aligned_peer_history(scan, ticker: str, target_returns: dict[str, float], s
         values = _returns_by_date(candles)
         if values:
             peer_series.append(values)
-    aligned = []
+    aligned_target = []
+    aligned_peers = []
     for day in sorted(target_returns):
         observations = [values[day] for values in peer_series if day in values]
         if observations:
-            aligned.append(sum(observations) / len(observations))
-    return tuple(aligned)
+            aligned_target.append(target_returns[day])
+            aligned_peers.append(sum(observations) / len(observations))
+    return tuple(aligned_target), tuple(aligned_peers)
 
 def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | None:
     """Build Intelligence input from the current real-market scan."""
@@ -92,8 +94,8 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
 
     own_returns = _returns_by_date(getattr(scan, "candle_history", {}).get(ticker, ()))
     sector = getattr(scan, "sector_by_ticker", {}).get(ticker)
-    sector_history = _aligned_peer_history(scan, ticker, own_returns, sector) if sector else ()
-    market_history = _aligned_peer_history(scan, ticker, own_returns)
+    _, sector_history = _aligned_peer_series(scan, ticker, own_returns, sector) if sector else ((), ())
+    correlation_asset_returns, market_history = _aligned_peer_series(scan, ticker, own_returns)
     sector_changes = [
         current / previous - 1.0
         for peer, current in scan.current_prices.items()
@@ -150,6 +152,7 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         peer_count=len(sector_changes),
         historical_returns=tuple(own_returns[day] for day in sorted(own_returns)),
         market_return_history=market_history,
+        correlation_asset_returns=correlation_asset_returns,
         sector_return_history=sector_history,
         peer_return_history=sector_history,
         historical_volume_ratios=volume_ratios,
