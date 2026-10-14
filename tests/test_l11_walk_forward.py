@@ -87,6 +87,35 @@ class L11WalkForwardTests(unittest.TestCase):
         self.assertEqual(result["train_count"], 33)
         self.assertTrue(result["purging_applied"])
 
+    def test_multiple_windows_use_disjoint_chronological_holdouts(self):
+        rows = []
+        first_day = date(2026, 1, 1)
+        for i in range(90):
+            decision_day = first_day + timedelta(days=i)
+            correct = i % 2 == 0
+            rows.append(LearningObservation(
+                outcome_return=0.02 if correct else -0.02,
+                correct=correct,
+                level_scores={"L01": 0.9 if correct else 0.1, "L02": 0.2 if correct else 0.8},
+                analyzer_scores={"trend": 0.9 if correct else 0.1, "noise": 0.2 if correct else 0.8},
+                decision_time=f"{decision_day.isoformat()}T12:00:00+00:00",
+                outcome_target_date=(decision_day + timedelta(days=3)).isoformat(),
+            ))
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_multiple_windows
+        result = evaluate_multiple_windows(rows, window_count=3, min_test_size=10)
+        self.assertEqual(result["status"], "evaluated")
+        self.assertEqual(result["evaluated_windows"], 3)
+        self.assertFalse(result["deployment_allowed"])
+        ranges = [(window["test_start_index"], window["test_end_index"]) for window in result["windows"]]
+        self.assertTrue(all(left[1] <= right[0] for left, right in zip(ranges, ranges[1:])))
+        self.assertIn("delta", result["summary"]["levels"])
+
+    def test_multiple_windows_refuse_insufficient_history(self):
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_multiple_windows
+        result = evaluate_multiple_windows(make_observations(25), window_count=3, min_test_size=10)
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertFalse(result["deployment_allowed"])
+
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
         self.assertIsNotNone(result["levels"]["proposed_weighted"]["auc"])
