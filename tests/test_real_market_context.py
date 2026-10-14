@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
+from bot.intelligence.levels.level_09.analyzers import correlation_risk
 from bot.intelligence.levels.level_03.analyzers import (
     correlation_context,
     macro_context,
@@ -43,6 +44,28 @@ class RealMarketContextTests(unittest.TestCase):
         )
         result = correlation_context.analyze(snapshot, SimpleNamespace())
         self.assertAlmostEqual(result.metrics["pearson_correlation"], 1.0)
+        self.assertGreater(result.confidence, 0.0)
+
+
+    def test_portfolio_correlation_uses_actual_held_position_history(self):
+        dates = tuple(f"2026-09-{day:02d}" for day in range(1, 31))
+        returns = tuple(value / 10000.0 for value in range(-15, 15))
+        snapshot = MarketSnapshot(
+            symbol="AAA",
+            price=101.0,
+            historical_return_dates=dates,
+            historical_returns=returns,
+            portfolio_positions=(
+                {
+                    "symbol": "HELD",
+                    "market_value": 500.0,
+                    "historical_return_dates": dates,
+                    "historical_returns": returns,
+                },
+            ),
+        )
+        result = correlation_risk.analyze(snapshot, SimpleNamespace(), SimpleNamespace(adverse_scenario=0.2, confidence=0.8))
+        self.assertAlmostEqual(result.metrics["weighted_absolute_correlation"], 1.0)
         self.assertGreater(result.confidence, 0.0)
 
     def test_correlation_does_not_fabricate_result_without_history(self):
