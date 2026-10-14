@@ -25,7 +25,9 @@ class Level4Engine:
         buy = results["buying_pressure"].score
         sell = results["selling_pressure"].score
         balance = (buy - sell + 1.0) / 2.0
-        score = sum(results[k].score * w for k, w in self.WEIGHTS.items())
+        effective = {key: weight * max(0.0, min(1.0, results[key].confidence)) for key, weight in self.WEIGHTS.items()}
+        total_effective = sum(effective.values())
+        score = sum(results[key].score * weight for key, weight in effective.items()) / total_effective if total_effective > 0 else 0.0
         confidences = [r.confidence for r in results.values()]
         confidence = sum(confidences) / len(confidences)
         spread = max(r.score for r in results.values()) - min(r.score for r in results.values())
