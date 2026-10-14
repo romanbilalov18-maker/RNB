@@ -1,5 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
+from bot.intelligence.levels.level_11.walk_forward_report import build_report
 from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_walk_forward
 from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
 
@@ -46,6 +49,13 @@ class L11WalkForwardTests(unittest.TestCase):
             result["analyzers"]["proposed_weighted"]["brier_score"],
             result["analyzers"]["equal_weight_baseline"]["brier_score"],
         )
+
+    def test_report_reads_audit_database_without_enabling_deployment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = build_report(Path(tmp) / "empty-audit.sqlite")
+        self.assertEqual(report["ticker_count"], 0)
+        self.assertEqual(report["evaluated_ticker_count"], 0)
+        self.assertFalse(report["deployment_allowed"])
 
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
