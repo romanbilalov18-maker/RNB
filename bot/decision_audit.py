@@ -296,13 +296,24 @@ class DecisionAuditStore:
         grouped: dict[str, list[LearningObservation]] = {}
         with self._connect() as db:
             rows = db.execute("""
+                WITH ranked_audit AS (
+                    SELECT id, ticker, recommendation, recorded_at, anchor_session_date,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ticker, anchor_session_date
+                               ORDER BY recorded_at DESC, id DESC
+                           ) AS session_rank
+                    FROM decision_audit
+                    WHERE anchor_session_date IS NOT NULL
+                )
                 SELECT a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
                        o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
                        s.level_scores_json, s.analyzer_scores_json, s.regime
-                FROM decision_outcomes AS o
-                JOIN decision_audit AS a ON a.id = o.audit_id
+                FROM ranked_audit AS a
+                JOIN decision_outcomes AS o ON o.audit_id = a.id
                 JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE o.horizon_sessions=? AND o.direction_correct IS NOT NULL
+                WHERE a.session_rank = 1
+                  AND o.horizon_sessions = ?
+                  AND o.direction_correct IS NOT NULL
                 ORDER BY a.recorded_at ASC, a.id ASC
             """, (self.LEARNING_HORIZON,)).fetchall()
         for row in rows:
