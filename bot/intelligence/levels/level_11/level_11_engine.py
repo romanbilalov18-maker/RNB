@@ -41,5 +41,12 @@ class Level11Engine:
             sample_count=len(observations),
             analyzer_results=all_results,
             warnings=tuple(dict.fromkeys(w for result in all_results for w in result.warnings)),
-            metadata={"version": "1.0", "adaptive_weights_are_proposals": True},
+            proposed_level_weights=dict(results[4].metrics.get("proposed_level_weights", {})),
+            proposed_analyzer_weights=dict(results[4].metrics.get("proposed_analyzer_weights", {})),
+            metadata={
+                "version": "1.1",
+                "adaptive_weights_are_proposals": True,
+                "weights_applied_to_trading": False,
+                "proposal_status": results[4].metrics.get("proposal_status", "insufficient_history"),
+            },
         )
