@@ -48,6 +48,15 @@ class Level15MissingEvidenceTests(unittest.TestCase):
         self.assertAlmostEqual(result.consistency, 0.7)
         self.assertEqual(result.metadata["consistency_source"], "L10.cross_level_agreement")
 
+    def test_final_confidence_is_capped_by_agreement_evidence(self):
+        l6, l10, l11, l12, l13, l14 = inputs()
+        l10.analyzer_results = {
+            "cross_level_agreement": SimpleNamespace(confidence=0.25)
+        }
+        result = Level15Engine().analyze(l6, l10, l11, l12, l13, l14)
+        self.assertLessEqual(result.confidence, 0.25)
+        self.assertAlmostEqual(result.consistency, 0.7)
+
     def test_missing_agreement_confidence_does_not_claim_consistency(self):
         l6, l10, l11, l12, l13, l14 = inputs()
         l10.confidence = 0.0
