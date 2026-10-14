@@ -205,6 +205,28 @@ def main() -> None:
                     f"precision={stats['precision']} recall={stats['recall']} "
                     f"false_positive_rate={stats['false_positive_rate']} lift={stats['lift']}"
                 )
+        holdout = anomaly_backtest["combination_comparison"]["chronological_holdout"]
+        print(
+            f"  L4/L6/L12 chronological holdout: split={holdout['split_date']} "
+            f"train={holdout['train_count']} holdout={holdout['holdout_count']}"
+        )
+        for metric, values in holdout["holdout"].items():
+            print(f"    HOLDOUT {metric}: observations={values['count']}")
+            for variant, stats in values["variants"].items():
+                print(
+                    f"      {variant}: alerts={stats.get('alert_count', 0)} "
+                    f"precision={stats['precision']} recall={stats['recall']} "
+                    f"false_positive_rate={stats['false_positive_rate']} lift={stats['lift']}"
+                )
+        for symbol, symbol_summary in anomaly_backtest["combination_comparison"]["by_symbol"].items():
+            for metric, values in symbol_summary.items():
+                variants = values["variants"]
+                print(
+                    f"  INSTRUMENT {symbol} {metric}: n={values['count']} "
+                    f"L4_lift={variants['l4_alert']['lift']} "
+                    f"L4_L12_lift={variants['l4_l12_alert']['lift']} "
+                    f"L4_L6_L12_lift={variants['l4_l6_l12_alert']['lift']}"
+                )
 
     print("-" * 72)
     print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
@@ -326,6 +348,31 @@ def main() -> None:
         row for _, _, _, _, _, _, _, anomaly in results
         for row in anomaly["combination_comparison"]["outcomes"]
     ]
+    print("L4/L6/L12 CHRONOLOGICAL HOLDOUT SUMMARY")
+    holdout_rows = [
+        row for _, _, _, _, _, _, _, anomaly in results
+        for row in anomaly["combination_comparison"]["outcomes"]
+        if anomaly["combination_comparison"]["chronological_holdout"]["split_date"] is not None
+        and row["signal_date"] >= anomaly["combination_comparison"]["chronological_holdout"]["split_date"]
+    ]
+    for horizon in (1, 3, 5):
+        rows = [row for row in holdout_rows if row["horizon"] == horizon]
+        if not rows:
+            print(f"  h{horizon}: insufficient holdout observations")
+            continue
+        event_count = sum(row["event"] for row in rows)
+        event_rate = event_count / len(rows)
+        print(f"  HOLDOUT h{horizon}: n={len(rows)} event_rate={event_rate:.1%}")
+        for variant in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert"):
+            alerts = [row for row in rows if row[variant]]
+            tp = sum(row["event"] for row in alerts)
+            fp = len(alerts) - tp
+            negatives = len(rows) - event_count
+            precision = tp / len(alerts) if alerts else None
+            recall = tp / event_count if event_count else None
+            fpr = fp / negatives if negatives else None
+            lift = precision / event_rate if precision is not None and event_rate else None
+            print(f"    {variant}: alerts={len(alerts)} precision={precision} recall={recall} fpr={fpr} lift={lift}")
     for horizon in (1, 3, 5):
         rows = [row for row in combination_rows if row["horizon"] == horizon]
         if not rows:
