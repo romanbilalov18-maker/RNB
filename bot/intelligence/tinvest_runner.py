@@ -119,6 +119,13 @@ def main() -> None:
             print("    L4 backtest unavailable: no qualifying historical signals")
         if backtest["warnings"]:
             print(f"    L4 backtest warnings: {'; '.join(backtest['warnings'][:3])}")
+        print(
+            f"  L4 threshold selection: baseline={walk_forward['baseline_threshold']:.2f} "
+            f"selected={walk_forward['selected_threshold']:.2f} "
+            f"train_score={walk_forward['threshold_selection']['selected_threshold_score']}"
+        )
+        if walk_forward["threshold_selection"]["fallback_used"]:
+            print("    threshold selection fallback: insufficient training outcomes")
         train_count = len(walk_forward["train"]["outcomes"])
         holdout_count = len(walk_forward["holdout"]["outcomes"])
         print(
@@ -182,6 +189,21 @@ def main() -> None:
                     f"  {signal} h{horizon} {regime}: n={len(observations)} "
                     f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
                 )
+    selected_holdout = holdout_outcomes
+    baseline_holdout = [
+        item
+        for _, _, _, _, walk_forward in results
+        for item in walk_forward["baseline_holdout"]["outcomes"]
+    ]
+    for label, observations in (("selected", selected_holdout), ("baseline_0.65", baseline_holdout)):
+        if observations:
+            win_rate = sum(item["correct_after_costs"] for item in observations) / len(observations)
+            mean_net = sum(item["net_forward_return"] for item in observations) / len(observations)
+            print(
+                f"  aggregate {label}: n={len(observations)} "
+                f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
+            )
+    print("  Threshold is selected on training outcomes only; holdout is comparison-only.")
     print("  Training-period outcomes are descriptive only; no model weights are trained or changed.")
     print("  Training outcomes end before the split; holdout signals start on/after the split.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
