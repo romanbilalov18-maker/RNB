@@ -176,6 +176,7 @@ def evaluate_level12_anomaly_history(
                 "signal_anomaly": level12.signal_anomaly,
                 "data_anomaly": level12.data_anomaly,
                 "realized_adverse_move": adverse_move,
+                "forward_return": future[-1]["close"] / current["close"] - 1.0,
                 "adverse_event": adverse_event,
             })
 
@@ -225,7 +226,7 @@ def evaluate_level12_anomaly_history(
     }
 
 
-def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dict, *, alert_threshold: float = 0.65) -> dict:
+def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dict, *, alert_threshold: float = 0.65, round_trip_cost: float = 0.001) -> dict:
     """Compare L4, L4+L6, L4+L12 and L4+L6+L12 on shared historical dates.
 
     Uses the complete L12 date grid; absent L4 outcomes mean no SELL_PRESSURE
@@ -233,6 +234,8 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
     """
     if not 0.0 <= alert_threshold <= 1.0:
         raise ValueError("alert_threshold must be between 0 and 1")
+    if not isfinite(round_trip_cost) or round_trip_cost < 0:
+        raise ValueError("round_trip_cost must be finite and non-negative")
     l4 = {(x["signal_date"], x["horizon"]): x for x in l4_report.get("outcomes", ()) if x.get("signal") == "SELL_PRESSURE"}
     l6 = {(x["signal_date"], x["horizon"]): x for x in l6_report.get("outcomes", ())}
     l12 = {(x["signal_date"], x["horizon"]): x for x in l12_report.get("outcomes", ())}
@@ -246,6 +249,7 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
         rows.append({
             "signal_date": key[0], "horizon": key[1],
             "event": bool(anomaly.get("adverse_event")),
+            "forward_return": anomaly.get("forward_return", 0.0),
             "l4_alert": l4_alert, "l4_l6_alert": l4_alert or l6_alert,
             "l4_l12_alert": l4_alert or l12_alert,
             "l4_l6_l12_alert": l4_alert or l6_alert or l12_alert,
@@ -267,12 +271,47 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
             "false_positive_rate": fp / (len(group) - len(events)) if len(group) > len(events) else None,
             "lift": precision / event_rate if precision is not None and event_rate > 0 else None,
         }
+    def trading_metrics(group, alert_key, cost):
+        # Long-only diagnostic: skip entry on alerts, otherwise exit at horizon close.
+        eligible = [x for x in group if alert_key == "__all_dates__" or not x[alert_key]]
+        net = [x["forward_return"] - cost for x in eligible]
+        baseline = [x["forward_return"] - cost for x in group]
+        def compounded(values):
+            total = 1.0
+            for value in values:
+                total *= max(0.0, 1.0 + value)
+            return total - 1.0
+        def drawdown(values):
+            equity = peak = 1.0
+            worst = 0.0
+            for value in values:
+                equity *= max(0.0, 1.0 + value)
+                peak = max(peak, equity)
+                worst = max(worst, (peak - equity) / peak if peak else 0.0)
+            return worst
+        return {
+            "eligible_trades": len(eligible),
+            "coverage": len(eligible) / len(group) if group else None,
+            "mean_net_return": fmean(net) if net else None,
+            "compounded_net_return": compounded(net) if net else None,
+            "win_rate_after_costs": sum(x > 0 for x in net) / len(net) if net else None,
+            "max_drawdown_sequential": drawdown(net),
+            "round_trip_cost": cost,
+            "overlapping_horizons_not_independent": True,
+        }
     summary = {}
     for horizon in sorted({x["horizon"] for x in rows}):
         group = [x for x in rows if x["horizon"] == horizon]
         summary[f"h{horizon}"] = {
             "count": len(group),
-            "variants": {name: metrics(group, name) for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")},
+            "variants": {
+                name: {
+                    **metrics(group, name),
+                    "trading_filter": trading_metrics(group, name, round_trip_cost),
+                }
+                for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")
+            },
+            "all_dates_reference": trading_metrics(group, "__all_dates__", round_trip_cost),
         }
 
     # Chronological holdout: all dates before the split are descriptive/training;
@@ -311,6 +350,9 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
         "by_symbol": by_symbol,
         "methodology": {
             "same_dates_for_all_variants": True, "lookahead": False,
+            "long_only_risk_filter_simulation": True,
+            "alerts_skip_entry_instead_of_shorting": True,
+            "round_trip_cost": round_trip_cost,
             "chronological_split": True, "train_fraction": 0.70,
             "holdout_signals_start_on_or_after_split": True,
             "holdout_outcomes_not_used_to_select_alert_threshold": True,
