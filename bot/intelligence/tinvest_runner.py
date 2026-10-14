@@ -3,7 +3,11 @@ from __future__ import annotations
 import os
 
 from bot.intelligence.integration import build_market_snapshot
-from bot.intelligence.levels.level_04.historical_backtest import evaluate_pressure_history
+from bot.intelligence.levels.level_04.historical_backtest import (
+    build_market_regime_by_date,
+    evaluate_pressure_history,
+    evaluate_pressure_walk_forward,
+)
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
@@ -28,6 +32,7 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     # missing portfolio context with a real zero-position portfolio.
     diagnostic_portfolio = VirtualPortfolio(initial_balance=10_000.0)
     results = []
+    market_regimes = build_market_regime_by_date(getattr(scan, "candle_history", {}))
     for analysis in scan.buy_candidates[:limit]:
         current_price = scan.current_prices.get(analysis.ticker)
         if current_price is None or scan.previous_closes.get(analysis.ticker) is None:
@@ -47,8 +52,18 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
             horizons=(1, 3, 5),
             signal_threshold=0.65,
             round_trip_cost=0.001,
+            market_regime_by_date=market_regimes,
         )
-        results.append((analysis, intelligence, current_price, backtest))
+        walk_forward = evaluate_pressure_walk_forward(
+            historical_candles,
+            symbol=analysis.ticker,
+            horizons=(1, 3, 5),
+            signal_threshold=0.65,
+            round_trip_cost=0.001,
+            train_fraction=0.70,
+            market_regime_by_date=market_regimes,
+        )
+        results.append((analysis, intelligence, current_price, backtest, walk_forward))
 
     return results
 
@@ -63,10 +78,10 @@ def main() -> None:
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
     print("Portfolio context: empty diagnostic paper portfolio (persistent bot portfolio is not available in CI)")
-    print("Level 4 historical pressure evaluation: closed candles only; forward outcomes are scored separately")
+    print("Level 4 evaluation: chronological 70/30 train/holdout; no forward outcomes cross the split")
     print("-" * 72)
 
-    for analysis, result, current_price, backtest in results:
+    for analysis, result, current_price, backtest, walk_forward in results:
         snapshot = result.level_01
         print(
             f"{analysis.ticker}: "
@@ -104,6 +119,14 @@ def main() -> None:
             print("    L4 backtest unavailable: no qualifying historical signals")
         if backtest["warnings"]:
             print(f"    L4 backtest warnings: {'; '.join(backtest['warnings'][:3])}")
+        train_count = len(walk_forward["train"]["outcomes"])
+        holdout_count = len(walk_forward["holdout"]["outcomes"])
+        print(
+            f"  L4 walk-forward: split={walk_forward['split_date']} "
+            f"train_outcomes={train_count} holdout_outcomes={holdout_count}"
+        )
+        if walk_forward["warnings"]:
+            print(f"    L4 walk-forward warnings: {'; '.join(walk_forward['warnings'][:2])}")
 
     print("-" * 72)
     print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
@@ -111,7 +134,7 @@ def main() -> None:
         for horizon in (1, 3, 5):
             observations = [
                 outcome
-                for _, _, _, backtest in results
+                for _, _, _, backtest, _ in results
                 for outcome in backtest["outcomes"]
                 if outcome["signal"] == signal and outcome["horizon"] == horizon
             ]
@@ -127,7 +150,32 @@ def main() -> None:
                 f"mean_forward_return={mean_forward:+.3%} "
                 f"mean_net_directional_return={mean_net:+.3%}"
             )
-    print("  Note: short historical window; exploratory results, not a validated strategy.")
+    print("-" * 72)
+    print("L4 WALK-FORWARD HOLDOUT SUMMARY (UNSEEN CHRONOLOGICAL PERIOD)")
+    holdout_outcomes = [
+        outcome
+        for _, _, _, _, walk_forward in results
+        for outcome in walk_forward["holdout"]["outcomes"]
+    ]
+    regimes = sorted({item["market_regime"] for item in holdout_outcomes}) or ["UNCLASSIFIED"]
+    for signal in ("BUY_PRESSURE", "SELL_PRESSURE"):
+        for horizon in (1, 3, 5):
+            for regime in regimes:
+                observations = [
+                    item for item in holdout_outcomes
+                    if item["signal"] == signal and item["horizon"] == horizon
+                    and item["market_regime"] == regime
+                ]
+                if not observations:
+                    continue
+                win_rate = sum(item["correct_after_costs"] for item in observations) / len(observations)
+                mean_net = sum(item["net_forward_return"] for item in observations) / len(observations)
+                print(
+                    f"  {signal} h{horizon} {regime}: n={len(observations)} "
+                    f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
+                )
+    print("  Training outcomes end before the split; holdout signals start on/after the split.")
+    print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
     print("Trade execution: DISABLED")
     print("Decision Engine: NOT CONNECTED")
