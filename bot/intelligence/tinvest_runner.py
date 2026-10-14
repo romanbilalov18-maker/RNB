@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from bot.intelligence.integration import build_market_snapshot
+from bot.intelligence.levels.level_04.historical_backtest import evaluate_pressure_history
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
@@ -39,7 +40,15 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         if snapshot is None:
             continue
         intelligence = pipeline.analyze(snapshot)
-        results.append((analysis, intelligence, current_price))
+        historical_candles = getattr(scan, "candle_history", {}).get(analysis.ticker, ())
+        backtest = evaluate_pressure_history(
+            historical_candles,
+            symbol=analysis.ticker,
+            horizons=(1, 3, 5),
+            signal_threshold=0.65,
+            round_trip_cost=0.001,
+        )
+        results.append((analysis, intelligence, current_price, backtest))
 
     return results
 
@@ -54,9 +63,10 @@ def main() -> None:
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
     print("Portfolio context: empty diagnostic paper portfolio (persistent bot portfolio is not available in CI)")
+    print("Level 4 historical pressure evaluation: closed candles only; forward outcomes are scored separately")
     print("-" * 72)
 
-    for analysis, result, current_price in results:
+    for analysis, result, current_price, backtest in results:
         snapshot = result.level_01
         print(
             f"{analysis.ticker}: "
@@ -80,6 +90,20 @@ def main() -> None:
         print(f"  confidence_bottlenecks: {bottlenecks}")
         if result.warnings:
             print(f"  warnings: {'; '.join(result.warnings[:5])}")
+        print(f"  L4 backtest: bars={backtest['bars']} signals={backtest['signals']}")
+        for metric, values in backtest["summary"].items():
+            if values["count"]:
+                win_rate = values["win_rate_after_costs"]
+                mean_return = values["mean_net_directional_return"]
+                print(
+                    f"    {metric}: n={values['count']} "
+                    f"win_after_costs={win_rate:.1%} "
+                    f"mean_net_directional_return={mean_return:+.3%}"
+                )
+        if not backtest["signals"]:
+            print("    L4 backtest unavailable: no qualifying historical signals")
+        if backtest["warnings"]:
+            print(f"    L4 backtest warnings: {'; '.join(backtest['warnings'][:3])}")
 
     print("-" * 72)
     print("Trade execution: DISABLED")
