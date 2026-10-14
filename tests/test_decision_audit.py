@@ -326,5 +326,48 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(store.summary()["learning_observations"], 0)
 
 
+    def test_l11_learning_uses_only_latest_decision_per_ticker_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
+            history = [candle("2026-10-01", 100)]
+            for cycle_id, price in (("early-cycle", 100), ("late-cycle", 200)):
+                store.record_cycle(
+                    cycle_id,
+                    {"AAA": SimpleNamespace(action="BUY", reason="test")},
+                    [],
+                    equity=1000,
+                    cash=1000,
+                    total_commissions=0,
+                    current_prices={"AAA": price},
+                    candle_history={"AAA": history},
+                    intelligence_results={"AAA": intelligence_snapshot()},
+                    commission_rate=.001,
+                    as_of=as_of,
+                )
+
+            future = [
+                candle("2026-10-03", 101),
+                candle("2026-10-05", 102),
+                candle("2026-10-06", 103),
+            ]
+            store.record_cycle(
+                "maturity-cycle",
+                {},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": history + future},
+                commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+
+            observations = store.learning_observations_by_ticker()["AAA"]
+            self.assertEqual(len(observations), 1)
+            self.assertAlmostEqual(observations[0].outcome_return, (103 / 200 - 1) - .002)
+
+
+
 if __name__ == "__main__":
     unittest.main()
