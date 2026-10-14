@@ -2,6 +2,13 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 
 
 def analyze(snapshot, level6_result) -> AnalyzerResult:
-    risk = max(level6_result.downside_risk, level6_result.volatility_risk)
-    score = min(1.0, max(0.0, risk))
-    return AnalyzerResult("concentration_risk", score, level6_result.confidence, {"risk_proxy": risk}, ["portfolio_positions_not_available"])
+    positions = getattr(snapshot, "portfolio_positions", ())
+    if not positions:
+        return AnalyzerResult("concentration_risk", 0.0, 0.0, {"position_count": 0}, ["portfolio_positions_not_available"])
+    values = [float(item.get("market_value", 0.0)) for item in positions if float(item.get("market_value", 0.0)) > 0]
+    total = sum(values)
+    if total <= 0:
+        return AnalyzerResult("concentration_risk", 0.0, 0.0, {"position_count": len(positions)}, ["portfolio_market_values_not_available"])
+    shares = [value / total for value in values]
+    hhi = sum(value * value for value in shares)
+    return AnalyzerResult("concentration_risk", max(0.0, min(1.0, (hhi - 1.0 / len(shares)) / max(1e-9, 1.0 - 1.0 / len(shares)))), min(1.0, len(shares) / 10.0), {"position_count": len(shares), "herfindahl_index": hhi, "largest_position_weight": max(shares)})
