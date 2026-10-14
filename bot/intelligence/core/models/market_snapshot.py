@@ -37,6 +37,8 @@ class MarketSnapshot:
     peer_count: int = 0
     cross_asset_correlation: Optional[float] = None
     correlation_observations: int = 0
+    # Identifies whether correlation uses an official index or a scanned peer basket.
+    correlation_benchmark: Optional[str] = None
     historical_returns: tuple[float, ...] = ()
     historical_return_dates: tuple[str, ...] = ()
     market_return_history: tuple[float, ...] = ()
