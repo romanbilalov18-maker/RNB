@@ -30,14 +30,15 @@ class Level4Engine:
         score = sum(results[key].score * weight for key, weight in effective.items()) / total_effective if total_effective > 0 else 0.0
         confidences = [r.confidence for r in results.values()]
         confidence = sum(confidences) / len(confidences)
-        spread = max(r.score for r in results.values()) - min(r.score for r in results.values())
-        consistency = max(0.0, 1.0 - spread)
+        observed = [result for result in results.values() if result.confidence > 0]
+        spread = max((r.score for r in observed), default=0.0) - min((r.score for r in observed), default=0.0)
+        consistency = max(0.0, 1.0 - spread) if observed else 0.0
         warnings = [w for r in results.values() for w in r.warnings]
         strengths, weaknesses = [], []
         if balance >= 0.65: strengths.append("buying_pressure_dominant")
         if balance <= 0.35: weaknesses.append("selling_pressure_dominant")
-        if results["abnormal_activity"].score >= 0.7: strengths.append("abnormal_activity_detected")
-        if results["liquidity_behavior"].score < 0.35: weaknesses.append("weak_liquidity_behavior")
+        if results["abnormal_activity"].confidence > 0 and results["abnormal_activity"].score >= 0.7: strengths.append("abnormal_activity_detected")
+        if results["liquidity_behavior"].confidence > 0 and results["liquidity_behavior"].score < 0.35: weaknesses.append("weak_liquidity_behavior")
         return Level4Result(
             symbol=snapshot.symbol, score=score, confidence=confidence, consistency=consistency,
             buying_pressure=buy, selling_pressure=sell, pressure_balance=balance,
