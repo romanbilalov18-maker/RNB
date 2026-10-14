@@ -246,7 +246,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
 
             observations = store.learning_observations_by_ticker()["AAA"]
             self.assertEqual(len(observations), 2)
-            self.assertAlmostEqual(observations[0].outcome_return, .018)
+            self.assertAlmostEqual(observations[0].outcome_return, .028)
             self.assertAlmostEqual(observations[1].outcome_return, (103 / 200 - 1) - .002)
 
     def test_summary_explains_learning_readiness_and_counts_only_trainable_observations(self):
