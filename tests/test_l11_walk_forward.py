@@ -110,6 +110,35 @@ class L11WalkForwardTests(unittest.TestCase):
         self.assertTrue(all(left[1] <= right[0] for left, right in zip(ranges, ranges[1:])))
         self.assertIn("delta", result["summary"]["levels"])
 
+    def test_walk_forward_sorts_observations_by_decision_time(self):
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_walk_forward
+        rows = list(make_observations(60))
+        dated = []
+        first_day = date(2026, 1, 1)
+        for i, row in enumerate(rows):
+            dated.append(LearningObservation(
+                outcome_return=row.outcome_return, correct=row.correct,
+                level_scores=row.level_scores, analyzer_scores=row.analyzer_scores,
+                decision_time=f"{(first_day + timedelta(days=i)).isoformat()}T12:00:00+00:00",
+                outcome_target_date=(first_day + timedelta(days=i + 3)).isoformat(),
+            ))
+        shuffled = dated[::2] + dated[1::2]
+        result = evaluate_walk_forward(shuffled)
+        self.assertEqual(result["status"], "evaluated")
+        self.assertTrue(result["chronology_verified"])
+
+    def test_partial_decision_timestamps_refuse_validation(self):
+        rows = list(make_observations(60))
+        rows[0] = LearningObservation(
+            outcome_return=rows[0].outcome_return, correct=rows[0].correct,
+            level_scores=rows[0].level_scores, analyzer_scores=rows[0].analyzer_scores,
+            decision_time="2026-01-01T12:00:00+00:00",
+        )
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_walk_forward
+        result = evaluate_walk_forward(rows)
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertIn("timestamps are incomplete", result["reason"])
+
     def test_multiple_windows_refuse_insufficient_history(self):
         from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_multiple_windows
         result = evaluate_multiple_windows(make_observations(25), window_count=3, min_test_size=10)
