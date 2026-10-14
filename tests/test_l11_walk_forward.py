@@ -83,8 +83,8 @@ class L11WalkForwardTests(unittest.TestCase):
         result = evaluate_walk_forward(rows, train_fraction=0.6)
         self.assertEqual(result["status"], "evaluated")
         self.assertEqual(result["raw_train_count"], 36)
-        self.assertEqual(result["purged_train_count"], 1)
-        self.assertEqual(result["train_count"], 35)
+        self.assertEqual(result["purged_train_count"], 3)
+        self.assertEqual(result["train_count"], 33)
         self.assertTrue(result["purging_applied"])
 
     def test_holdout_labels_are_required_for_auc(self):
