@@ -128,7 +128,12 @@ def evaluate_level6_risk_history(
             for future_bar in future:
                 forward_returns.append(future_bar["close"] / previous_close - 1.0)
                 previous_close = future_bar["close"]
-            max_drawdown = max(0.0, -min(bar["close"] / current["close"] - 1.0 for bar in future))
+            running_peak = current["close"]
+            max_drawdown = 0.0
+            for future_bar in future:
+                running_peak = max(running_peak, future_bar["close"])
+                if running_peak > 0:
+                    max_drawdown = max(max_drawdown, (running_peak - future_bar["close"]) / running_peak)
             realized_volatility = pstdev(forward_returns) if len(forward_returns) > 1 else abs(forward_returns[0])
             outcomes.append({
                 "symbol": symbol,
