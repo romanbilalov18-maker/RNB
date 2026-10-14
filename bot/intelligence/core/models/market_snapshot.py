@@ -39,6 +39,7 @@ class MarketSnapshot:
     correlation_observations: int = 0
     historical_returns: tuple[float, ...] = ()
     market_return_history: tuple[float, ...] = ()
+    correlation_asset_returns: tuple[float, ...] = ()
     sector_return_history: tuple[float, ...] = ()
     peer_return_history: tuple[float, ...] = ()
     historical_volume_ratios: tuple[float, ...] = ()
