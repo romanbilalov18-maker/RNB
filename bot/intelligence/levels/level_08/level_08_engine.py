@@ -22,7 +22,9 @@ class Level8Engine:
             "benchmark_alignment": benchmark_alignment.analyze(snapshot, level7_result),
         }
         results["relative_consistency"] = relative_consistency.analyze(level3_result, level7_result)
-        score = sum(results[k].score * w for k, w in self.WEIGHTS.items())
+        effective = {key: weight * max(0.0, min(1.0, results[key].confidence)) for key, weight in self.WEIGHTS.items()}
+        total_effective = sum(effective.values())
+        score = sum(results[key].score * weight for key, weight in effective.items()) / total_effective if total_effective > 0 else 0.0
         confidence = sum(r.confidence for r in results.values()) / len(results)
         consistency = results["relative_consistency"].score
         warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
