@@ -39,9 +39,18 @@ def _equal_weight_prediction(scores: dict[str, float]) -> float:
 
 
 def _weighted_prediction(scores: dict[str, float], weights: dict[str, float]) -> float:
-    if not weights:
+    # Renormalize over features actually present in this observation. Treating
+    # missing features as a neutral 0.5 without renormalization silently shrinks
+    # the prediction toward zero and unfairly penalizes rows with sparse history.
+    available = [
+        (weight, float(scores[name]))
+        for name, weight in weights.items()
+        if name in scores
+    ]
+    total_weight = sum(weight for weight, _ in available)
+    if total_weight <= 1e-12:
         return 0.5
-    return sum(weight * scores.get(name, 0.5) for name, weight in weights.items())
+    return sum(weight * score for weight, score in available) / total_weight
 
 
 def _fit_linear_calibrator(raw_scores: list[float], labels: list[bool]) -> tuple[float, float]:
