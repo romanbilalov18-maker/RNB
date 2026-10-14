@@ -21,7 +21,7 @@ class RealMarketContextTests(unittest.TestCase):
         )
         result = macro_context.analyze(snapshot, SimpleNamespace())
         self.assertGreater(result.confidence, 0.0)
-        self.assertAlmostEqual(result.metadata["market_breadth"], 0.7)
+        self.assertAlmostEqual(result.metrics["market_breadth"], 0.7)
         self.assertEqual(result.metadata["sample_count"], 120)
         self.assertFalse(result.metadata["official_macro_indicators_available"])
 
