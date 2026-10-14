@@ -27,6 +27,19 @@ class MarketSnapshot:
     volume_ratio: Optional[float] = None
     lot_size: Optional[int] = None
 
+    # Cross-sectional context computed from real T-Invest market data.
+    market_return: Optional[float] = None
+    market_breadth: Optional[float] = None
+    market_sample_count: int = 0
+    sector: Optional[str] = None
+    sector_return: Optional[float] = None
+    peer_return: Optional[float] = None
+    peer_count: int = 0
+    cross_asset_correlation: Optional[float] = None
+    correlation_observations: int = 0
+    historical_returns: tuple[float, ...] = ()
+    historical_volume_ratios: tuple[float, ...] = ()
+
     def price_change(self) -> Optional[float]:
         if self.previous_price is None or self.previous_price == 0:
             return None
