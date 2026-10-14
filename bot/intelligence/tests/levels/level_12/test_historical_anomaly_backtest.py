@@ -84,5 +84,33 @@ class HistoricalLevel12AnomalyBacktestTests(unittest.TestCase):
             evaluate_level12_anomaly_history(candles, anomaly_score_threshold=-0.1)
 
 
+    def test_combination_comparison_uses_same_dates_and_reports_four_variants(self):
+        from bot.intelligence.levels.level_12.historical_anomaly_backtest import compare_level_combinations
+
+        l4 = {"outcomes": [
+            {"signal_date": "d1", "horizon": 1, "signal": "SELL_PRESSURE"},
+            {"signal_date": "d3", "horizon": 1, "signal": "BUY_PRESSURE"},
+        ]}
+        l6 = {"outcomes": [
+            {"signal_date": "d1", "horizon": 1, "downside_risk_score": 0.8},
+            {"signal_date": "d2", "horizon": 1, "downside_risk_score": 0.9},
+            {"signal_date": "d3", "horizon": 1, "downside_risk_score": 0.2},
+        ]}
+        l12 = {"outcomes": [
+            {"signal_date": "d1", "horizon": 1, "adverse_event": True, "anomaly_score": 0.8},
+            {"signal_date": "d2", "horizon": 1, "adverse_event": False, "anomaly_score": 0.1},
+            {"signal_date": "d3", "horizon": 1, "adverse_event": True, "anomaly_score": 0.7},
+        ]}
+        report = compare_level_combinations(l4, l6, l12, alert_threshold=0.65)
+        self.assertTrue(report["methodology"]["same_dates_for_all_variants"])
+        self.assertEqual(report["summary"]["h1"]["count"], 3)
+        variants = report["summary"]["h1"]["variants"]
+        self.assertEqual(set(variants), {"l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert"})
+        self.assertEqual(variants["l4_alert"]["alert_count"], 1)
+        self.assertEqual(variants["l4_l6_alert"]["alert_count"], 2)
+        self.assertEqual(variants["l4_l12_alert"]["alert_count"], 3)
+        self.assertEqual(variants["l4_l6_l12_alert"]["alert_count"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()
