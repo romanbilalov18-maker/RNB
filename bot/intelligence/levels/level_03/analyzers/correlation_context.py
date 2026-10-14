@@ -22,11 +22,11 @@ def _pearson(left: tuple[float, ...], right: tuple[float, ...]) -> float | None:
 
 
 def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
-    correlation = _pearson(snapshot.historical_returns, snapshot.market_return_history)
+    correlation = _pearson(snapshot.correlation_asset_returns, snapshot.market_return_history)
     if correlation is None:
         return AnalyzerResult(
             "correlation_context", 0.0, 0.0,
-            {"observations": min(len(snapshot.historical_returns), len(snapshot.market_return_history))},
+            {"observations": min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history))},
             ("cross_asset_history_insufficient",),
         )
     score = max(0.0, min(1.0, (correlation + 1.0) / 2.0))
