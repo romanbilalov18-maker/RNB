@@ -248,6 +248,24 @@ def main() -> None:
                 f"win_rate={reference['win_rate_after_costs']} "
                 f"max_drawdown={reference['max_drawdown_sequential']}"
             )
+        threshold_report = holdout["threshold_selection"]
+        print("  TRAIN-ONLY THRESHOLD SELECTION (purged split, >=50% coverage):")
+        print(
+            f"    L6 selected_threshold={threshold_report['l6']['threshold']} "
+            f"train_mean_net={threshold_report['l6'].get('mean_net_return')} "
+            f"fallback={threshold_report['l6']['selection_fallback']}"
+        )
+        print(
+            f"    L12 selected_threshold={threshold_report['l12']['threshold']} "
+            f"train_mean_net={threshold_report['l12'].get('mean_net_return')} "
+            f"fallback={threshold_report['l12']['selection_fallback']}"
+        )
+        for variant, stats in threshold_report["holdout_selected_thresholds"].items():
+            print(
+                f"    UNTOUCHED HOLDOUT {variant}: n={stats['eligible_count']}/{stats['count']} "
+                f"coverage={stats['coverage']} mean_net={stats['mean_net_return']} "
+                f"win_rate={stats['win_rate_after_costs']}"
+            )
         for symbol, symbol_summary in anomaly_backtest["combination_comparison"]["by_symbol"].items():
             for metric, values in symbol_summary.items():
                 variants = values["variants"]
