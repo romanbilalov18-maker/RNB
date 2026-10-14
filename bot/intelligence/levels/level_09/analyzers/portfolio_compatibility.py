@@ -27,7 +27,17 @@ def analyze(snapshot, level5_result, level8_result) -> AnalyzerResult:
             known_value += value
     if total_value <= 0 or known_value <= 0:
         return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": len(positions)}, ["portfolio_sector_exposure_not_available"])
-    same_sector_weight = sector_values.get(snapshot.sector, 0.0) / total_value
+    # Unknown-sector holdings must not be treated as holdings in other sectors.
+    # Calculate compatibility only over known sector exposure and express coverage
+    # separately through confidence.
+    same_sector_weight = sector_values.get(snapshot.sector, 0.0) / known_value
     score = max(0.0, min(1.0, 1.0 - same_sector_weight))
     confidence = min(1.0, len(positions) / 10.0) * (known_value / total_value)
-    return AnalyzerResult("portfolio_compatibility", score, confidence, {"position_count": len(positions), "candidate_sector": snapshot.sector, "existing_sector_weight": same_sector_weight, "known_sector_exposure": known_value / total_value})
+    warnings = () if known_value >= total_value else ("some_position_sectors_unavailable",)
+    return AnalyzerResult(
+        "portfolio_compatibility", score, confidence,
+        {"position_count": len(positions), "candidate_sector": snapshot.sector,
+         "existing_sector_weight": same_sector_weight,
+         "known_sector_exposure": known_value / total_value},
+        warnings,
+    )
