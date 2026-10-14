@@ -22,8 +22,10 @@ class Level6Engine:
         results["risk_reward"] = risk_reward.analyze(results["downside_risk"], results["reward_potential"])
         results["adverse_scenario"] = adverse_scenario.analyze(snapshot, level5_result)
         results["risk_consistency"] = risk_consistency.analyze(level5_result, results["downside_risk"], results["risk_reward"])
-        score = sum(results[k].score * w for k, w in self.WEIGHTS.items())
-        confidence = sum(r.confidence for r in results.values()) / len(results)
+        effective_weights = {key: weight * max(0.0, min(1.0, results[key].confidence)) for key, weight in self.WEIGHTS.items()}
+        effective_total = sum(effective_weights.values())
+        score = sum(results[key].score * weight for key, weight in effective_weights.items()) / effective_total if effective_total > 0 else 0.0
+        confidence = sum(self.WEIGHTS[key] * max(0.0, min(1.0, result.confidence)) for key, result in results.items()) / sum(self.WEIGHTS.values())
         consistency = results["risk_consistency"].score
         warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
         strengths, weaknesses = [], []
