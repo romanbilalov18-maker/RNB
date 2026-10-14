@@ -23,9 +23,10 @@ class Level15Engine:
             learning_quality.analyze(l11),
         )
         master = master_confidence.analyze(results)
-        score = sum(result.score * weight for result, weight in zip(results, self.WEIGHTS))
-        confidence = sum(result.confidence for result in results) / len(results)
-        consistency = 1.0 - (max(result.score for result in results) - min(result.score for result in results))
+        score = 0.90 * sum(result.score * weight for result, weight in zip(results, self.WEIGHTS)) + 0.10 * master.score
+        confidence = 0.90 * (sum(result.confidence for result in results) / len(results)) + 0.10 * master.confidence
+        all_scores = [result.score for result in results] + [master.score]
+        consistency = 1.0 - (max(all_scores) - min(all_scores))
         return Level15Result(
             symbol=l10.symbol,
             score=max(0.0, min(1.0, score)),
