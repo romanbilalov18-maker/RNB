@@ -247,6 +247,7 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
         l6_alert = risk is not None and risk.get("downside_risk_score", 0.0) >= alert_threshold
         l12_alert = anomaly.get("anomaly_score", 0.0) >= alert_threshold
         rows.append({
+            "symbol": anomaly.get("symbol", "UNKNOWN"),
             "signal_date": key[0], "horizon": key[1],
             "event": bool(anomaly.get("adverse_event")),
             "forward_return": anomaly.get("forward_return", 0.0),
@@ -329,7 +330,14 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
             output[f"h{horizon}"] = {
                 "count": len(group),
                 "event_rate": sum(x["event"] for x in group) / len(group) if group else None,
-                "variants": {name: metrics(group, name) for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")},
+                "variants": {
+                    name: {
+                        **metrics(group, name),
+                        "trading_filter": trading_metrics(group, name, round_trip_cost),
+                    }
+                    for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")
+                },
+                "all_dates_reference": trading_metrics(group, "__all_dates__", round_trip_cost),
             }
         return output
 
