@@ -22,8 +22,8 @@ class RealMarketContextTests(unittest.TestCase):
         result = macro_context.analyze(snapshot, SimpleNamespace())
         self.assertGreater(result.confidence, 0.0)
         self.assertAlmostEqual(result.metrics["market_breadth"], 0.7)
-        self.assertEqual(result.metadata["sample_count"], 120)
-        self.assertFalse(result.metadata["official_macro_indicators_available"])
+        self.assertEqual(result.metrics["sample_count"], 120)
+        self.assertFalse(result.metrics["official_macro_indicators_available"])
 
     def test_sector_context_is_unavailable_without_real_sector_peers(self):
         snapshot = MarketSnapshot(symbol="AAA", price=101.0, sector="TECH")
@@ -42,7 +42,7 @@ class RealMarketContextTests(unittest.TestCase):
             market_return_history=market,
         )
         result = correlation_context.analyze(snapshot, SimpleNamespace())
-        self.assertAlmostEqual(result.metadata["pearson_correlation"], 1.0)
+        self.assertAlmostEqual(result.metrics["pearson_correlation"], 1.0)
         self.assertGreater(result.confidence, 0.0)
 
     def test_correlation_does_not_fabricate_result_without_history(self):
