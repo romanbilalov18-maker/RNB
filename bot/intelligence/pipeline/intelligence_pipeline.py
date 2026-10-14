@@ -22,25 +22,6 @@ def _bounded(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
-def _overall_consistency(level10_result) -> float:
-    """Use cross-level agreement, not L15's quality-analyzer score spread."""
-    return _bounded(float(level10_result.cross_level_agreement))
-
-
-def _overall_confidence(level10_result, level15_result) -> float:
-    """Do not report confidence higher than the evidence behind L10 agreement.
-
-    L10's aggregate confidence averages several analyzers. The agreement score,
-    however, is specifically based on L5-L9, so its own confidence must also
-    constrain the final confidence used by the decision gate.
-    """
-    analyzers = getattr(level10_result, "analyzer_results", {}) or {}
-    agreement = analyzers.get("cross_level_agreement")
-    agreement_confidence = (
-        agreement.confidence if agreement is not None
-        else getattr(level10_result, "confidence", 0.0)
-    )
-    return _bounded(min(float(level15_result.confidence), float(agreement_confidence)))
 
 class IntelligencePipeline:
     """Run Levels 1-15 without trading side effects."""
@@ -66,4 +47,4 @@ class IntelligencePipeline:
         warnings = tuple(dict.fromkeys(w for level in levels for w in level.warnings))
         strengths = tuple(dict.fromkeys(list(l15.strengths)+list(l14.strengths)+list(l10.strengths)+list(l9.strengths)+list(l8.strengths)))
         weaknesses = tuple(dict.fromkeys(list(l15.weaknesses)+list(l14.weaknesses)+list(l10.weaknesses)+list(l9.weaknesses)+list(l8.weaknesses)))
-        return IntelligenceResult(snapshot.symbol,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15,l15.score,_overall_confidence(l10,l15),_overall_consistency(l10),strengths,weaknesses,warnings,{"version":"1.2","levels":15,"learning_samples":len(self.learning_observations),"overall_consistency_source":"L10.cross_level_agreement","overall_confidence_source":"min(L15.confidence,L10.cross_level_agreement.confidence)"})
+        return IntelligenceResult(snapshot.symbol,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15,l15.score,l15.confidence,l15.consistency,strengths,weaknesses,warnings,{"version":"1.2","levels":15,"learning_samples":len(self.learning_observations),"overall_consistency_source":"L15.consistency (L10.cross_level_agreement)"})
