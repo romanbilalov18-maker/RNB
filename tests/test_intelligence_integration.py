@@ -67,6 +67,30 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot.candle_range, 15.0 / 105.0)
         self.assertAlmostEqual(snapshot.close_position, 10.0 / 15.0)
 
+
+    def test_passes_real_market_and_portfolio_context(self):
+        self.scan.market_return = 0.012
+        self.scan.market_breadth = 0.64
+        self.scan.market_sample_count = 180
+        self.scan.sector_by_ticker = {"AAA": "TECH", "HELD": "TECH"}
+        self.scan.sector_returns = {"TECH": 0.018}
+        portfolio = SimpleNamespace(
+            positions={
+                "HELD": SimpleNamespace(quantity=3, average_price=95.0),
+            }
+        )
+        snapshot = build_market_snapshot(
+            self.scan, self.scan.analyses["AAA"], portfolio=portfolio
+        )
+        self.assertEqual(snapshot.market_sample_count, 180)
+        self.assertEqual(snapshot.market_breadth, 0.64)
+        self.assertEqual(snapshot.sector, "TECH")
+        self.assertEqual(snapshot.sector_return, 0.018)
+        self.assertEqual(snapshot.peer_count, 1)
+        self.assertEqual(snapshot.portfolio_positions[0]["symbol"], "HELD")
+        self.assertEqual(snapshot.portfolio_positions[0]["quantity"], 3)
+        self.assertEqual(snapshot.portfolio_positions[0]["market_value"], 297.0)
+
     def test_analyzes_candidates_and_held_positions_once(self):
         pipeline = FakePipeline()
         results = analyze_scan(self.scan, pipeline)
