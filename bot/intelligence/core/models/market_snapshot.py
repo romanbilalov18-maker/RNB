@@ -31,6 +31,10 @@ class MarketSnapshot:
     market_return: Optional[float] = None
     market_breadth: Optional[float] = None
     market_sample_count: int = 0
+    # Leave-one-out benchmark used for candidate-relative scoring in L8.
+    relative_market_return: Optional[float] = None
+    relative_market_sample_count: int = 0
+    relative_market_context_available: bool = False
     sector: Optional[str] = None
     sector_return: Optional[float] = None
     peer_return: Optional[float] = None
