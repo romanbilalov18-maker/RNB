@@ -413,17 +413,50 @@ class DecisionAuditStore:
                                       WHERE o.audit_id=a.id AND o.horizon_sessions=?)
                 """, (horizon, horizon)).fetchone()
                 due[str(horizon)] = int(due_row["ready"] or 0)
-            trainable = db.execute("""
-                SELECT COUNT(*)
-                FROM decision_outcomes AS o
-                JOIN decision_learning_snapshots AS s ON s.audit_id=o.audit_id
-                JOIN decision_audit AS a ON a.id=o.audit_id
-                WHERE o.horizon_sessions=? AND o.direction_correct IS NOT NULL
-                  AND a.recommendation IN ('BUY', 'SELL')
-            """, (self.LEARNING_HORIZON,)).fetchone()[0]
+            session_quality = db.execute("""
+                WITH anchored AS (
+                    SELECT ticker, anchor_session_date
+                    FROM decision_audit
+                    WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
+                )
+                SELECT
+                    COUNT(*) AS anchored_decisions,
+                    COUNT(DISTINCT ticker || '|' || anchor_session_date) AS unique_ticker_sessions,
+                    COUNT(DISTINCT anchor_session_date) AS unique_session_dates
+                FROM anchored
+            """).fetchone()
+            dedup_quality = db.execute("""
+                WITH ranked_audit AS (
+                    SELECT id, ticker, recommendation, anchor_session_date,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ticker, anchor_session_date
+                               ORDER BY recorded_at DESC, id DESC
+                           ) AS session_rank
+                    FROM decision_audit
+                    WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
+                )
+                SELECT
+                    COUNT(*) AS scored_learning_observations,
+                    SUM(CASE WHEN session_rank > 1 THEN 1 ELSE 0 END) AS duplicate_decisions_excluded
+                FROM ranked_audit AS a
+                JOIN decision_outcomes AS o ON o.audit_id = a.id
+                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                WHERE a.recommendation IN ('BUY', 'SELL')
+                  AND o.horizon_sessions = ?
+                  AND o.direction_correct IS NOT NULL
+            """, (self.LEARNING_HORIZON,)).fetchone()
+            all_duplicates = int(session_quality["anchored_decisions"] or 0) - int(session_quality["unique_ticker_sessions"] or 0)
         result = dict(row)
         result["forward_outcomes"] = [dict(item) for item in outcomes]
         result["outcome_readiness"] = dict(readiness)
         result["outcomes_ready_but_missing"] = due
-        result["learning_observations"] = int(trainable or 0)
+        result["learning_observations"] = int(dedup_quality["scored_learning_observations"] or 0)
+        result["learning_data_quality"] = {
+            "anchored_decisions": int(session_quality["anchored_decisions"] or 0),
+            "unique_ticker_sessions": int(session_quality["unique_ticker_sessions"] or 0),
+            "unique_session_dates": int(session_quality["unique_session_dates"] or 0),
+            "duplicate_decisions_excluded": max(0, all_duplicates),
+            "duplicate_scored_observations_excluded": int(dedup_quality["duplicate_decisions_excluded"] or 0),
+            "learning_observations_after_deduplication": int(dedup_quality["scored_learning_observations"] or 0),
+        }
         return result
