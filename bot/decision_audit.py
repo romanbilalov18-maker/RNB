@@ -363,10 +363,40 @@ class DecisionAuditStore:
                 AVG(net_return_pct) AS avg_net_return_pct
                 FROM decision_outcomes GROUP BY horizon_sessions ORDER BY horizon_sessions
             """).fetchall()
+            readiness = db.execute("""
+                SELECT
+                    COUNT(*) AS anchors,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL THEN 1 ELSE 0 END) AS anchored,
+                    SUM(CASE WHEN a.anchor_price IS NULL OR a.anchor_session_date IS NULL THEN 1 ELSE 0 END) AS missing_anchor,
+                    SUM(CASE WHEN s.audit_id IS NOT NULL THEN 1 ELSE 0 END) AS learning_snapshots,
+                    SUM(CASE WHEN a.recommendation IN ('BUY', 'SELL') THEN 1 ELSE 0 END) AS directional_decisions
+                FROM decision_audit AS a
+                LEFT JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+            """).fetchone()
+            due = {}
+            for horizon in self.HORIZONS:
+                due_row = db.execute("""
+                    SELECT COUNT(*) AS ready
+                    FROM decision_audit AS a
+                    WHERE a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                      AND a.recommendation IN ('BUY', 'SELL')
+                      AND (SELECT COUNT(*) FROM market_session_prices AS p
+                           WHERE p.ticker=a.ticker AND p.session_date>a.anchor_session_date) >= ?
+                      AND NOT EXISTS (SELECT 1 FROM decision_outcomes AS o
+                                      WHERE o.audit_id=a.id AND o.horizon_sessions=?)
+                """, (horizon, horizon)).fetchone()
+                due[str(horizon)] = int(due_row["ready"] or 0)
+            trainable = db.execute("""
+                SELECT COUNT(*)
+                FROM decision_outcomes AS o
+                JOIN decision_learning_snapshots AS s ON s.audit_id=o.audit_id
+                JOIN decision_audit AS a ON a.id=o.audit_id
+                WHERE o.horizon_sessions=? AND o.direction_correct IS NOT NULL
+                  AND a.recommendation IN ('BUY', 'SELL')
+            """, (self.LEARNING_HORIZON,)).fetchone()[0]
         result = dict(row)
         result["forward_outcomes"] = [dict(item) for item in outcomes]
-        result["learning_observations"] = sum(
-            item["scored"] for item in result["forward_outcomes"]
-            if item["horizon_sessions"] == self.LEARNING_HORIZON
-        )
+        result["outcome_readiness"] = dict(readiness)
+        result["outcomes_ready_but_missing"] = due
+        result["learning_observations"] = int(trainable or 0)
         return result
