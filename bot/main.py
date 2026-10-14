@@ -13,7 +13,7 @@ from bot.portfolio_store import SQLitePortfolioStore
 
 
 def _should_run_another_cycle(remaining_seconds: float, cycle_interval_minutes: float) -> bool:
-    """Avoid starting a new cycle when less than one full interval remains."""
+    """Only start another cycle when more than one full interval remains."""
     return remaining_seconds > cycle_interval_minutes * 60
 
 
