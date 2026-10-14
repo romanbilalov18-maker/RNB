@@ -111,6 +111,17 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
     # Exclude the analyzed instrument from its sector benchmark. Otherwise its
     # own return leaks into the comparison and weakens/changes the relative signal.
     peer_return = sum(sector_changes) / len(sector_changes) if sector_changes else None
+    leave_one_out_changes = [
+        current / previous - 1.0
+        for peer, current in scan.current_prices.items()
+        if peer != ticker
+        and (previous := scan.previous_closes.get(peer)) is not None
+        and previous > 0 and current > 0
+    ]
+    relative_market_return = (
+        sum(leave_one_out_changes) / len(leave_one_out_changes)
+        if leave_one_out_changes else None
+    )
     # The aggregate sector return includes the target instrument and cannot be
     # used as a fallback without its sample count and a leave-one-out adjustment.
     # Unknown peer data must remain unknown rather than leak the target return.
@@ -157,6 +168,9 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         market_return=getattr(scan, "market_return", None),
         market_breadth=getattr(scan, "market_breadth", None),
         market_sample_count=getattr(scan, "market_sample_count", 0),
+        relative_market_return=relative_market_return,
+        relative_market_sample_count=len(leave_one_out_changes),
+        relative_market_context_available=True,
         sector=sector,
         sector_return=sector_return,
         peer_return=peer_return,
