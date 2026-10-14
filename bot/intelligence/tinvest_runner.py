@@ -205,6 +205,21 @@ def main() -> None:
                     f"precision={stats['precision']} recall={stats['recall']} "
                     f"false_positive_rate={stats['false_positive_rate']} lift={stats['lift']}"
                 )
+                trade = stats["trading_filter"]
+                print(
+                    f"        after_cost_filter: n={trade['eligible_trades']} "
+                    f"coverage={trade['coverage']} mean_net={trade['mean_net_return']} "
+                    f"compounded_net={trade['compounded_net_return']} "
+                    f"win_rate={trade['win_rate_after_costs']} "
+                    f"max_drawdown={trade['max_drawdown_sequential']}"
+                )
+        reference = values["all_dates_reference"]
+        print(
+            f"      all_dates_reference: mean_net={reference['mean_net_return']} "
+            f"compounded_net={reference['compounded_net_return']} "
+            f"win_rate={reference['win_rate_after_costs']} "
+            f"max_drawdown={reference['max_drawdown_sequential']}"
+        )
         holdout = anomaly_backtest["combination_comparison"]["chronological_holdout"]
         print(
             f"  L4/L6/L12 chronological holdout: split={holdout['split_date']} "
@@ -373,6 +388,16 @@ def main() -> None:
             fpr = fp / negatives if negatives else None
             lift = precision / event_rate if precision is not None and event_rate else None
             print(f"    {variant}: alerts={len(alerts)} precision={precision} recall={recall} fpr={fpr} lift={lift}")
+            eligible = [row for row in rows if not row[variant]]
+            net_returns = [row["forward_return"] - 0.001 for row in eligible]
+            baseline_returns = [row["forward_return"] - 0.001 for row in rows]
+            mean_net = sum(net_returns) / len(net_returns) if net_returns else None
+            baseline_mean = sum(baseline_returns) / len(baseline_returns) if baseline_returns else None
+            print(
+                f"      after_cost_filter: n={len(eligible)} "
+                f"coverage={len(eligible)/len(rows):.1%} mean_net={mean_net} "
+                f"baseline_mean_net={baseline_mean}"
+            )
     for horizon in (1, 3, 5):
         rows = [row for row in combination_rows if row["horizon"] == horizon]
         if not rows:
@@ -394,6 +419,8 @@ def main() -> None:
                 f"    {variant}: alerts={len(alerts)} precision={precision} "
                 f"recall={recall} false_positive_rate={fpr} lift={lift}"
             )
+    print("  Returns subtract a 0.10% round-trip cost per eligible observation.")
+    print("  Overlapping horizons are not independent; compounded values are diagnostic, not portfolio backtest P&L.")
     print("  Same-date alert comparison is diagnostic only; no weights or trade rules changed.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
