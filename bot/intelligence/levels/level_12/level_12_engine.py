@@ -21,9 +21,12 @@ class Level12Engine:
             signal_anomaly.analyze(level7_result, level10_result),
             data_anomaly.analyze(snapshot),
         )
-        score = sum(result.score * weight for result, weight in zip(results, self.WEIGHTS))
-        confidence = sum(result.confidence for result in results) / len(results)
-        consistency = (1.0 - (max(result.score for result in results) - min(result.score for result in results))) if any(result.confidence > 0 for result in results) else 0.0
+        effective_weights = [weight * max(0.0, min(1.0, result.confidence)) for result, weight in zip(results, self.WEIGHTS)]
+        effective_total = sum(effective_weights)
+        score = sum(result.score * weight for result, weight in zip(results, effective_weights)) / effective_total if effective_total > 0 else 0.0
+        confidence = sum(weight * max(0.0, min(1.0, result.confidence)) for result, weight in zip(results, self.WEIGHTS)) / sum(self.WEIGHTS)
+        observed_scores = [result.score for result in results if result.confidence > 0]
+        consistency = 1.0 - (max(observed_scores) - min(observed_scores)) if observed_scores else 0.0
         return Level12Result(
             symbol=snapshot.symbol,
             score=max(0.0, min(1.0, score)),
