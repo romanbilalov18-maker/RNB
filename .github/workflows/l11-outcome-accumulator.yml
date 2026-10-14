@@ -23,7 +23,7 @@ jobs:
       RUN_LIVE_TINVEST_TEST: "1"
       # This workflow is intended to perform exactly one market-data cycle.
       RUN_DURATION_MINUTES: "4"
-      CYCLE_INTERVAL_MINUTES: "5"
+      CYCLE_INTERVAL_MINUTES: "4"
       VIRTUAL_INITIAL_BALANCE: "10000"
       VIRTUAL_COMMISSION_RATE: "0.0005"
       TAKE_PROFIT_PERCENT: "0.15"
