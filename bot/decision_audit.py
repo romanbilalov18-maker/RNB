@@ -229,6 +229,20 @@ class DecisionAuditStore:
                 getattr(trades[-1], "price", None) if trades else None,
             ))
         with self._connect() as db:
+            # Remove legacy weekend prices written by older versions. Outcomes
+            # are derived data, so rebuild them after removing invalid sessions.
+            weekend_rows = db.execute("SELECT ticker, session_date FROM market_session_prices").fetchall()
+            invalid_rows = [
+                (row["ticker"], row["session_date"]) for row in weekend_rows
+                if date.fromisoformat(row["session_date"]).weekday() >= 5
+            ]
+            if invalid_rows:
+                db.executemany(
+                    "DELETE FROM market_session_prices WHERE ticker=? AND session_date=?",
+                    invalid_rows,
+                )
+                db.execute("DELETE FROM decision_outcomes")
+
             db.executemany("""
                 INSERT INTO decision_audit (
                     cycle_id, recorded_at, ticker, recommendation, reason, score, confidence,
