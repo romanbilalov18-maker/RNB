@@ -125,6 +125,14 @@ def main() -> None:
             f"  L4 walk-forward: split={walk_forward['split_date']} "
             f"train_outcomes={train_count} holdout_outcomes={holdout_count}"
         )
+        for metric, values in walk_forward["holdout"]["summary"].items():
+            if values["count"]:
+                mean_net = values["mean_net_directional_return"]
+                print(
+                    f"    holdout {metric}: n={values['count']} "
+                    f"win_after_costs={values['win_rate_after_costs']:.1%} "
+                    f"mean_net_directional_return={mean_net:+.3%}"
+                )
         if walk_forward["warnings"]:
             print(f"    L4 walk-forward warnings: {'; '.join(walk_forward['warnings'][:2])}")
 
@@ -174,6 +182,7 @@ def main() -> None:
                     f"  {signal} h{horizon} {regime}: n={len(observations)} "
                     f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
                 )
+    print("  Training-period outcomes are descriptive only; no model weights are trained or changed.")
     print("  Training outcomes end before the split; holdout signals start on/after the split.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
