@@ -71,15 +71,40 @@ def _calibrate(raw_scores: list[float], parameters: tuple[float, float]) -> list
     return [max(0.0, min(1.0, slope * score + intercept)) for score in raw_scores]
 
 
+def _prepare_chronological_observations(observations):
+    observations = tuple(observations)
+    timestamps = [getattr(item, "decision_time", None) for item in observations]
+    has_timestamps = [bool(value) for value in timestamps]
+    if any(has_timestamps) and not all(has_timestamps):
+        return observations, False, "decision timestamps are incomplete"
+    if all(has_timestamps) and timestamps:
+        return tuple(sorted(observations, key=lambda item: item.decision_time)), True, None
+    # Legacy/synthetic callers may not provide timestamps. Preserve their
+    # explicit order, but report that chronology could not be independently verified.
+    return observations, False, None
+
+
 def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
     """Chronological holdout evaluation; all learned weights/calibrators use train only.
 
     This tests whether historical L1-L15 score profiles predict correctness. It does
     not simulate portfolio P&L or change live trading decisions.
     """
-    observations = tuple(observations)
+    observations, chronology_verified, chronology_error = _prepare_chronological_observations(observations)
     if not 0.0 < train_fraction < 1.0:
         raise ValueError("train_fraction must be between 0 and 1")
+    if chronology_error:
+        return {
+            "status": "insufficient_data",
+            "reason": chronology_error,
+            "train_count": 0,
+            "raw_train_count": 0,
+            "purged_train_count": 0,
+            "test_count": len(observations),
+            "chronology_verified": False,
+            "weights_learned_on_train_only": True,
+            "calibrators_learned_on_train_only": True,
+        }
     train_size = int(len(observations) * train_fraction)
     raw_train, test = observations[:train_size], observations[train_size:]
     # Purge training labels whose forward outcome reaches the holdout period.
@@ -104,6 +129,8 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
             "purged_train_count": purged_train_count,
             "test_count": len(test),
             "purging_applied": boundary is not None,
+        "chronology_verified": chronology_verified,
+            "chronology_verified": chronology_verified,
             "weights_learned_on_train_only": True,
             "calibrators_learned_on_train_only": True,
         }
@@ -170,7 +197,17 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
 
 def evaluate_multiple_windows(observations, window_count: int = 3, min_test_size: int = 10) -> dict:
     """Evaluate expanding, chronological holdout windows with disjoint test slices."""
-    observations = tuple(observations)
+    observations, chronology_verified, chronology_error = _prepare_chronological_observations(observations)
+    if chronology_error:
+        return {
+            "status": "insufficient_data",
+            "reason": chronology_error,
+            "requested_windows": window_count,
+            "evaluated_windows": 0,
+            "windows": [],
+            "chronology_verified": False,
+            "deployment_allowed": False,
+        }
     if window_count < 2:
         raise ValueError("window_count must be at least 2")
     if min_test_size < 1:
@@ -198,6 +235,7 @@ def evaluate_multiple_windows(observations, window_count: int = 3, min_test_size
             "evaluated_windows": len(windows),
             "windows": windows,
             "deployment_allowed": False,
+            "chronology_verified": chronology_verified,
         }
 
     def mean_metric(section: str, model: str, metric: str):
@@ -239,6 +277,7 @@ def evaluate_multiple_windows(observations, window_count: int = 3, min_test_size
         "windows": windows,
         "summary": summary,
         "deployment_allowed": False,
+        "chronology_verified": chronology_verified,
         "interpretation": (
             "Window metrics are unweighted means across disjoint chronological holdouts. "
             "Negative Brier delta and positive AUC delta favor the proposed model. "
