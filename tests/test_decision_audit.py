@@ -377,7 +377,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
 
 
 
-    def test_daily_candle_completion_uses_moscow_session_close_not_24_hours(self):
+    def test_daily_candle_completion_excludes_same_day_close_to_prevent_leakage(self):
         before_close_buffer = datetime.fromisoformat("2026-10-14T15:59:00+00:00")
         after_close_buffer = datetime.fromisoformat("2026-10-14T16:00:00+00:00")
         previous_day = candle("2026-10-13", 100)
@@ -385,7 +385,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
 
         self.assertTrue(DecisionAuditStore._is_completed_daily_candle(previous_day, now=before_close_buffer))
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=before_close_buffer))
-        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=after_close_buffer))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=after_close_buffer))
 
     def test_daily_candle_completion_handles_weekends_and_date_only_values(self):
         saturday_morning = datetime.fromisoformat("2026-10-17T08:00:00+00:00")
