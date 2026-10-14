@@ -26,7 +26,7 @@ class Level15Engine:
         score = 0.90 * sum(result.score * weight for result, weight in zip(results, self.WEIGHTS)) + 0.10 * master.score
         confidence = 0.90 * (sum(result.confidence for result in results) / len(results)) + 0.10 * master.confidence
         all_scores = [result.score for result in results] + [master.score]
-        consistency = 1.0 - (max(all_scores) - min(all_scores))
+        consistency = (1.0 - (max(all_scores) - min(all_scores))) if any(result.confidence > 0 for result in results + (master,)) else 0.0
         return Level15Result(
             symbol=l10.symbol,
             score=max(0.0, min(1.0, score)),
