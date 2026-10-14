@@ -11,4 +11,4 @@ def analyze(snapshot, level6_result) -> AnalyzerResult:
         return AnalyzerResult("concentration_risk", 0.0, 0.0, {"position_count": len(positions)}, ["portfolio_market_values_not_available"])
     shares = [value / total for value in values]
     hhi = sum(value * value for value in shares)
-    return AnalyzerResult("concentration_risk", max(0.0, min(1.0, (hhi - 1.0 / len(shares)) / max(1e-9, 1.0 - 1.0 / len(shares)))), min(1.0, len(shares) / 10.0), {"position_count": len(shares), "herfindahl_index": hhi, "largest_position_weight": max(shares)})
+    return AnalyzerResult("concentration_risk", max(0.0, min(1.0, hhi)), min(1.0, len(shares) / 10.0), {"position_count": len(shares), "herfindahl_index": hhi, "largest_position_weight": max(shares)})
