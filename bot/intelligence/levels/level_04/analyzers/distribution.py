@@ -3,11 +3,25 @@ from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 
 
 def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
-    change = snapshot.price_change()
-    volume = snapshot.volume / snapshot.average_volume if snapshot.average_volume > 0 else 1.0
-    score = min(1.0, max(0.0, 0.5 - change * 5.0 + max(0.0, volume - 1.0) * 0.15))
-    warnings = ["historical_flow_not_available"]
+    returns = snapshot.historical_returns
+    volumes = snapshot.historical_volume_ratios
+    pairs = list(zip(returns, volumes))
+    if len(pairs) < 5:
+        return AnalyzerResult(
+            "distribution", 0.0, 0.0,
+            {"observations": len(pairs)},
+            ("historical_price_volume_history_insufficient",),
+        )
+    total_volume = sum(max(0.0, volume) for _, volume in pairs)
+    if total_volume <= 0:
+        return AnalyzerResult("distribution", 0.0, 0.0, {"observations": len(pairs)}, ("historical_volume_not_available",))
+    down_volume = sum(volume for change, volume in pairs if change < 0)
+    up_volume = sum(volume for change, volume in pairs if change > 0)
+    score = max(0.0, min(1.0, down_volume / total_volume))
     return AnalyzerResult(
-        analyzer="distribution", score=score, confidence=0.45,
-        metrics={"price_change": change, "volume_ratio": volume}, warnings=warnings,
+        "distribution", score, min(1.0, len(pairs) / 20.0),
+        {"down_volume_ratio": down_volume / total_volume,
+         "up_volume_ratio": up_volume / total_volume,
+         "net_directional_volume": (up_volume - down_volume) / total_volume,
+         "observations": len(pairs)},
     )
