@@ -86,7 +86,7 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.market_sample_count, 180)
         self.assertEqual(snapshot.market_breadth, 0.64)
         self.assertEqual(snapshot.sector, "TECH")
-        self.assertEqual(snapshot.sector_return, -0.01)
+        self.assertAlmostEqual(snapshot.sector_return, -0.01)
         self.assertEqual(snapshot.peer_count, 1)
         self.assertEqual(snapshot.portfolio_positions[0]["symbol"], "HELD")
         self.assertEqual(snapshot.portfolio_positions[0]["quantity"], 3)
