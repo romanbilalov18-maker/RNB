@@ -30,7 +30,7 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
             ("cross_asset_history_insufficient",),
         )
     score = max(0.0, min(1.0, (correlation + 1.0) / 2.0))
-    confidence = min(1.0, min(len(snapshot.historical_returns), len(snapshot.market_return_history)) / 30.0)
+    confidence = min(1.0, min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history)) / 30.0)
     return AnalyzerResult(
         "correlation_context", score, confidence,
         {"pearson_correlation": correlation,
