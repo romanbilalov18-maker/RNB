@@ -24,7 +24,7 @@ class Level13Engine:
         all_results = results + (confidence_result,)
         score = sum(result.score * weight for result, weight in zip(all_results, self.WEIGHTS))
         confidence = sum(result.confidence for result in all_results) / len(all_results)
-        consistency = 1.0 - (max(result.score for result in all_results) - min(result.score for result in all_results))
+        consistency = (1.0 - (max(result.score for result in all_results) - min(result.score for result in all_results))) if any(result.confidence > 0 for result in all_results) else 0.0
         return Level13Result(
             symbol=snapshot.symbol,
             score=max(0.0, min(1.0, score)),
