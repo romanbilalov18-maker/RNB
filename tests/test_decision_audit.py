@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,18 +63,20 @@ class DecisionAuditStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
             decision = {"AAA": SimpleNamespace(action="BUY", reason="test", score=.8, confidence=.8, consistency=.8)}
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
             history = [candle("2026-10-01", 100)]
             store.record_cycle("anchor", decision, [], equity=1000, cash=1000, total_commissions=0,
-                current_prices={"AAA": 120}, candle_history={"AAA": history}, commission_rate=.001)
+                current_prices={"AAA": 100}, candle_history={"AAA": history}, commission_rate=.001, as_of=as_of)
             self.assertEqual(store.pending_tickers(), {"AAA"})
             with store._connect() as db:
                 anchor = db.execute("SELECT anchor_price, anchor_session_date FROM decision_audit").fetchone()
             self.assertEqual(anchor["anchor_price"], 100)
-            self.assertEqual(anchor["anchor_session_date"], "2026-10-01")
-            future = [candle("2026-10-02", 101), candle("2026-10-05", 102),
+            self.assertEqual(anchor["anchor_session_date"], "2026-10-02")
+            future = [candle("2026-10-03", 101), candle("2026-10-05", 102),
                 candle("2026-10-06", 99), candle("2026-10-07", 103), candle("2026-10-08", 104)]
             store.record_cycle("later", {}, [], equity=1000, cash=1000, total_commissions=0,
-                candle_history={"AAA": history + future}, commission_rate=.001)
+                candle_history={"AAA": history + future}, commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-10T12:00:00+00:00"))
             with store._connect() as db:
                 outcomes = db.execute("SELECT horizon_sessions, target_price, direction_correct FROM decision_outcomes ORDER BY horizon_sessions").fetchall()
             self.assertEqual([r["horizon_sessions"] for r in outcomes], [1, 3, 5])
@@ -82,11 +84,12 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual([r["direction_correct"] for r in outcomes], [1, 0, 1])
             self.assertEqual(store.pending_tickers(), set())
 
-    def test_ignores_incomplete_current_daily_candle(self):
+    def test_uses_decision_time_price_and_excludes_same_day_close(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
-            today = datetime.now(timezone.utc).date().isoformat()
-            yesterday = (datetime.now(timezone.utc).date() - __import__("datetime").timedelta(days=1)).isoformat()
+            as_of = datetime.now(timezone.utc)
+            today = as_of.date().isoformat()
+            yesterday = (as_of.date() - timedelta(days=1)).isoformat()
             history = [candle(yesterday, 100), candle(today, 999)]
             store.record_cycle(
                 "cycle-current",
@@ -95,7 +98,9 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 equity=1000,
                 cash=1000,
                 total_commissions=0,
+                current_prices={"AAA": 105},
                 candle_history={"AAA": history},
+                as_of=as_of,
             )
             with store._connect() as db:
                 anchor = db.execute(
@@ -104,16 +109,17 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 prices = db.execute(
                     "SELECT session_date, close_price FROM market_session_prices ORDER BY session_date"
                 ).fetchall()
-            self.assertEqual(anchor["anchor_price"], 100)
-            self.assertEqual(anchor["anchor_session_date"], yesterday)
+            self.assertEqual(anchor["anchor_price"], 105)
+            self.assertEqual(anchor["anchor_session_date"], today)
             self.assertEqual([(row["session_date"], row["close_price"]) for row in prices], [(yesterday, 100)])
 
     def test_wait_outcomes_are_not_counted_as_directional_predictions(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
             base = datetime.now(timezone.utc).date()
-            days = [
-                candle((base - __import__("datetime").timedelta(days=7-i)).isoformat(), 100+i)
+            as_of = datetime.combine(base, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=12)
+            prior = [
+                candle((base - timedelta(days=7-i)).isoformat(), 100+i)
                 for i in range(7)
             ]
             store.record_cycle(
@@ -123,8 +129,14 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 equity=1000,
                 cash=1000,
                 total_commissions=0,
-                candle_history={"AAA": days[:1]},
+                current_prices={"AAA": 100},
+                candle_history={"AAA": prior},
+                as_of=as_of,
             )
+            future = [
+                candle((base + timedelta(days=i)).isoformat(), 100+i)
+                for i in range(1, 8)
+            ]
             store.record_cycle(
                 "wait-followup",
                 {},
@@ -132,7 +144,8 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 equity=1000,
                 cash=1000,
                 total_commissions=0,
-                candle_history={"AAA": days},
+                candle_history={"AAA": prior + future},
+                as_of=as_of + timedelta(days=10),
             )
             summary = store.summary()
             self.assertEqual([row["horizon_sessions"] for row in summary["forward_outcomes"]], [1, 3, 5])
@@ -141,6 +154,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
     def test_matured_three_session_outcome_becomes_l11_learning_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
             history = [candle("2026-10-01", 100)]
             store.record_cycle(
                 "learning-anchor",
@@ -149,13 +163,15 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 equity=1000,
                 cash=1000,
                 total_commissions=0,
+                current_prices={"AAA": 100},
                 candle_history={"AAA": history},
                 intelligence_results={"AAA": intelligence_snapshot()},
                 commission_rate=.001,
+                as_of=as_of,
             )
             self.assertEqual(store.learning_observations_by_ticker(), {})
             future = [
-                candle("2026-10-02", 101),
+                candle("2026-10-03", 101),
                 candle("2026-10-05", 102),
                 candle("2026-10-06", 103),
             ]
@@ -168,6 +184,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 total_commissions=0,
                 candle_history={"AAA": history + future},
                 commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
             )
             observations = store.learning_observations_by_ticker()["AAA"]
             self.assertEqual(len(observations), 1)
