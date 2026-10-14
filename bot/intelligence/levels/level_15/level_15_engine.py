@@ -47,7 +47,20 @@ class Level15Engine:
 
         score = max(0.0, min(1.0, score))
         confidence = max(0.0, min(1.0, confidence))
-        consistency = max(0.0, min(1.0, consistency))
+        quality_analyzer_consistency = max(0.0, min(1.0, consistency))
+
+        # Final consistency is about agreement between trading-analysis levels,
+        # not the spread between L15's quality-analyzer scores.
+        agreement_result = getattr(l10, "analyzer_results", {}).get("cross_level_agreement")
+        agreement_confidence = (
+            agreement_result.confidence if agreement_result is not None
+            else getattr(l10, "confidence", 0.0)
+        )
+        consistency = (
+            max(0.0, min(1.0, float(l10.cross_level_agreement)))
+            if agreement_confidence > 0.0 else 0.0
+        )
+        confidence = min(confidence, max(0.0, min(1.0, float(agreement_confidence))))
         all_results = results + (master,)
         return Level15Result(
             symbol=l10.symbol,
@@ -64,9 +77,11 @@ class Level15Engine:
             analyzer_results=all_results,
             warnings=tuple(dict.fromkeys(w for result in all_results for w in result.warnings)),
             metadata={
-                "version": "1.1",
+                "version": "1.2",
                 "master_synthesis": True,
                 "trade_decision": False,
+                "consistency_source": "L10.cross_level_agreement",
+                "quality_analyzer_consistency": quality_analyzer_consistency,
                 "excluded_unavailable_analyzers": tuple(
                     result.analyzer for result in results if result.confidence <= 0.0
                 ),
