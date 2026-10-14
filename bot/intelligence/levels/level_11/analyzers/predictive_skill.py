@@ -63,5 +63,5 @@ def proposed_weights(metrics: dict[str, dict], total_observations: int) -> dict[
 
 def effectiveness_score(metrics: dict[str, dict]) -> float:
     if not metrics:
-        return 0.5
+        return 0.0
     return sum(item["effectiveness"] for item in metrics.values()) / len(metrics)
