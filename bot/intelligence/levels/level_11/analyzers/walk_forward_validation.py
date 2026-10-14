@@ -81,13 +81,29 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
     if not 0.0 < train_fraction < 1.0:
         raise ValueError("train_fraction must be between 0 and 1")
     train_size = int(len(observations) * train_fraction)
-    train, test = observations[:train_size], observations[train_size:]
-    if train_size < 20 or not test:
+    raw_train, test = observations[:train_size], observations[train_size:]
+    # Purge training labels whose forward outcome reaches the holdout period.
+    # The features were recorded at decision time, but a 3-session label may
+    # mature after a later holdout decision; that label is not yet knowable at
+    # the holdout boundary and must not influence fitted weights/calibrators.
+    boundary = next((item.decision_time for item in test if item.decision_time), None)
+    train = tuple(
+        item for item in raw_train
+        if not (
+            boundary and item.outcome_target_date
+            and item.outcome_target_date >= boundary[:10]
+        )
+    )
+    purged_train_count = len(raw_train) - len(train)
+    if len(train) < 20 or not test:
         return {
             "status": "insufficient_data",
-            "reason": "need at least 20 training observations and one holdout observation",
+            "reason": "need at least 20 training observations after temporal purging and one holdout observation",
             "train_count": len(train),
+            "raw_train_count": len(raw_train),
+            "purged_train_count": purged_train_count,
             "test_count": len(test),
+            "purging_applied": boundary is not None,
             "weights_learned_on_train_only": True,
             "calibrators_learned_on_train_only": True,
         }
@@ -129,7 +145,10 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
     return {
         "status": "evaluated",
         "train_count": len(train),
+        "raw_train_count": len(raw_train),
+        "purged_train_count": purged_train_count,
         "test_count": len(test),
+        "purging_applied": boundary is not None,
         "weights_learned_on_train_only": True,
         "calibrators_learned_on_train_only": True,
         "level_weights": level_weights,
