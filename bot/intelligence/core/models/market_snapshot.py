@@ -42,6 +42,7 @@ class MarketSnapshot:
     sector_return_history: tuple[float, ...] = ()
     peer_return_history: tuple[float, ...] = ()
     historical_volume_ratios: tuple[float, ...] = ()
+    portfolio_positions: tuple[dict, ...] = ()
 
     def price_change(self) -> Optional[float]:
         if self.previous_price is None or self.previous_price == 0:
