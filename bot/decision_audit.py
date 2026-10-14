@@ -95,8 +95,17 @@ class DecisionAuditStore:
 
     @staticmethod
     def _is_completed_daily_candle(candle: object, now: datetime | None = None) -> bool:
-        """Return whether a daily candle is safely beyond its full 24-hour interval."""
+        """Accept completed MOEX daily candles without waiting an arbitrary 24 hours.
+
+        T-Invest timestamps daily candles at the start of the candle interval. For
+        the regular RUB-share session, today's candle is considered complete after
+        the normal Moscow exchange close (15:50 UTC). On earlier runs it remains
+        excluded. Date-only values have no time-of-day, so only prior dates are safe.
+        """
         now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(timezone.utc)
         value = getattr(candle, "time", None) or getattr(candle, "timestamp", None)
         if isinstance(value, str):
             try:
@@ -109,7 +118,15 @@ class DecisionAuditStore:
         if isinstance(value, datetime):
             if value.tzinfo is None:
                 value = value.replace(tzinfo=timezone.utc)
-            return value.astimezone(timezone.utc) + timedelta(days=1) <= now
+            session_time = value.astimezone(timezone.utc)
+            session_date = session_time.date()
+            if session_date < now.date():
+                return True
+            if session_date > now.date() or now.weekday() >= 5:
+                return False
+            # MOEX main share market's regular session closes at 18:50 Moscow
+            # time (15:50 UTC). Keep a small buffer for final candle publication.
+            return now.hour * 60 + now.minute >= 16 * 60
         if isinstance(value, date):
             return value < now.date()
         return False
