@@ -72,8 +72,8 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 anchor = db.execute("SELECT anchor_price, anchor_session_date FROM decision_audit").fetchone()
             self.assertEqual(anchor["anchor_price"], 100)
             self.assertEqual(anchor["anchor_session_date"], "2026-10-02")
-            future = [candle("2026-10-03", 101), candle("2026-10-05", 102),
-                candle("2026-10-06", 99), candle("2026-10-07", 103), candle("2026-10-08", 104)]
+            future = [candle("2026-10-05", 101), candle("2026-10-06", 102),
+                candle("2026-10-07", 99), candle("2026-10-08", 103), candle("2026-10-09", 104)]
             store.record_cycle("later", {}, [], equity=1000, cash=1000, total_commissions=0,
                 candle_history={"AAA": history + future}, commission_rate=.001,
                 as_of=datetime.fromisoformat("2026-10-10T12:00:00+00:00"))
@@ -171,9 +171,9 @@ class DecisionAuditStoreTests(unittest.TestCase):
             )
             self.assertEqual(store.learning_observations_by_ticker(), {})
             future = [
-                candle("2026-10-03", 101),
-                candle("2026-10-05", 102),
-                candle("2026-10-06", 103),
+                candle("2026-10-05", 101),
+                candle("2026-10-06", 102),
+                candle("2026-10-07", 103),
             ]
             store.record_cycle(
                 "learning-followup",
@@ -219,10 +219,10 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 )
 
             future = [
-                candle("2026-10-03", 101),
-                candle("2026-10-05", 102),
-                candle("2026-10-06", 103),
-                candle("2026-10-07", 104),
+                candle("2026-10-05", 101),
+                candle("2026-10-06", 102),
+                candle("2026-10-07", 103),
+                candle("2026-10-08", 104),
             ]
             store.record_cycle(
                 "maturity-cycle", {}, [], equity=1000, cash=1000, total_commissions=0,
@@ -305,9 +305,9 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 as_of=as_of,
             )
             future = [
-                candle("2026-10-03", 99),
-                candle("2026-10-05", 98),
-                candle("2026-10-06", 95),
+                candle("2026-10-05", 99),
+                candle("2026-10-06", 98),
+                candle("2026-10-07", 95),
             ]
             store.record_cycle(
                 "sell-followup", {}, [], equity=1000, cash=1000,
@@ -347,9 +347,9 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 )
 
             future = [
-                candle("2026-10-03", 101),
-                candle("2026-10-05", 102),
-                candle("2026-10-06", 103),
+                candle("2026-10-05", 101),
+                candle("2026-10-06", 102),
+                candle("2026-10-07", 103),
             ]
             store.record_cycle(
                 "maturity-cycle",
