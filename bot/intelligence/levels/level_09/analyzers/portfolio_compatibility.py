@@ -4,9 +4,16 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 def analyze(snapshot, level5_result, level8_result) -> AnalyzerResult:
     positions = getattr(snapshot, "portfolio_positions", ())
     if not positions:
-        return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": 0}, ["existing_positions_not_available"])
+        if getattr(snapshot, "portfolio_context_available", False) and snapshot.sector:
+            return AnalyzerResult(
+                "portfolio_compatibility", 1.0, 1.0,
+                {"position_count": 0, "candidate_sector": snapshot.sector, "existing_sector_weight": 0.0},
+                ["portfolio_confirmed_empty"],
+            )
+        warning = "candidate_sector_not_available" if getattr(snapshot, "portfolio_context_available", False) else "existing_positions_not_available"
+        return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": 0}, [warning])
     if any(item.get("symbol") == snapshot.symbol for item in positions):
-        return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"already_held": True}, ["candidate_already_in_portfolio"])
+        return AnalyzerResult("portfolio_compatibility", 0.0, 1.0, {"already_held": True, "position_count": len(positions)}, ["candidate_already_in_portfolio"])
     if not snapshot.sector:
         return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": len(positions)}, ["candidate_sector_not_available"])
     sector_values = {}
