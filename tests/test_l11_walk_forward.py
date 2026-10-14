@@ -57,6 +57,15 @@ class L11WalkForwardTests(unittest.TestCase):
         self.assertEqual(report["evaluated_ticker_count"], 0)
         self.assertFalse(report["deployment_allowed"])
 
+    def test_weighted_prediction_renormalizes_when_features_are_missing(self):
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import _weighted_prediction
+
+        weights = {"L01": 0.7, "L02": 0.3}
+        self.assertAlmostEqual(_weighted_prediction({"L01": 0.8}, weights), 0.8)
+        self.assertAlmostEqual(_weighted_prediction({"L02": 0.2}, weights), 0.2)
+        self.assertAlmostEqual(_weighted_prediction({}, weights), 0.5)
+        self.assertAlmostEqual(_weighted_prediction({"L01": 0.8, "L02": 0.2}, weights), 0.62)
+
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
         self.assertIsNotNone(result["levels"]["proposed_weighted"]["auc"])
