@@ -18,8 +18,8 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> Level3Result:
     )
     confidence = sum(result.confidence * weight for result, weight in zip(results, WEIGHTS))
     consistency = next((r.score for r in level2.analyzer_results if r.analyzer == "signal_conflict"), level2.consistency)
-    strengths = tuple(r.analyzer for r in results if r.score >= 0.70)
-    weaknesses = tuple(r.analyzer for r in results if r.score <= 0.30)
+    strengths = tuple(r.analyzer for r in results if r.confidence > 0 and r.score >= 0.70)
+    weaknesses = tuple(r.analyzer for r in results if r.confidence > 0 and r.score <= 0.30)
     warnings = tuple(w for r in results for w in r.warnings)
     return Level3Result(
         symbol=snapshot.symbol,
