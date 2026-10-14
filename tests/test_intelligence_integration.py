@@ -113,7 +113,8 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.market_sample_count, 180)
         self.assertEqual(snapshot.sector, "TECH")
         self.assertAlmostEqual(snapshot.sector_return, 0.018)
-        self.assertEqual(snapshot.historical_returns, (0.02,))
+        self.assertEqual(len(snapshot.historical_returns), 1)
+        self.assertAlmostEqual(snapshot.historical_returns[0], 0.02)
         self.assertEqual(snapshot.historical_return_dates, ("2026-10-02",))
         self.assertEqual(snapshot.peer_count, 1)
 
