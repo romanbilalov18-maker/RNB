@@ -377,5 +377,26 @@ class DecisionAuditStoreTests(unittest.TestCase):
 
 
 
+    def test_daily_candle_completion_uses_moscow_session_close_not_24_hours(self):
+        before_close_buffer = datetime.fromisoformat("2026-10-14T15:59:00+00:00")
+        after_close_buffer = datetime.fromisoformat("2026-10-14T16:00:00+00:00")
+        previous_day = candle("2026-10-13", 100)
+        current_day_candle = candle("2026-10-14", 101)
+
+        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(previous_day, now=before_close_buffer))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=before_close_buffer))
+        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=after_close_buffer))
+
+    def test_daily_candle_completion_handles_weekends_and_date_only_values(self):
+        saturday_morning = datetime.fromisoformat("2026-10-17T08:00:00+00:00")
+        friday = candle("2026-10-16", 100)
+        saturday = candle("2026-10-17", 101)
+        date_only_today = SimpleNamespace(time=__import__("datetime").date(2026, 10, 17))
+
+        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(friday, now=saturday_morning))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(saturday, now=saturday_morning))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(date_only_today, now=saturday_morning))
+
+
 if __name__ == "__main__":
     unittest.main()
