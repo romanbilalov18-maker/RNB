@@ -367,6 +367,14 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(len(observations), 1)
             self.assertAlmostEqual(observations[0].outcome_return, (103 / 200 - 1) - .002)
 
+            quality = store.summary()["learning_data_quality"]
+            self.assertEqual(quality["anchored_decisions"], 2)
+            self.assertEqual(quality["unique_ticker_sessions"], 1)
+            self.assertEqual(quality["unique_session_dates"], 1)
+            self.assertEqual(quality["duplicate_decisions_excluded"], 1)
+            self.assertEqual(quality["duplicate_scored_observations_excluded"], 1)
+            self.assertEqual(quality["learning_observations_after_deduplication"], 1)
+
 
 
 if __name__ == "__main__":
