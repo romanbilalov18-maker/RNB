@@ -296,7 +296,8 @@ class DecisionAuditStore:
         grouped: dict[str, list[LearningObservation]] = {}
         with self._connect() as db:
             rows = db.execute("""
-                SELECT a.ticker, o.net_return_pct, o.direction_correct,
+                SELECT a.ticker, a.recommendation, o.raw_return_pct,
+                       o.net_return_pct, o.direction_correct,
                        s.level_scores_json, s.analyzer_scores_json, s.regime
                 FROM decision_outcomes AS o
                 JOIN decision_audit AS a ON a.id = o.audit_id
@@ -309,7 +310,16 @@ class DecisionAuditStore:
                 level_scores = json.loads(row["level_scores_json"])
                 analyzer_scores = json.loads(row["analyzer_scores_json"])
                 observation = LearningObservation(
-                    outcome_return=float(row["net_return_pct"]) / 100.0,
+                    # Convert the underlying asset return into the return of
+                    # following the recorded recommendation. For SELL, a falling
+                    # price is profitable; storing the raw long-side return here
+                    # would teach L11 the opposite lesson.
+                    outcome_return=(
+                        float(row["net_return_pct"])
+                        if row["recommendation"] == "BUY"
+                        else -float(row["raw_return_pct"])
+                             - (float(row["raw_return_pct"]) - float(row["net_return_pct"]))
+                    ) / 100.0,
                     correct=bool(row["direction_correct"]),
                     level_scores=level_scores,
                     analyzer_scores=analyzer_scores,
