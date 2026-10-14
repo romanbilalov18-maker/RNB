@@ -106,6 +106,29 @@ def main() -> None:
             print(f"    L4 backtest warnings: {'; '.join(backtest['warnings'][:3])}")
 
     print("-" * 72)
+    print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
+    for signal in ("BUY_PRESSURE", "SELL_PRESSURE"):
+        for horizon in (1, 3, 5):
+            observations = [
+                outcome
+                for _, _, _, backtest in results
+                for outcome in backtest["outcomes"]
+                if outcome["signal"] == signal and outcome["horizon"] == horizon
+            ]
+            if not observations:
+                print(f"  {signal} h{horizon}: insufficient qualifying signals")
+                continue
+            win_rate = sum(item["correct_after_costs"] for item in observations) / len(observations)
+            mean_forward = sum(item["forward_return"] for item in observations) / len(observations)
+            mean_net = sum(item["net_forward_return"] for item in observations) / len(observations)
+            print(
+                f"  {signal} h{horizon}: n={len(observations)} "
+                f"win_after_costs={win_rate:.1%} "
+                f"mean_forward_return={mean_forward:+.3%} "
+                f"mean_net_directional_return={mean_net:+.3%}"
+            )
+    print("  Note: short historical window; exploratory results, not a validated strategy.")
+    print("-" * 72)
     print("Trade execution: DISABLED")
     print("Decision Engine: NOT CONNECTED")
 
