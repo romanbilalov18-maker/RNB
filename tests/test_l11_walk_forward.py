@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from bot.intelligence.levels.level_11.walk_forward_report import build_report
@@ -68,13 +69,16 @@ class L11WalkForwardTests(unittest.TestCase):
 
     def test_purges_training_labels_that_mature_in_holdout_period(self):
         rows = []
+        first_day = date(2026, 1, 1)
         for i in range(60):
+            decision_day = first_day + timedelta(days=i)
+            target_day = date(2026, 2, 8) if i == 34 else decision_day + timedelta(days=3)
             rows.append(LearningObservation(
                 outcome_return=0.01, correct=(i % 2 == 0),
                 level_scores={"L01": 0.8 if i % 2 == 0 else 0.2},
                 analyzer_scores={"trend": 0.8 if i % 2 == 0 else 0.2},
-                decision_time=f"2026-01-{i + 1:02d}T12:00:00+00:00",
-                outcome_target_date=("2026-02-08" if i == 34 else f"2026-01-{min(i + 4, 31):02d}"),
+                decision_time=f"{decision_day.isoformat()}T12:00:00+00:00",
+                outcome_target_date=target_day.isoformat(),
             ))
         result = evaluate_walk_forward(rows, train_fraction=0.6)
         self.assertEqual(result["status"], "evaluated")
