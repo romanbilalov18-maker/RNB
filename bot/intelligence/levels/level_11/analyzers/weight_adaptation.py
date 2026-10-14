@@ -7,7 +7,7 @@ from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
 
 def analyze(observations) -> AnalyzerResult:
     if not observations:
-        return AnalyzerResult("weight_adaptation", 0.5, 0.0, {
+        return AnalyzerResult("weight_adaptation", 0.0, 0.0, {
             "proposed_level_weights": {},
             "proposed_analyzer_weights": {},
             "proposal_status": "insufficient_history",
@@ -21,11 +21,11 @@ def analyze(observations) -> AnalyzerResult:
     warnings = () if has_proposal else ("adaptive_weight_proposal_not_ready",)
     status = "shadow_proposal_ready" if has_proposal else "insufficient_predictive_signal"
     all_metrics = (*level_metrics.values(), *analyzer_metrics.values())
-    score = sum(item["effectiveness"] for item in all_metrics) / len(all_metrics) if all_metrics else 0.5
+    score = sum(item["effectiveness"] for item in all_metrics) / len(all_metrics) if all_metrics else 0.0
     return AnalyzerResult(
         "weight_adaptation",
         max(0.0, min(1.0, score)),
-        min(1.0, len(observations) / 30.0),
+        min(1.0, len(observations) / 30.0) if all_metrics else 0.0,
         {
             "sample_count": len(observations),
             "proposed_level_weights": level_weights,
