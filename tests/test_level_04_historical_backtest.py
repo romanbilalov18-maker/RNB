@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from bot.intelligence.levels.level_04.historical_backtest import (
     build_market_regime_by_date,
     evaluate_pressure_history,
+    evaluate_pressure_rolling_walk_forward,
     evaluate_pressure_walk_forward,
 )
 
@@ -158,6 +159,34 @@ class Level4HistoricalBacktestTests(unittest.TestCase):
         self.assertTrue(all(item["outcome_date"] < split_date for item in report["train"]["outcomes"]))
         self.assertTrue(all(item["signal_date"] >= split_date for item in report["holdout"]["outcomes"]))
         self.assertTrue(all(item["signal_date"] >= split_date for item in report["baseline_holdout"]["outcomes"]))
+
+    def test_rolling_walk_forward_uses_sequential_holdout_blocks(self):
+        closes = [100.0]
+        for index in range(1, 241):
+            closes.append(closes[-1] * (1.008 if index % 7 in (0, 1, 2, 3) else 0.992))
+        report = evaluate_pressure_rolling_walk_forward(
+            make_candles(closes), symbol="TEST", horizons=(1, 3, 5),
+            train_fraction=0.5, holdout_fraction=0.2, step_fraction=0.15,
+            threshold_candidates=(0.55, 0.65, 0.75), min_train_outcomes=10,
+        )
+        self.assertGreaterEqual(len(report["windows"]), 2)
+        self.assertTrue(report["methodology"]["threshold_selection_uses_training_only"])
+        for window in report["windows"]:
+            self.assertLess(window["train_end"], window["holdout_start"])
+            self.assertLessEqual(
+                max((item["outcome_date"] for item in window["selected_outcomes"]), default=window["holdout_end"]),
+                window["holdout_end"],
+            )
+            self.assertIn(window["selected_threshold"], (0.55, 0.65, 0.75))
+        self.assertIn("count", report["aggregate"])
+        self.assertIn("count", report["baseline_aggregate"])
+
+    def test_rolling_walk_forward_rejects_invalid_window_configuration(self):
+        candles = make_candles([100.0 + index for index in range(80)])
+        with self.assertRaises(ValueError):
+            evaluate_pressure_rolling_walk_forward(candles, train_fraction=0.9)
+        with self.assertRaises(ValueError):
+            evaluate_pressure_rolling_walk_forward(candles, step_fraction=0.3, holdout_fraction=0.2)
 
     def test_holdout_price_changes_do_not_change_selected_training_threshold(self):
         closes = [100.0]
