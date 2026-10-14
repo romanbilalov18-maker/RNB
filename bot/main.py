@@ -12,6 +12,11 @@ from bot.paper_executor import PaperExecutor
 from bot.portfolio_store import SQLitePortfolioStore
 
 
+def _should_run_another_cycle(remaining_seconds: float, cycle_interval_minutes: float) -> bool:
+    """Avoid starting a new cycle when less than one full interval remains."""
+    return remaining_seconds > cycle_interval_minutes * 60
+
+
 def main() -> None:
     config = Config.from_env()
     run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 60.0)
@@ -108,11 +113,11 @@ def main() -> None:
             )
 
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if not _should_run_another_cycle(remaining, cycle_interval_minutes):
                 print(f"Runtime limit reached after cycle {cycle}.")
                 break
 
-            sleep_seconds = min(cycle_interval_minutes * 60, remaining)
+            sleep_seconds = cycle_interval_minutes * 60
             print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
             time.sleep(sleep_seconds)
 
