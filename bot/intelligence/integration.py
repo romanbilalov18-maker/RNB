@@ -63,7 +63,7 @@ def _aligned_peer_history(scan, ticker: str, target_returns: dict[str, float], s
             aligned.append(sum(observations) / len(observations))
     return tuple(aligned)
 
-def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
+def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | None:
     """Build Intelligence input from the current real-market scan."""
     ticker = analysis.ticker
     price = scan.current_prices.get(ticker)
@@ -110,7 +110,17 @@ def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
         if float(getattr(item, "volume", 0) or 0) > 0
     ]
     average_history_volume = sum(history_volumes) / len(history_volumes) if history_volumes else 0.0
-    volume_ratios = tuple(value / average_history_volume for value in history_volumes) if average_history_volume > 0 else ()
+    volume_ratios = tuple(value / average_history_volume for value in history_volumes[1:]) if average_history_volume > 0 else ()
+    positions = []
+    for symbol, position in getattr(portfolio, "positions", {}).items():
+        market_price = scan.current_prices.get(symbol)
+        positions.append({
+            "symbol": symbol,
+            "quantity": int(getattr(position, "quantity", 0)),
+            "average_price": float(getattr(position, "average_price", 0.0)),
+            "market_value": float(market_price or 0.0) * int(getattr(position, "quantity", 0)),
+            "sector": getattr(scan, "sector_by_ticker", {}).get(symbol),
+        })
 
     return MarketSnapshot(
         symbol=ticker,
@@ -143,10 +153,11 @@ def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
         sector_return_history=sector_history,
         peer_return_history=sector_history,
         historical_volume_ratios=volume_ratios,
+        portfolio_positions=tuple(positions),
     )
 
 
-def analyze_scan(scan, pipeline=None, learning_observations_by_ticker=None) -> dict:
+def analyze_scan(scan, pipeline=None, learning_observations_by_ticker=None, portfolio=None) -> dict:
     """Run L1-L15 for scanned candidates and holdings; never executes trades."""
     analyses = dict(scan.analyses)
     for analysis in scan.buy_candidates:
@@ -155,7 +166,7 @@ def analyze_scan(scan, pipeline=None, learning_observations_by_ticker=None) -> d
     observations_by_ticker = learning_observations_by_ticker or {}
     results = {}
     for ticker, analysis in analyses.items():
-        snapshot = build_market_snapshot(scan, analysis)
+        snapshot = build_market_snapshot(scan, analysis, portfolio=portfolio)
         if snapshot is None:
             continue
         # A supplied test/custom pipeline keeps its existing behavior. The live
