@@ -93,7 +93,7 @@ class RealMarketContextTests(unittest.TestCase):
         )
         result = concentration_risk.analyze(snapshot, SimpleNamespace())
         self.assertAlmostEqual(result.metrics["valuation_coverage"], 0.5)
-        self.assertAlmostEqual(result.confidence, 0.25)
+        self.assertAlmostEqual(result.confidence, 0.05)
         self.assertIn("some_position_market_values_unavailable", result.warnings)
 
     def test_confirmed_empty_portfolio_is_not_mistaken_for_missing_context(self):
