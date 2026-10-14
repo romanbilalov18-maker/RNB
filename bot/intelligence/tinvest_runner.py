@@ -207,7 +207,7 @@ def main() -> None:
                 )
                 trade = stats["trading_filter"]
                 print(
-                    f"        HOLDOUT after_cost_filter: n={trade['eligible_trades']} "
+                    f"        after_cost_filter: n={trade['eligible_trades']} "
                     f"coverage={trade['coverage']} mean_net={trade['mean_net_return']} "
                     f"compounded_net={trade['compounded_net_return']} "
                     f"win_rate={trade['win_rate_after_costs']} "
@@ -215,33 +215,11 @@ def main() -> None:
                 )
             reference = values["all_dates_reference"]
             print(
-                f"      HOLDOUT all_dates_reference: mean_net={reference['mean_net_return']} "
+                f"      all_dates_reference: mean_net={reference['mean_net_return']} "
                 f"compounded_net={reference['compounded_net_return']} "
                 f"win_rate={reference['win_rate_after_costs']} "
                 f"max_drawdown={reference['max_drawdown_sequential']}"
             )
-                trade = stats["trading_filter"]
-                print(
-                    f"        after_cost_filter: n={trade['eligible_trades']} "
-                    f"coverage={trade['coverage']} mean_net={trade['mean_net_return']} "
-                    f"compounded_net={trade['compounded_net_return']} "
-                    f"win_rate={trade['win_rate_after_costs']} "
-                    f"max_drawdown={trade['max_drawdown_sequential']}"
-                )
-        reference = values["all_dates_reference"]
-        print(
-            f"      all_dates_reference: mean_net={reference['mean_net_return']} "
-            f"compounded_net={reference['compounded_net_return']} "
-            f"win_rate={reference['win_rate_after_costs']} "
-            f"max_drawdown={reference['max_drawdown_sequential']}"
-        )
-        reference = values["all_dates_reference"]
-        print(
-            f"      all_dates_reference: mean_net={reference['mean_net_return']} "
-            f"compounded_net={reference['compounded_net_return']} "
-            f"win_rate={reference['win_rate_after_costs']} "
-            f"max_drawdown={reference['max_drawdown_sequential']}"
-        )
         holdout = anomaly_backtest["combination_comparison"]["chronological_holdout"]
         print(
             f"  L4/L6/L12 chronological holdout: split={holdout['split_date']} "
@@ -255,6 +233,21 @@ def main() -> None:
                     f"precision={stats['precision']} recall={stats['recall']} "
                     f"false_positive_rate={stats['false_positive_rate']} lift={stats['lift']}"
                 )
+                trade = stats["trading_filter"]
+                print(
+                    f"        HOLDOUT after_cost_filter: n={trade['eligible_trades']} "
+                    f"coverage={trade['coverage']} mean_net={trade['mean_net_return']} "
+                    f"compounded_net={trade['compounded_net_return']} "
+                    f"win_rate={trade['win_rate_after_costs']} "
+                    f"max_drawdown={trade['max_drawdown_sequential']}"
+                )
+            reference = values["all_dates_reference"]
+            print(
+                f"      HOLDOUT all_dates_reference: mean_net={reference['mean_net_return']} "
+                f"compounded_net={reference['compounded_net_return']} "
+                f"win_rate={reference['win_rate_after_costs']} "
+                f"max_drawdown={reference['max_drawdown_sequential']}"
+            )
         for symbol, symbol_summary in anomaly_backtest["combination_comparison"]["by_symbol"].items():
             for metric, values in symbol_summary.items():
                 variants = values["variants"]
