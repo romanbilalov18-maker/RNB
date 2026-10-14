@@ -2,7 +2,11 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from bot.intelligence.levels.level_04.historical_backtest import evaluate_pressure_history
+from bot.intelligence.levels.level_04.historical_backtest import (
+    build_market_regime_by_date,
+    evaluate_pressure_history,
+    evaluate_pressure_walk_forward,
+)
 
 
 def make_candles(closes):
@@ -75,6 +79,64 @@ class Level4HistoricalBacktestTests(unittest.TestCase):
         report = evaluate_pressure_history(make_candles([100.0, 101.0, 102.0]), horizons=(1, 3, 5))
         self.assertEqual(report["signals"], 0)
         self.assertIn("historical_candles_insufficient", report["warnings"])
+
+    def test_walk_forward_keeps_train_outcomes_before_split_and_holdout_after(self):
+        closes = [100.0]
+        for index in range(1, 121):
+            closes.append(closes[-1] * (1.009 if index % 5 in (0, 1, 2) else 0.991))
+        candles = make_candles(closes)
+        report = evaluate_pressure_walk_forward(
+            candles, symbol="TEST", horizons=(1, 3, 5),
+            signal_threshold=0.55, train_fraction=0.7,
+        )
+        split_date = report["split_date"]
+        self.assertIsNotNone(split_date)
+        self.assertTrue(report["methodology"]["train_outcomes_end_before_split"])
+        self.assertTrue(report["methodology"]["holdout_signals_start_on_or_after_split"])
+        self.assertTrue(all(item["outcome_date"] < split_date for item in report["train"]["outcomes"]))
+        self.assertTrue(all(item["signal_date"] >= split_date for item in report["holdout"]["outcomes"]))
+        train_keys = {(item["signal_date"], item["signal"], item["horizon"]) for item in report["train"]["outcomes"]}
+        holdout_keys = {(item["signal_date"], item["signal"], item["horizon"]) for item in report["holdout"]["outcomes"]}
+        self.assertTrue(train_keys.isdisjoint(holdout_keys))
+
+    def test_market_regimes_use_only_returns_available_on_each_date(self):
+        closes = [100.0]
+        for index in range(1, 50):
+            closes.append(closes[-1] * (1.02 if index < 25 else 0.98))
+        candles = make_candles(closes)
+        regimes_before = build_market_regime_by_date({"TEST": candles}, lookback=5)
+        changed = list(candles)
+        for index in range(35, len(changed)):
+            value = changed[index].close * 1.15
+            changed[index] = SimpleNamespace(
+                time=changed[index].time, open=value * 0.995,
+                high=value * 1.02, low=value * 0.98, close=value,
+                volume=changed[index].volume,
+            )
+        regimes_after = build_market_regime_by_date({"TEST": changed}, lookback=5)
+        cutoff_date = candles[34].time.isoformat()
+        self.assertEqual(
+            {day: regime for day, regime in regimes_before.items() if day <= cutoff_date},
+            {day: regime for day, regime in regimes_after.items() if day <= cutoff_date},
+        )
+
+    def test_walk_forward_groups_results_by_market_regime(self):
+        closes = [100.0]
+        for index in range(1, 90):
+            closes.append(closes[-1] * (1.01 if index % 4 in (0, 1) else 0.99))
+        candles = make_candles(closes)
+        regimes = {
+            candle.time.isoformat(): ("BULL" if index < 45 else "BEAR")
+            for index, candle in enumerate(candles)
+        }
+        report = evaluate_pressure_walk_forward(
+            candles, symbol="TEST", horizons=(1, 3), signal_threshold=0.55,
+            train_fraction=0.65, market_regime_by_date=regimes,
+        )
+        self.assertIn("bull", " ".join(report["train"]["summary"]).lower())
+        self.assertIn("bear", " ".join(report["holdout"]["summary"]).lower())
+        self.assertTrue(all(item["market_regime"] == regimes[item["signal_date"]]
+                            for item in report["train"]["outcomes"] + report["holdout"]["outcomes"]))
 
     def test_invalid_configuration_is_rejected(self):
         with self.assertRaises(ValueError):
