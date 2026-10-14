@@ -98,7 +98,7 @@ def evaluate_pressure_history(
     max_horizon = max(horizons)
 
     # i is the last fully closed candle available at decision time.
-    for i in range(1, len(bars) - max_horizon):
+    for i in range(1, len(bars) - max_horizon + 1):
         current, previous = bars[i], bars[i - 1]
         if previous["close"] <= 0:
             continue
@@ -140,6 +140,12 @@ def evaluate_pressure_history(
             if base is not None and base > 0 and value is not None:
                 historical_volume_ratios.append(value / base)
 
+        # Keep price returns and volume ratios date-aligned. If volume history
+        # is incomplete, leave this feature unavailable instead of shifting pairs.
+        aligned_volume_ratios = (
+            tuple(historical_volume_ratios)
+            if len(historical_volume_ratios) == len(returns) else ()
+        )
         snapshot = MarketSnapshot(
             symbol=symbol,
             price=current["close"],
@@ -159,7 +165,7 @@ def evaluate_pressure_history(
             volume_ratio=volume_ratio,
             historical_returns=tuple(returns),
             historical_return_dates=tuple(bars[j]["date"] for j in range(1, i + 1)),
-            historical_volume_ratios=tuple(historical_volume_ratios),
+            historical_volume_ratios=aligned_volume_ratios,
         )
         result = engine.analyze(snapshot)
         if result.warnings:
