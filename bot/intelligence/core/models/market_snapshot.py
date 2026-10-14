@@ -38,6 +38,7 @@ class MarketSnapshot:
     cross_asset_correlation: Optional[float] = None
     correlation_observations: int = 0
     historical_returns: tuple[float, ...] = ()
+    historical_return_dates: tuple[str, ...] = ()
     market_return_history: tuple[float, ...] = ()
     correlation_asset_returns: tuple[float, ...] = ()
     sector_return_history: tuple[float, ...] = ()
