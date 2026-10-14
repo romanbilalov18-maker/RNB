@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "bot/intelligence/tinvest_runner.py"
+      - "bot/intelligence/levels/level_04/historical_backtest.py"
       - "bot/intelligence/integration.py"
       - "bot/live_runner.py"
       - "bot/tinvest_client.py"
