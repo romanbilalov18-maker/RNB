@@ -111,8 +111,10 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
     # Exclude the analyzed instrument from its sector benchmark. Otherwise its
     # own return leaks into the comparison and weakens/changes the relative signal.
     peer_return = sum(sector_changes) / len(sector_changes) if sector_changes else None
-    reported_sector_return = getattr(scan, "sector_returns", {}).get(sector) if sector else None
-    sector_return = peer_return if peer_return is not None else reported_sector_return
+    # The aggregate sector return includes the target instrument and cannot be
+    # used as a fallback without its sample count and a leave-one-out adjustment.
+    # Unknown peer data must remain unknown rather than leak the target return.
+    sector_return = peer_return
     history_volumes = [
         float(getattr(item, "volume", 0) or 0)
         for item in getattr(scan, "candle_history", {}).get(ticker, ())
