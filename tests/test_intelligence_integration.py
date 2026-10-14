@@ -91,6 +91,32 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.portfolio_positions[0]["quantity"], 3)
         self.assertEqual(snapshot.portfolio_positions[0]["market_value"], 297.0)
 
+    def test_builds_real_market_context_from_scan_history(self):
+        self.scan.market_return = 0.012
+        self.scan.market_breadth = 0.64
+        self.scan.market_sample_count = 180
+        self.scan.sector_by_ticker = {"AAA": "TECH", "HELD": "TECH"}
+        self.scan.sector_returns = {"TECH": 0.018}
+        self.scan.candle_history = {
+            "AAA": [
+                SimpleNamespace(time="2026-10-01", close=100.0, volume=1000),
+                SimpleNamespace(time="2026-10-02", close=102.0, volume=1100),
+            ],
+            "HELD": [
+                SimpleNamespace(time="2026-10-01", close=50.0, volume=500),
+                SimpleNamespace(time="2026-10-02", close=51.0, volume=550),
+            ],
+        }
+        snapshot = build_market_snapshot(self.scan, self.scan.analyses["AAA"])
+        self.assertAlmostEqual(snapshot.market_return, 0.012)
+        self.assertAlmostEqual(snapshot.market_breadth, 0.64)
+        self.assertEqual(snapshot.market_sample_count, 180)
+        self.assertEqual(snapshot.sector, "TECH")
+        self.assertAlmostEqual(snapshot.sector_return, 0.018)
+        self.assertEqual(snapshot.historical_returns, (0.02,))
+        self.assertEqual(snapshot.historical_return_dates, ("2026-10-02",))
+        self.assertEqual(snapshot.peer_count, 1)
+
     def test_analyzes_candidates_and_held_positions_once(self):
         pipeline = FakePipeline()
         results = analyze_scan(self.scan, pipeline)
