@@ -13,9 +13,9 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
         )
     breadth = max(0.0, min(1.0, snapshot.market_breadth))
     market_return = snapshot.market_return
-    return_score = 0.5 if market_return is None else max(0.0, min(1.0, 0.5 + market_return * 8.0))
-    score = 0.65 * breadth + 0.35 * return_score
-    confidence = min(1.0, snapshot.market_sample_count / 100.0)
+    return_score = max(0.0, min(1.0, 0.5 + market_return * 8.0)) if market_return is not None else None
+    score = 0.65 * breadth + 0.35 * return_score if return_score is not None else breadth
+    confidence = min(1.0, snapshot.market_sample_count / 100.0) * (1.0 if return_score is not None else 0.5)
     return AnalyzerResult(
         "macro_context", score, confidence,
         {"context_type": "observed_market_breadth", "market_breadth": breadth,
