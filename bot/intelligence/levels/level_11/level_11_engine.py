@@ -24,7 +24,7 @@ class Level11Engine:
         )
         confidence = learning_confidence.analyze(observations, results)
         all_results = results + (confidence,)
-        score = sum(result.score * weight for result, weight in zip(all_results, self.WEIGHTS))
+        score = sum(result.score * weight for result, weight in zip(all_results, self.WEIGHTS)) / sum(self.WEIGHTS)
         overall_confidence = sum(result.confidence for result in all_results) / len(all_results)
         consistency = 1.0 - (max(result.score for result in all_results) - min(result.score for result in all_results))
         return Level11Result(
