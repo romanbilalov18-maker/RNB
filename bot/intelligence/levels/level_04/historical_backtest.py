@@ -327,10 +327,25 @@ def evaluate_pressure_walk_forward(
     if len(bars) < max(horizons) + 12:
         return {
             "symbol": symbol, "bars": len(bars), "split_date": None,
+            "selected_threshold": signal_threshold,
+            "baseline_threshold": signal_threshold,
+            "threshold_selection": {
+                "selection_source": "training outcomes only",
+                "minimum_training_outcomes": min_train_outcomes,
+                "scores_mean_net_directional_return": {},
+                "selected_threshold_score": None,
+                "eligible_threshold_count": 0,
+                "fallback_used": True,
+            },
             "train": {"outcomes": [], "summary": {}},
             "holdout": {"outcomes": [], "summary": {}},
+            "baseline_holdout": {"outcomes": [], "summary": {}},
             "warnings": ["walk_forward_history_insufficient"],
-            "methodology": {"chronological_split": True, "lookahead": False},
+            "methodology": {
+                "chronological_split": True,
+                "lookahead": False,
+                "threshold_selection_uses_training_only": True,
+            },
         }
 
     split_index = min(len(bars) - 1, max(1, int(len(bars) * train_fraction)))
