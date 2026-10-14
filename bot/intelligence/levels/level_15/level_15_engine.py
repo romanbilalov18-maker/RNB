@@ -51,7 +51,7 @@ class Level15Engine:
 
         # Final consistency is about agreement between trading-analysis levels,
         # not the spread between L15's quality-analyzer scores.
-        agreement_result = getattr(l10, "analyzer_results", {}).get("cross_level_agreement")
+        agreement_result = (getattr(l10, "analyzer_results", {}) or {}).get("cross_level_agreement")
         agreement_confidence = (
             agreement_result.confidence if agreement_result is not None
             else getattr(l10, "confidence", 0.0)
