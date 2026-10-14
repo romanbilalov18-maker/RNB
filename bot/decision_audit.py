@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping
+from zoneinfo import ZoneInfo
 
 from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
 
@@ -12,6 +13,7 @@ from bot.intelligence.levels.level_11.models.learning_observation import Learnin
 class DecisionAuditStore:
     """Persist recommendations and evaluate forward price outcomes."""
 
+    MARKET_TIMEZONE = ZoneInfo("Europe/Moscow")
     HORIZONS = (1, 3, 5)
     LEARNING_HORIZON = 3
     MAX_LEARNING_OBSERVATIONS_PER_TICKER = 200
@@ -76,16 +78,22 @@ class DecisionAuditStore:
         db.row_factory = sqlite3.Row
         return db
 
-    @staticmethod
-    def _session_date(candle: object) -> str | None:
+    @classmethod
+    def _session_date(cls, candle: object) -> str | None:
+        """Return the candle calendar date in Moscow time, not its UTC date."""
         value = getattr(candle, "time", None) or getattr(candle, "timestamp", None)
         if isinstance(value, datetime):
-            return value.date().isoformat()
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.astimezone(cls.MARKET_TIMEZONE).date().isoformat()
         if isinstance(value, date):
             return value.isoformat()
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(cls.MARKET_TIMEZONE).date().isoformat()
             except ValueError:
                 try:
                     return date.fromisoformat(value[:10]).isoformat()
@@ -93,35 +101,31 @@ class DecisionAuditStore:
                     return None
         return None
 
-    @staticmethod
-    def _is_completed_daily_candle(candle: object, now: datetime | None = None) -> bool:
-        """Accept daily candles only after their calendar session has ended.
+    @classmethod
+    def _is_market_session_date(cls, session: date) -> bool:
+        """Reject weekend dates; broker daily candles provide actual sessions."""
+        return session.weekday() < 5
 
-        Daily candle timestamps may represent the start of the interval, not its
-        close. A candle dated today is deliberately excluded even after market
-        close: decisions recorded today must never be evaluated against today's
-        close. It becomes eligible on the next calendar day.
+    @classmethod
+    def _is_completed_daily_candle(cls, candle: object, now: datetime | None = None) -> bool:
+        """Accept prior Moscow-dated weekday candles and prevent same-day leakage.
+
+        T-Invest timestamps can represent UTC interval starts. Convert them to
+        Moscow time before assigning a session date. Weekend dates are invalid;
+        exchange holidays should be absent from broker-provided daily candles.
         """
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
-        now = now.astimezone(timezone.utc)
-        value = getattr(candle, "time", None) or getattr(candle, "timestamp", None)
-        if isinstance(value, str):
-            try:
-                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                try:
-                    value = date.fromisoformat(value[:10])
-                except ValueError:
-                    return False
-        if isinstance(value, datetime):
-            if value.tzinfo is None:
-                value = value.replace(tzinfo=timezone.utc)
-            return value.astimezone(timezone.utc).date() < now.date()
-        if isinstance(value, date):
-            return value < now.date()
-        return False
+        market_today = now.astimezone(cls.MARKET_TIMEZONE).date()
+        session_text = cls._session_date(candle)
+        if session_text is None:
+            return False
+        try:
+            session = date.fromisoformat(session_text)
+        except ValueError:
+            return False
+        return session < market_today and cls._is_market_session_date(session)
 
     @staticmethod
     def _price(value: object) -> float | None:
@@ -211,7 +215,7 @@ class DecisionAuditStore:
             # Outcomes must come from sessions strictly after this calendar date.
             # A stale/missing live price must not create a trainable anchor.
             anchor_price = self._price(current_prices.get(ticker))
-            anchor_date = as_of.date().isoformat() if anchor_price is not None else None
+            anchor_date = as_of.astimezone(self.MARKET_TIMEZONE).date().isoformat() if anchor_price is not None else None
             rows.append((
                 cycle_id, now, ticker, getattr(decision, "action", "NO_RECOMMENDATION"),
                 getattr(decision, "reason", "нет рекомендации"), getattr(decision, "score", None),
@@ -258,7 +262,7 @@ class DecisionAuditStore:
                         continue
                     session = self._session_date(candle)
                     close = self._price(getattr(candle, "close", None))
-                    if session and close:
+                    if session and close and self._is_market_session_date(date.fromisoformat(session)):
                         db.execute("""
                             INSERT INTO market_session_prices (ticker, session_date, close_price)
                             VALUES (?, ?, ?) ON CONFLICT(ticker, session_date)
