@@ -9,6 +9,7 @@ from bot.intelligence.levels.level_04.historical_backtest import (
     evaluate_pressure_rolling_walk_forward,
     evaluate_pressure_walk_forward,
 )
+from bot.intelligence.levels.level_06.historical_risk_backtest import evaluate_level6_risk_history
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
@@ -74,7 +75,10 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
             step_fraction=0.15,
             market_regime_by_date=market_regimes,
         )
-        results.append((analysis, intelligence, current_price, backtest, walk_forward, rolling_walk_forward))
+        risk_backtest = evaluate_level6_risk_history(
+            historical_candles, symbol=analysis.ticker, horizons=(1, 3, 5), lookback=20,
+        )
+        results.append((analysis, intelligence, current_price, backtest, walk_forward, rolling_walk_forward, risk_backtest))
 
     return results
 
@@ -92,7 +96,7 @@ def main() -> None:
     print("Level 4 evaluation: training-only threshold selection; fixed and rolling chronological holdouts")
     print("-" * 72)
 
-    for analysis, result, current_price, backtest, walk_forward, rolling_walk_forward in results:
+    for analysis, result, current_price, backtest, walk_forward, rolling_walk_forward, risk_backtest in results:
         snapshot = result.level_01
         print(
             f"{analysis.ticker}: "
@@ -164,6 +168,15 @@ def main() -> None:
         )
         if rolling_walk_forward["warnings"]:
             print(f"    L4 rolling warnings: {'; '.join(rolling_walk_forward['warnings'][:2])}")
+        print(f"  L6 risk validation: bars={risk_backtest['bars']} outcomes={len(risk_backtest['outcomes'])}")
+        for metric, values in risk_backtest["summary"].items():
+            print(
+                f"    {metric}: n={values['count']} "
+                f"downside_drawdown_corr={values['downside_score_drawdown_correlation']} "
+                f"volatility_realized_corr={values['volatility_score_realized_volatility_correlation']}"
+            )
+        if risk_backtest["warnings"]:
+            print(f"    L6 risk warnings: {'; '.join(risk_backtest['warnings'][:2])}")
 
     print("-" * 72)
     print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
@@ -171,7 +184,7 @@ def main() -> None:
         for horizon in (1, 3, 5):
             observations = [
                 outcome
-                for _, _, _, backtest, _, _ in results
+                for _, _, _, backtest, _, _, _ in results
                 for outcome in backtest["outcomes"]
                 if outcome["signal"] == signal and outcome["horizon"] == horizon
             ]
@@ -191,7 +204,7 @@ def main() -> None:
     print("L4 WALK-FORWARD HOLDOUT SUMMARY (UNSEEN CHRONOLOGICAL PERIOD)")
     holdout_outcomes = [
         outcome
-        for _, _, _, _, walk_forward, _ in results
+        for _, _, _, _, walk_forward, _, _ in results
         for outcome in walk_forward["holdout"]["outcomes"]
     ]
     regimes = sorted({item["market_regime"] for item in holdout_outcomes}) or ["UNCLASSIFIED"]
@@ -214,7 +227,7 @@ def main() -> None:
     selected_holdout = holdout_outcomes
     baseline_holdout = [
         item
-        for _, _, _, _, walk_forward, _ in results
+        for _, _, _, _, walk_forward, _, _ in results
         for item in walk_forward["baseline_holdout"]["outcomes"]
     ]
     for label, observations in (("selected", selected_holdout), ("baseline_0.65", baseline_holdout)):
@@ -229,11 +242,11 @@ def main() -> None:
     print("  Training-period outcomes are descriptive only; no model weights are trained or changed.")
     print("  Training outcomes end before the split; holdout signals start on/after the split.")
     rolling_selected = [
-        item for _, _, _, _, _, rolling in results
+        item for _, _, _, _, _, rolling, _ in results
         for window in rolling["windows"] for item in window["selected_outcomes"]
     ]
     rolling_baseline = [
-        item for _, _, _, _, _, rolling in results
+        item for _, _, _, _, _, rolling, _ in results
         for window in rolling["windows"] for item in window["baseline_outcomes"]
     ]
     for label, observations in (("rolling_selected", rolling_selected), ("rolling_baseline_0.65", rolling_baseline)):
@@ -244,6 +257,20 @@ def main() -> None:
                 f"  aggregate {label}: n={len(observations)} "
                 f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
             )
+    risk_outcomes = [item for _, _, _, _, _, _, risk in results for item in risk["outcomes"]]
+    print("L6 RISK VALIDATION SUMMARY")
+    from bot.intelligence.levels.level_06.historical_risk_backtest import _correlation
+    for horizon in (1, 3, 5):
+        observations = [item for item in risk_outcomes if item["horizon"] == horizon]
+        if not observations:
+            print(f"  h{horizon}: insufficient observations")
+            continue
+        print(
+            f"  h{horizon}: n={len(observations)} "
+            f"downside_drawdown_corr={_correlation([x['downside_risk_score'] for x in observations], [x['realized_max_drawdown'] for x in observations])} "
+            f"volatility_realized_corr={_correlation([x['volatility_risk_score'] for x in observations], [x['realized_volatility'] for x in observations])}"
+        )
+    print("  Risk scores are diagnostic; no weights or trade rules are changed.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
     print("Trade execution: DISABLED")
