@@ -11,12 +11,14 @@ WEIGHTS = (0.20, 0.18, 0.18, 0.16, 0.14, 0.14)
 
 def analyze(snapshot: MarketSnapshot, level1: Level1Result) -> Level2Result:
     results = tuple(module.analyze(snapshot, level1) for module in ANALYZERS)
-    score = sum(result.score * weight for result, weight in zip(results, WEIGHTS))
+    effective_weights = [weight * result.confidence for result, weight in zip(results, WEIGHTS)]
+    total_effective_weight = sum(effective_weights)
+    score = sum(result.score * weight for result, weight in zip(results, effective_weights)) / total_effective_weight if total_effective_weight > 0 else 0.0
     confidence = sum(result.confidence * weight for result, weight in zip(results, WEIGHTS))
     consistency_result = next(r for r in results if r.analyzer == "signal_conflict")
     consistency = consistency_result.score
-    strengths = tuple(r.analyzer for r in results if r.score >= 0.70)
-    weaknesses = tuple(r.analyzer for r in results if r.score <= 0.30)
+    strengths = tuple(r.analyzer for r in results if r.confidence > 0 and r.score >= 0.70)
+    weaknesses = tuple(r.analyzer for r in results if r.confidence > 0 and r.score <= 0.30)
     warnings = tuple(w for r in results for w in r.warnings)
     return Level2Result(
         symbol=snapshot.symbol,
