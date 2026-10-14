@@ -1,0 +1,120 @@
+name: L11 Outcome Accumulator
+
+on:
+  schedule:
+    # Run after the Moscow exchange session and after daily candles can mature.
+    - cron: "17 17 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l11-outcome-accumulator-main
+  cancel-in-progress: false
+
+jobs:
+  collect-and-evaluate:
+    name: Collect forward prices and evaluate L11 outcomes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+      RUN_LIVE_TINVEST_TEST: "1"
+      RUN_DURATION_MINUTES: "5"
+      CYCLE_INTERVAL_MINUTES: "5"
+      VIRTUAL_INITIAL_BALANCE: "10000"
+      VIRTUAL_COMMISSION_RATE: "0.0005"
+      TAKE_PROFIT_PERCENT: "0.15"
+      VIRTUAL_PORTFOLIO_DB: data/virtual_portfolio.sqlite3
+      DECISION_AUDIT_DB: data/decision_audit.sqlite
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Restore prior virtual portfolio and audit history
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: virtual-portfolio-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            virtual-portfolio-main-
+
+      - name: Prepare data directory
+        run: mkdir -p data
+
+      - name: Verify token
+        run: |
+          if [ -z "$INVEST_TOKEN" ]; then
+            echo "ERROR: GitHub secret INVEST_TOKEN is empty or missing."
+            exit 1
+          fi
+          echo "INVEST_TOKEN_CONFIGURED=1"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --retries 1 --timeout 30
+          python -m pip install --retries 2 --timeout 30 -r requirements.txt
+
+      - name: Run one read-only market-data cycle with virtual execution
+        run: |
+          set -o pipefail
+          python -u -m bot.main 2>&1 | tee data/l11_accumulator.log
+
+      - name: Diagnose forward outcomes and generate walk-forward report
+        if: always()
+        run: |
+          if [ -f data/decision_audit.sqlite ]; then
+            python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          path = Path("data/decision_audit.sqlite")
+          with sqlite3.connect(path) as db:
+              tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+              print(f"AUDIT_DB_BYTES={path.stat().st_size}")
+              for table in ("decision_audit", "market_session_prices", "decision_outcomes", "decision_learning_snapshots"):
+                  if table in tables:
+                      print(f"{table}_ROWS={db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]}")
+                  else:
+                      print(f"{table}_MISSING=1")
+              if "market_session_prices" in tables:
+                  print("PRICE_DATE_RANGE=", db.execute("SELECT MIN(session_date), MAX(session_date), COUNT(DISTINCT session_date) FROM market_session_prices").fetchone())
+              if "decision_audit" in tables:
+                  print("AUDIT_ANCHOR_DATES=", db.execute("SELECT anchor_session_date, COUNT(*) FROM decision_audit GROUP BY anchor_session_date ORDER BY anchor_session_date").fetchall())
+          PY
+            python -m bot.intelligence.levels.level_11.walk_forward_report \
+              --database data/decision_audit.sqlite \
+              --output data/l11_walk_forward_report.json
+            cat data/l11_walk_forward_report.json
+          else
+            echo "AUDIT_DATABASE_MISSING=1"
+          fi
+
+      - name: Upload audit database, report, and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l11-outcome-accumulator-${{ github.run_id }}
+          path: |
+            data/decision_audit.sqlite
+            data/virtual_portfolio.sqlite3
+            data/l11_walk_forward_report.json
+            data/l11_accumulator.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Save accumulated state for the next scheduled run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: virtual-portfolio-main-${{ github.run_id }}
