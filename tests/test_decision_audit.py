@@ -195,6 +195,27 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(observations[0].analyzer_scores["L01:sample"], .05)
             self.assertEqual(observations[0].regime, "bullish")
 
+    def test_summary_explains_learning_readiness_and_counts_only_trainable_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
+            store.record_cycle(
+                "anchor",
+                {"AAA": SimpleNamespace(action="BUY", reason="test", score=.8)},
+                [],
+                equity=1000, cash=1000, total_commissions=0,
+                current_prices={"AAA": 100},
+                candle_history={"AAA": [candle("2026-10-01", 100)]},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                as_of=as_of,
+            )
+            summary = store.summary()
+            self.assertEqual(summary["outcome_readiness"]["anchors"], 1)
+            self.assertEqual(summary["outcome_readiness"]["anchored"], 1)
+            self.assertEqual(summary["outcome_readiness"]["learning_snapshots"], 1)
+            self.assertEqual(summary["learning_observations"], 0)
+            self.assertEqual(summary["outcomes_ready_but_missing"], {"1": 0, "3": 0, "5": 0})
+
     def test_learning_history_ignores_waits_and_is_capped_per_ticker(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
