@@ -10,25 +10,33 @@ import json
 from pathlib import Path
 
 from bot.decision_audit import DecisionAuditStore
-from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_walk_forward
+from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_multiple_windows, evaluate_walk_forward
 
 
 def build_report(database: str | Path, train_fraction: float = 0.6) -> dict:
     store = DecisionAuditStore(database)
     observations_by_ticker = store.learning_observations_by_ticker()
     ticker_reports = {
-        ticker: evaluate_walk_forward(observations, train_fraction=train_fraction)
+        ticker: {
+            "single_holdout": evaluate_walk_forward(observations, train_fraction=train_fraction),
+            "multiple_windows": evaluate_multiple_windows(observations),
+        }
         for ticker, observations in sorted(observations_by_ticker.items())
     }
     evaluated = {
         ticker: report for ticker, report in ticker_reports.items()
-        if report.get("status") == "evaluated"
+        if report["single_holdout"].get("status") == "evaluated"
+    }
+    multi_window_evaluated = {
+        ticker: report for ticker, report in ticker_reports.items()
+        if report["multiple_windows"].get("status") == "evaluated"
     }
     return {
         "database": str(database),
         "train_fraction": train_fraction,
         "ticker_count": len(ticker_reports),
         "evaluated_ticker_count": len(evaluated),
+        "multiple_window_evaluated_ticker_count": len(multi_window_evaluated),
         "tickers": ticker_reports,
         "deployment_allowed": False,
         "deployment_note": (
