@@ -436,7 +436,7 @@ class DecisionAuditStore:
                     WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
                 )
                 SELECT
-                    COUNT(*) AS scored_learning_observations,
+                    SUM(CASE WHEN session_rank = 1 THEN 1 ELSE 0 END) AS scored_learning_observations,
                     SUM(CASE WHEN session_rank > 1 THEN 1 ELSE 0 END) AS duplicate_decisions_excluded
                 FROM ranked_audit AS a
                 JOIN decision_outcomes AS o ON o.audit_id = a.id
