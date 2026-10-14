@@ -30,6 +30,27 @@ class Level11LearningTests(unittest.TestCase):
         self.assertEqual(result.proposed_level_weights, {})
         self.assertFalse(result.metadata["weights_applied_to_trading"])
 
+    def test_regime_score_measures_outcomes_not_just_regime_count(self):
+        observations = (
+            LearningObservation(0.02, True, regime="bullish"),
+            LearningObservation(-0.03, False, regime="bullish"),
+            LearningObservation(-0.01, False, regime="bearish"),
+            LearningObservation(-0.02, False, regime="bearish"),
+        )
+        result = Level11Engine().analyze("AAA", observations)
+        regime = next(item for item in result.analyzer_results if item.analyzer == "regime_adaptation")
+        self.assertAlmostEqual(regime.score, 0.25)
+        self.assertEqual(regime.metrics["distinct_regimes"], 2)
+        self.assertEqual(regime.metrics["per_regime"]["bullish"]["sample_count"], 2)
+        self.assertFalse(regime.metrics["adaptation_applied"])
+
+    def test_single_regime_has_explicit_diversity_warning(self):
+        observations = (LearningObservation(0.01, True, regime="bullish"),)
+        result = Level11Engine().analyze("AAA", observations)
+        regime = next(item for item in result.analyzer_results if item.analyzer == "regime_adaptation")
+        self.assertIn("regime_diversity_insufficient", regime.warnings)
+        self.assertEqual(regime.confidence, 0.0125)
+
     def test_learning_score_uses_normalized_weights(self):
         observations = (
             LearningObservation(outcome_return=0.01, correct=True,
