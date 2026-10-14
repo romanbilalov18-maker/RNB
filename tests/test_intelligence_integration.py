@@ -93,6 +93,20 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.portfolio_positions[0]["market_value"], 297.0)
         self.assertTrue(snapshot.portfolio_context_available)
 
+    def test_l8_benchmark_excludes_target_from_market_return(self):
+        self.scan.current_prices = {"AAA": 110.0, "HELD": 90.0, "BBB": 105.0}
+        self.scan.previous_closes = {"AAA": 100.0, "HELD": 100.0, "BBB": 100.0}
+        self.scan.market_return = 0.05
+        self.scan.market_sample_count = 3
+        snapshot = build_market_snapshot(self.scan, self.scan.analyses["AAA"])
+        self.assertTrue(snapshot.relative_market_context_available)
+        self.assertEqual(snapshot.relative_market_sample_count, 2)
+        self.assertAlmostEqual(snapshot.relative_market_return, -0.025)
+        from bot.intelligence.levels.level_08.analyzers import market_relative_strength
+        result = market_relative_strength.analyze(snapshot, SimpleNamespace())
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("market_benchmark_not_available", result.warnings)
+
     def test_correlation_history_uses_only_shared_dates_and_labels_peer_basket(self):
         from bot.intelligence.levels.level_03.analyzers import correlation_context
 
