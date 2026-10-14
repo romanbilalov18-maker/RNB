@@ -1,6 +1,16 @@
 name: Intelligence T-Invest Smoke Test
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "bot/intelligence/tinvest_runner.py"
+      - "bot/intelligence/integration.py"
+      - "bot/live_runner.py"
+      - "bot/tinvest_client.py"
+      - "requirements.txt"
+      - ".github/workflows/intelligence-tinvest-smoke.yml"
   workflow_dispatch:
 
 jobs:
