@@ -9,7 +9,10 @@ def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
     volume_ratio = snapshot.volume_ratio
     if volume_ratio is None and snapshot.volume is not None and snapshot.average_volume is not None and snapshot.average_volume > 0:
         volume_ratio = snapshot.volume / snapshot.average_volume
-    volume_bonus = max(0.0, volume_ratio - 1.0) * 0.12 if volume_ratio is not None else 0.0
-    score = min(1.0, max(0.0, 0.5 - change * 8.0 + volume_bonus))
-    confidence = 0.8 if volume_ratio is not None else 0.5
-    return AnalyzerResult("selling_pressure", score, confidence, {"price_change": change, "volume_ratio": volume_ratio})
+    close_position = getattr(snapshot, "close_position", None)
+    directional_score = max(0.0, min(1.0, 0.5 - change * 8.0))
+    if close_position is not None:
+        directional_score = 0.65 * directional_score + 0.35 * (1.0 - max(0.0, min(1.0, close_position)))
+    confidence = min(1.0, 0.55 + 0.25 * (volume_ratio is not None) + 0.20 * (close_position is not None))
+    warnings = () if volume_ratio is not None and close_position is not None else ("selling_pressure_partial_inputs",)
+    return AnalyzerResult("selling_pressure", directional_score, confidence, {"price_change": change, "volume_ratio": volume_ratio, "close_position": close_position}, warnings)
