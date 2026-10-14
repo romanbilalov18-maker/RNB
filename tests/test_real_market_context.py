@@ -2,7 +2,12 @@ import unittest
 from types import SimpleNamespace
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
-from bot.intelligence.levels.level_09.analyzers import correlation_risk
+from bot.intelligence.levels.level_09.analyzers import (
+    concentration_risk,
+    correlation_risk,
+    diversification_value,
+    portfolio_compatibility,
+)
 from bot.intelligence.levels.level_03.analyzers import (
     correlation_context,
     macro_context,
@@ -75,6 +80,45 @@ class RealMarketContextTests(unittest.TestCase):
         self.assertEqual(result.score, 0.0)
         self.assertEqual(result.confidence, 0.0)
         self.assertIn("cross_asset_history_insufficient", result.warnings)
+
+    def test_confirmed_empty_portfolio_is_not_mistaken_for_missing_context(self):
+        snapshot = MarketSnapshot(
+            symbol="AAA",
+            price=101.0,
+            sector="TECH",
+            portfolio_positions=(),
+            portfolio_context_available=True,
+        )
+        level5 = SimpleNamespace(score=0.7, confidence=0.8)
+        level6 = SimpleNamespace(score=0.6, risk_reward=0.8, confidence=0.8)
+        level8 = SimpleNamespace(score=0.7, confidence=0.8)
+
+        results = (
+            concentration_risk.analyze(snapshot, level6),
+            diversification_value.analyze(snapshot, level8),
+            portfolio_compatibility.analyze(snapshot, level5, level8),
+            correlation_risk.analyze(snapshot, level8, level6),
+        )
+        self.assertTrue(all(result.confidence == 1.0 for result in results))
+        self.assertTrue(all("portfolio_confirmed_empty" in result.warnings for result in results))
+        self.assertEqual(results[2].score, 1.0)
+
+    def test_missing_portfolio_context_remains_unknown(self):
+        snapshot = MarketSnapshot(symbol="AAA", price=101.0, sector="TECH")
+        level5 = SimpleNamespace(score=0.7, confidence=0.8)
+        level6 = SimpleNamespace(score=0.6, risk_reward=0.8, confidence=0.8)
+        level8 = SimpleNamespace(score=0.7, confidence=0.8)
+
+        results = (
+            concentration_risk.analyze(snapshot, level6),
+            diversification_value.analyze(snapshot, level8),
+            portfolio_compatibility.analyze(snapshot, level5, level8),
+            correlation_risk.analyze(snapshot, level8, level6),
+        )
+        self.assertTrue(all(result.confidence == 0.0 for result in results))
+        self.assertTrue(all("portfolio_positions_not_available" in result.warnings or
+                            "existing_positions_not_available" in result.warnings
+                            for result in results))
 
 
 if __name__ == "__main__":
