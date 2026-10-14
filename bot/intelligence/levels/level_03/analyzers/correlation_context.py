@@ -31,8 +31,13 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
         )
     score = max(0.0, min(1.0, (correlation + 1.0) / 2.0))
     confidence = min(1.0, min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history)) / 30.0)
+    warnings = ()
+    if snapshot.correlation_benchmark == "scanned_peer_basket":
+        warnings = ("correlation_uses_scanned_peer_basket",)
     return AnalyzerResult(
         "correlation_context", score, confidence,
         {"pearson_correlation": correlation,
-         "observations": min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history))},
+         "observations": min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history)),
+         "benchmark_source": snapshot.correlation_benchmark or "unspecified"},
+        warnings,
     )
