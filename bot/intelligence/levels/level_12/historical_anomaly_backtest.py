@@ -274,7 +274,46 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
             "count": len(group),
             "variants": {name: metrics(group, name) for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")},
         }
+
+    # Chronological holdout: all dates before the split are descriptive/training;
+    # all dates at/after the split are untouched evaluation data.
+    dates = sorted({x["signal_date"] for x in rows})
+    split_index = max(1, min(len(dates) - 1, int(len(dates) * 0.70))) if len(dates) >= 2 else len(dates)
+    split_date = dates[split_index] if split_index < len(dates) else None
+    train_rows = [x for x in rows if split_date is not None and x["signal_date"] < split_date]
+    holdout_rows = [x for x in rows if split_date is not None and x["signal_date"] >= split_date]
+
+    def summarize_subset(subset):
+        output = {}
+        for horizon in sorted({x["horizon"] for x in subset}):
+            group = [x for x in subset if x["horizon"] == horizon]
+            output[f"h{horizon}"] = {
+                "count": len(group),
+                "event_rate": sum(x["event"] for x in group) / len(group) if group else None,
+                "variants": {name: metrics(group, name) for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")},
+            }
+        return output
+
+    by_symbol = {}
+    for symbol in sorted({x.get("symbol", "UNKNOWN") for x in rows}):
+        symbol_rows = [x for x in rows if x.get("symbol", "UNKNOWN") == symbol]
+        by_symbol[symbol] = summarize_subset(symbol_rows)
+
     return {
         "outcomes": rows, "summary": summary,
-        "methodology": {"same_dates_for_all_variants": True, "lookahead": False, "alert_threshold": alert_threshold},
+        "chronological_holdout": {
+            "split_date": split_date,
+            "train_count": len(train_rows),
+            "holdout_count": len(holdout_rows),
+            "train": summarize_subset(train_rows),
+            "holdout": summarize_subset(holdout_rows),
+        },
+        "by_symbol": by_symbol,
+        "methodology": {
+            "same_dates_for_all_variants": True, "lookahead": False,
+            "chronological_split": True, "train_fraction": 0.70,
+            "holdout_signals_start_on_or_after_split": True,
+            "holdout_outcomes_not_used_to_select_alert_threshold": True,
+            "alert_threshold": alert_threshold,
+        },
     }
