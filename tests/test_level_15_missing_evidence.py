@@ -40,7 +40,7 @@ class Level15MissingEvidenceTests(unittest.TestCase):
 
         self.assertGreater(without_learning.score, 0.55)
         self.assertGreater(without_learning.confidence, 0.5)
-        self.assertNotIn("learning_quality", without_learning.metadata["excluded_unavailable_analyzers"])
+        self.assertIn("learning_quality", without_learning.metadata["excluded_unavailable_analyzers"])
         self.assertGreater(with_learning.score, 0.0)
 
     def test_all_missing_evidence_returns_zero_confidence(self):
