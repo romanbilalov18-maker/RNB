@@ -214,7 +214,7 @@ def main() -> None:
     selected_holdout = holdout_outcomes
     baseline_holdout = [
         item
-        for _, _, _, _, walk_forward in results
+        for _, _, _, _, walk_forward, _ in results
         for item in walk_forward["baseline_holdout"]["outcomes"]
     ]
     for label, observations in (("selected", selected_holdout), ("baseline_0.65", baseline_holdout)):
