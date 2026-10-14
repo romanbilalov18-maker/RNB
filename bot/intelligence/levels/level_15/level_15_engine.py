@@ -22,16 +22,38 @@ class Level15Engine:
             adversarial_resilience.analyze(l14),
             learning_quality.analyze(l11),
         )
-        master = master_confidence.analyze(results)
-        score = 0.90 * sum(result.score * weight for result, weight in zip(results, self.WEIGHTS)) + 0.10 * master.score
-        confidence = 0.90 * (sum(result.confidence for result in results) / len(results)) + 0.10 * master.confidence
-        all_scores = [result.score for result in results] + [master.score]
-        consistency = (1.0 - (max(all_scores) - min(all_scores))) if any(result.confidence > 0 for result in results + (master,)) else 0.0
+
+        # A missing evidence source is not evidence of poor quality. In
+        # particular, L11 has no empirical score until forward outcomes mature.
+        # Exclude unavailable analyzers from aggregation rather than assigning
+        # their placeholder score a fixed share of the master score.
+        observed = tuple(
+            (result, weight)
+            for result, weight in zip(results, self.WEIGHTS)
+            if result.confidence > 0.0
+        )
+        if observed:
+            observed_weight = sum(weight for _, weight in observed)
+            observed_score = sum(result.score * weight for result, weight in observed) / observed_weight
+            observed_confidence = sum(result.confidence * weight for result, weight in observed) / observed_weight
+            master = master_confidence.analyze(tuple(result for result, _ in observed))
+            score = 0.90 * observed_score + 0.10 * master.score
+            confidence = 0.90 * observed_confidence + 0.10 * master.confidence
+            consistency_scores = [result.score for result, _ in observed] + [master.score]
+            consistency = 1.0 - (max(consistency_scores) - min(consistency_scores))
+        else:
+            master = master_confidence.analyze(())
+            score = confidence = consistency = 0.0
+
+        score = max(0.0, min(1.0, score))
+        confidence = max(0.0, min(1.0, confidence))
+        consistency = max(0.0, min(1.0, consistency))
+        all_results = results + (master,)
         return Level15Result(
             symbol=l10.symbol,
-            score=max(0.0, min(1.0, score)),
-            confidence=max(0.0, min(1.0, confidence)),
-            consistency=max(0.0, min(1.0, consistency)),
+            score=score,
+            confidence=confidence,
+            consistency=consistency,
             signal_quality=results[0].score,
             risk_quality=results[1].score,
             scenario_quality=results[2].score,
@@ -39,7 +61,14 @@ class Level15Engine:
             adversarial_resilience=results[4].score,
             learning_quality=results[5].score,
             master_confidence=master.score,
-            analyzer_results=results + (master,),
-            warnings=tuple(dict.fromkeys(w for result in results + (master,) for w in result.warnings)),
-            metadata={"version": "1.0", "master_synthesis": True, "trade_decision": False},
+            analyzer_results=all_results,
+            warnings=tuple(dict.fromkeys(w for result in all_results for w in result.warnings)),
+            metadata={
+                "version": "1.1",
+                "master_synthesis": True,
+                "trade_decision": False,
+                "excluded_unavailable_analyzers": tuple(
+                    result.analyzer for result in results if result.confidence <= 0.0
+                ),
+            },
         )
