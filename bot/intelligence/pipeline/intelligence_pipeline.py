@@ -21,6 +21,15 @@ from .intelligence_result import IntelligenceResult
 def _bounded(value: float) -> float:
     return max(0.0, min(1.0, value))
 
+
+def _overall_consistency(level10_result) -> float:
+    """Use the dedicated cross-level agreement metric for decision gating.
+
+    L15 consistency describes the spread of quality analyzers, not agreement
+    between the upstream trading-analysis levels.
+    """
+    return _bounded(float(level10_result.cross_level_agreement))
+
 class IntelligencePipeline:
     """Run Levels 1-15 without trading side effects."""
     def __init__(self, learning_observations: tuple[LearningObservation, ...] = ()) -> None:
@@ -45,4 +54,4 @@ class IntelligencePipeline:
         warnings = tuple(dict.fromkeys(w for level in levels for w in level.warnings))
         strengths = tuple(dict.fromkeys(list(l15.strengths)+list(l14.strengths)+list(l10.strengths)+list(l9.strengths)+list(l8.strengths)))
         weaknesses = tuple(dict.fromkeys(list(l15.weaknesses)+list(l14.weaknesses)+list(l10.weaknesses)+list(l9.weaknesses)+list(l8.weaknesses)))
-        return IntelligenceResult(snapshot.symbol,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15,l15.score,l15.confidence,l15.consistency,strengths,weaknesses,warnings,{"version":"1.0","levels":15,"learning_samples":len(self.learning_observations)})
+        return IntelligenceResult(snapshot.symbol,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15,l15.score,l15.confidence,_overall_consistency(l10),strengths,weaknesses,warnings,{"version":"1.1","levels":15,"learning_samples":len(self.learning_observations),"overall_consistency_source":"L10.cross_level_agreement"})
