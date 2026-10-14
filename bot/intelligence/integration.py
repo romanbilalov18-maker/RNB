@@ -60,16 +60,23 @@ def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
     )
 
 
-def analyze_scan(scan, pipeline=None) -> dict:
+def analyze_scan(scan, pipeline=None, learning_observations_by_ticker=None) -> dict:
     """Run L1-L15 for scanned candidates and holdings; never executes trades."""
-    pipeline = pipeline or IntelligencePipeline()
     analyses = dict(scan.analyses)
     for analysis in scan.buy_candidates:
         analyses.setdefault(analysis.ticker, analysis)
 
+    observations_by_ticker = learning_observations_by_ticker or {}
     results = {}
     for ticker, analysis in analyses.items():
         snapshot = build_market_snapshot(scan, analysis)
-        if snapshot is not None:
-            results[ticker] = pipeline.analyze(snapshot)
+        if snapshot is None:
+            continue
+        # A supplied test/custom pipeline keeps its existing behavior. The live
+        # path creates a per-ticker pipeline so L11 only learns from that ticker's
+        # matured historical outcomes.
+        active_pipeline = pipeline or IntelligencePipeline(
+            learning_observations=tuple(observations_by_ticker.get(ticker, ()))
+        )
+        results[ticker] = active_pipeline.analyze(snapshot)
     return results
