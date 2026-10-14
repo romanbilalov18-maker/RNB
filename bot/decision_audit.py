@@ -297,7 +297,7 @@ class DecisionAuditStore:
         with self._connect() as db:
             rows = db.execute("""
                 SELECT a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
-                       o.raw_return_pct, o.net_return_pct, o.direction_correct,
+                       o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
                        s.level_scores_json, s.analyzer_scores_json, s.regime
                 FROM decision_outcomes AS o
                 JOIN decision_audit AS a ON a.id = o.audit_id
@@ -324,6 +324,8 @@ class DecisionAuditStore:
                     level_scores=level_scores,
                     analyzer_scores=analyzer_scores,
                     regime=row["regime"],
+                    decision_time=row["recorded_at"],
+                    outcome_target_date=row["target_session_date"],
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 # Ignore malformed legacy/corrupt records rather than breaking a live cycle.
