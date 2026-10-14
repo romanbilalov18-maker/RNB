@@ -22,7 +22,9 @@ class Level9Engine:
             "opportunity_priority": opportunity_priority.analyze(level5_result, level6_result, level8_result),
             "portfolio_consistency": portfolio_consistency.analyze(level5_result, level6_result, level8_result),
         }
-        score = sum(results[k].score * w for k, w in self.WEIGHTS.items())
+        effective = {key: weight * max(0.0, min(1.0, results[key].confidence)) for key, weight in self.WEIGHTS.items()}
+        total_effective = sum(effective.values())
+        score = sum(results[key].score * weight for key, weight in effective.items()) / total_effective if total_effective > 0 else 0.0
         confidence = sum(r.confidence for r in results.values()) / len(results)
         consistency = results["portfolio_consistency"].score
         warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
