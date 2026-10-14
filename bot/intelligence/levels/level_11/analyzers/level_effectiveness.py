@@ -7,7 +7,7 @@ from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
 
 def analyze(observations) -> AnalyzerResult:
     if not observations:
-        return AnalyzerResult("level_effectiveness", 0.5, 0.0, {}, ("learning_history_not_available",))
+        return AnalyzerResult("level_effectiveness", 0.0, 0.0, {}, ("learning_history_not_available",))
     metrics = feature_predictive_metrics(observations, "level_scores")
     if not metrics:
         return AnalyzerResult("level_effectiveness", 0.5, 0.0, {}, ("level_history_not_available",))
