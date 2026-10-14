@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Iterable
-
 from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
     feature_predictive_metrics,
     proposed_weights,
@@ -46,11 +44,29 @@ def _weighted_prediction(scores: dict[str, float], weights: dict[str, float]) ->
     return sum(weight * scores.get(name, 0.5) for name, weight in weights.items())
 
 
-def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
-    """Chronological holdout evaluation; all learned weights come from train only.
+def _fit_linear_calibrator(raw_scores: list[float], labels: list[bool]) -> tuple[float, float]:
+    """Fit a simple train-only linear calibration mapping to correctness probability."""
+    if not raw_scores or len(raw_scores) != len(labels):
+        return 0.0, 0.5
+    x_mean = sum(raw_scores) / len(raw_scores)
+    y_mean = sum(float(label) for label in labels) / len(labels)
+    variance = sum((x - x_mean) ** 2 for x in raw_scores)
+    covariance = sum((x - x_mean) * (float(y) - y_mean) for x, y in zip(raw_scores, labels))
+    slope = covariance / variance if variance > 1e-12 else 0.0
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
 
-    This evaluates whether L1-L15 scores predict the historical directional-correctness
-    label. It does not simulate portfolio P&L or change live trading decisions.
+
+def _calibrate(raw_scores: list[float], parameters: tuple[float, float]) -> list[float]:
+    slope, intercept = parameters
+    return [max(0.0, min(1.0, slope * score + intercept)) for score in raw_scores]
+
+
+def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
+    """Chronological holdout evaluation; all learned weights/calibrators use train only.
+
+    This tests whether historical L1-L15 score profiles predict correctness. It does
+    not simulate portfolio P&L or change live trading decisions.
     """
     observations = tuple(observations)
     if not 0.0 < train_fraction < 1.0:
@@ -64,6 +80,7 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
             "train_count": len(train),
             "test_count": len(test),
             "weights_learned_on_train_only": True,
+            "calibrators_learned_on_train_only": True,
         }
 
     level_train = feature_predictive_metrics(train, "level_scores")
@@ -71,23 +88,41 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
     level_weights = proposed_weights(level_train, len(train))
     analyzer_weights = proposed_weights(analyzer_train, len(train))
 
-    level_baseline = [
-        _equal_weight_prediction(item.level_scores) for item in test
-    ]
-    level_weighted = [
-        _weighted_prediction(item.level_scores, level_weights) for item in test
-    ]
-    analyzer_baseline = [
-        _equal_weight_prediction(item.analyzer_scores) for item in test
-    ]
-    analyzer_weighted = [
-        _weighted_prediction(item.analyzer_scores, analyzer_weights) for item in test
-    ]
+    train_labels = [bool(item.correct) for item in train]
+    train_level_baseline = [_equal_weight_prediction(item.level_scores) for item in train]
+    train_level_weighted = [_weighted_prediction(item.level_scores, level_weights) for item in train]
+    train_analyzer_baseline = [_equal_weight_prediction(item.analyzer_scores) for item in train]
+    train_analyzer_weighted = [_weighted_prediction(item.analyzer_scores, analyzer_weights) for item in train]
+
+    calibrators = {
+        "level_baseline": _fit_linear_calibrator(train_level_baseline, train_labels),
+        "level_weighted": _fit_linear_calibrator(train_level_weighted, train_labels),
+        "analyzer_baseline": _fit_linear_calibrator(train_analyzer_baseline, train_labels),
+        "analyzer_weighted": _fit_linear_calibrator(train_analyzer_weighted, train_labels),
+    }
+
+    level_baseline = _calibrate(
+        [_equal_weight_prediction(item.level_scores) for item in test],
+        calibrators["level_baseline"],
+    )
+    level_weighted = _calibrate(
+        [_weighted_prediction(item.level_scores, level_weights) for item in test],
+        calibrators["level_weighted"],
+    )
+    analyzer_baseline = _calibrate(
+        [_equal_weight_prediction(item.analyzer_scores) for item in test],
+        calibrators["analyzer_baseline"],
+    )
+    analyzer_weighted = _calibrate(
+        [_weighted_prediction(item.analyzer_scores, analyzer_weights) for item in test],
+        calibrators["analyzer_weighted"],
+    )
     return {
         "status": "evaluated",
         "train_count": len(train),
         "test_count": len(test),
         "weights_learned_on_train_only": True,
+        "calibrators_learned_on_train_only": True,
         "level_weights": level_weights,
         "analyzer_weights": analyzer_weights,
         "levels": {
@@ -99,7 +134,8 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
             "proposed_weighted": _metrics(test, analyzer_weighted),
         },
         "interpretation": (
-            "Compare holdout Brier score (lower is better) and AUC (higher is better). "
-            "Do not deploy weights unless performance improves on multiple time-ordered windows."
+            "Scores are calibrated using training data only. Compare holdout Brier score "
+            "(lower is better) and AUC (higher is better). Do not deploy weights unless "
+            "multiple time-ordered windows and transaction-cost-aware backtests confirm improvement."
         ),
     }
