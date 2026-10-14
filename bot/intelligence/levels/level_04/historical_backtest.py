@@ -24,6 +24,8 @@ class PressureOutcome:
     forward_return: float
     net_forward_return: float
     correct_after_costs: bool
+    outcome_date: str
+    market_regime: str
 
 
 def _number(value) -> float | None:
@@ -57,6 +59,7 @@ def evaluate_pressure_history(
     signal_threshold: float = 0.65,
     round_trip_cost: float = 0.001,
     volume_window: int = 20,
+    market_regime_by_date: dict[str, str] | None = None,
 ) -> dict:
     """Evaluate BUY/SELL pressure with future returns measured after each signal.
 
@@ -124,6 +127,7 @@ def evaluate_pressure_history(
             for j in range(1, i + 1) if bars[j - 1]["close"] > 0
         ]
         trailing_returns = returns[-20:]
+        market_regime = (market_regime_by_date or {}).get(current["date"], "UNCLASSIFIED")
         volatility = pstdev(trailing_returns) if len(trailing_returns) >= 2 else None
         momentum = (
             current["close"] / bars[max(0, i - 5)]["close"] - 1.0
@@ -189,6 +193,7 @@ def evaluate_pressure_history(
                 symbol=symbol, signal_date=current["date"], signal=signal,
                 pressure_score=score, horizon=horizon, forward_return=forward_return,
                 net_forward_return=net_return, correct_after_costs=correct,
+                outcome_date=future["date"], market_regime=market_regime,
             ))
 
     summary = {}
@@ -224,6 +229,176 @@ def evaluate_pressure_history(
             "lookahead": False,
             "signal_candle": "closed candle only",
             "volume_baseline": "prior candles only",
+            "horizons": list(horizons),
+            "signal_threshold": signal_threshold,
+            "round_trip_cost": round_trip_cost,
+        },
+    }
+
+
+def build_market_regime_by_date(
+    candle_history: dict[str, Iterable[object]],
+    *,
+    lookback: int = 20,
+    bull_threshold: float = 0.03,
+    bear_threshold: float = -0.03,
+) -> dict[str, str]:
+    """Create a date-aligned, equal-weight scanned-universe regime proxy.
+
+    Each date's return is the mean return of instruments with adjacent closes
+    on that date. A regime uses only returns available on or before its signal
+    date, so future candles cannot alter a historical regime label.
+    """
+    if lookback < 2:
+        raise ValueError("lookback must be at least 2")
+    if not isfinite(bull_threshold) or not isfinite(bear_threshold) or bear_threshold >= bull_threshold:
+        raise ValueError("regime thresholds must be finite and bear_threshold < bull_threshold")
+
+    returns_by_date: dict[str, list[float]] = {}
+    for candles in (candle_history or {}).values():
+        points = []
+        for index, candle in enumerate(candles or ()):
+            close = _field(candle, "close")
+            day = _date(candle, index)
+            if close is not None and close > 0:
+                points.append((day, close))
+        points.sort()
+        for (previous_day, previous), (day, current) in zip(points, points[1:]):
+            if previous > 0 and current > 0 and day != previous_day:
+                returns_by_date.setdefault(day, []).append(current / previous - 1.0)
+
+    market_returns = {
+        day: fmean(values) for day, values in returns_by_date.items() if values
+    }
+    ordered_dates = sorted(market_returns)
+    regimes: dict[str, str] = {}
+    for index, day in enumerate(ordered_dates):
+        trailing = ordered_dates[max(0, index - lookback + 1):index + 1]
+        cumulative = 1.0
+        for trailing_day in trailing:
+            cumulative *= 1.0 + market_returns[trailing_day]
+        cumulative -= 1.0
+        if cumulative >= bull_threshold:
+            regime = "BULL"
+        elif cumulative <= bear_threshold:
+            regime = "BEAR"
+        else:
+            regime = "SIDEWAYS"
+        regimes[day] = regime
+    return regimes
+
+
+def evaluate_pressure_walk_forward(
+    candles: Iterable[object],
+    *,
+    symbol: str = "UNKNOWN",
+    horizons: tuple[int, ...] = (1, 3, 5),
+    signal_threshold: float = 0.65,
+    round_trip_cost: float = 0.001,
+    train_fraction: float = 0.70,
+    market_regime_by_date: dict[str, str] | None = None,
+) -> dict:
+    """Chronological train/holdout evaluation with horizon-safe split boundaries.
+
+    Training outcomes are retained only when their entire forward horizon ends
+    before the split. Holdout signals begin on/after the split and can use
+    earlier candles as historical context, but not as outcome labels.
+    """
+    if not isfinite(train_fraction) or not 0.5 <= train_fraction <= 0.85:
+        raise ValueError("train_fraction must be between 0.5 and 0.85")
+
+    bars = []
+    for index, candle in enumerate(candles or ()):
+        close = _field(candle, "close")
+        if close is not None and close > 0:
+            bars.append((_date(candle, index), close))
+    bars.sort()
+    if len(bars) < max(horizons) + 12:
+        return {
+            "symbol": symbol, "bars": len(bars), "split_date": None,
+            "train": {"outcomes": [], "summary": {}},
+            "holdout": {"outcomes": [], "summary": {}},
+            "warnings": ["walk_forward_history_insufficient"],
+            "methodology": {"chronological_split": True, "lookahead": False},
+        }
+
+    split_index = min(len(bars) - 1, max(1, int(len(bars) * train_fraction)))
+    split_date = bars[split_index][0]
+    full = evaluate_pressure_history(
+        candles,
+        symbol=symbol,
+        horizons=horizons,
+        signal_threshold=signal_threshold,
+        round_trip_cost=round_trip_cost,
+        market_regime_by_date=market_regime_by_date,
+    )
+    train_outcomes = [
+        item for item in full["outcomes"] if item["outcome_date"] < split_date
+    ]
+    holdout_outcomes = [
+        item for item in full["outcomes"] if item["signal_date"] >= split_date
+    ]
+
+    def summarize(items: list[dict]) -> dict:
+        summary = {}
+        regimes = sorted({item["market_regime"] for item in items}) or ["UNCLASSIFIED"]
+        for horizon in horizons:
+            for signal in ("BUY_PRESSURE", "SELL_PRESSURE"):
+                for regime in regimes:
+                    subset = [
+                        item for item in items
+                        if item["horizon"] == horizon
+                        and item["signal"] == signal
+                        and item["market_regime"] == regime
+                    ]
+                    key = f"{signal.lower()}_h{horizon}_{regime.lower()}"
+                    summary[key] = {
+                        "count": len(subset),
+                        "win_rate_after_costs": (
+                            sum(item["correct_after_costs"] for item in subset) / len(subset)
+                            if subset else None
+                        ),
+                        "mean_forward_return": (
+                            fmean(item["forward_return"] for item in subset) if subset else None
+                        ),
+                        "mean_net_directional_return": (
+                            fmean(item["net_forward_return"] for item in subset) if subset else None
+                        ),
+                        "false_signal_rate": (
+                            sum(not item["correct_after_costs"] for item in subset) / len(subset)
+                            if subset else None
+                        ),
+                    }
+        return summary
+
+    return {
+        "symbol": symbol,
+        "bars": len(bars),
+        "split_date": split_date,
+        "train": {
+            "signals": len({(item["signal_date"], item["signal"]) for item in train_outcomes}),
+            "outcomes": train_outcomes,
+            "summary": summarize(train_outcomes),
+        },
+        "holdout": {
+            "signals": len({(item["signal_date"], item["signal"]) for item in holdout_outcomes}),
+            "outcomes": holdout_outcomes,
+            "summary": summarize(holdout_outcomes),
+        },
+        "warnings": list(dict.fromkeys(
+            full["warnings"] +
+            (["holdout_has_fewer_than_30_outcomes"] if len(holdout_outcomes) < 30 else [])
+        )),
+        "methodology": {
+            "chronological_split": True,
+            "train_fraction": train_fraction,
+            "train_outcomes_end_before_split": True,
+            "holdout_signals_start_on_or_after_split": True,
+            "lookahead": False,
+            "regime_source": (
+                "equal_weight_scanned_universe_proxy"
+                if market_regime_by_date else "unclassified_no_market_proxy"
+            ),
             "horizons": list(horizons),
             "signal_threshold": signal_threshold,
             "round_trip_cost": round_trip_cost,
