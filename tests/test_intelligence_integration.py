@@ -93,6 +93,30 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.portfolio_positions[0]["market_value"], 297.0)
         self.assertTrue(snapshot.portfolio_context_available)
 
+    def test_correlation_history_uses_only_shared_dates_and_labels_peer_basket(self):
+        from bot.intelligence.levels.level_03.analyzers import correlation_context
+
+        dates = [f"2026-09-{day:02d}" for day in range(1, 15)]
+        target_closes = [100.0 + day for day in range(14)]
+        peer_closes = [50.0 + day * 2 for day in range(14)]
+        self.scan.candle_history = {
+            "AAA": [
+                SimpleNamespace(time=day, close=close, volume=1000)
+                for day, close in zip(dates, target_closes)
+            ],
+            "HELD": [
+                SimpleNamespace(time=day, close=close, volume=500)
+                for day, close in zip(dates[2:], peer_closes[2:])
+            ],
+        }
+        snapshot = build_market_snapshot(self.scan, self.scan.analyses["AAA"])
+        self.assertEqual(len(snapshot.correlation_asset_returns), 11)
+        self.assertEqual(len(snapshot.market_return_history), 11)
+        self.assertEqual(snapshot.correlation_benchmark, "scanned_peer_basket")
+        result = correlation_context.analyze(snapshot, SimpleNamespace())
+        self.assertEqual(result.metrics["benchmark_source"], "scanned_peer_basket")
+        self.assertIn("correlation_uses_scanned_peer_basket", result.warnings)
+
     def test_does_not_fall_back_to_sector_aggregate_when_peer_prices_are_missing(self):
         self.scan.sector_by_ticker = {"AAA": "TECH"}
         self.scan.sector_returns = {"TECH": 0.25}
