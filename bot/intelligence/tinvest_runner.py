@@ -60,6 +60,20 @@ def main() -> None:
             f"confidence={result.overall_confidence:.4f} "
             f"consistency={result.overall_consistency:.4f}"
         )
+        level_confidences = sorted(
+            (
+                (number, float(getattr(result, f"level_{number:02d}").confidence))
+                for number in range(1, 16)
+            ),
+            key=lambda item: item[1],
+        )
+        bottlenecks = ", ".join(
+            f"L{number}={confidence:.3f}"
+            for number, confidence in level_confidences[:3]
+        )
+        print(f"  confidence_bottlenecks: {bottlenecks}")
+        if result.warnings:
+            print(f"  warnings: {'; '.join(result.warnings[:5])}")
 
     print("-" * 72)
     print("Trade execution: DISABLED")
