@@ -3,10 +3,26 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+
 from bot.decision_audit import DecisionAuditStore
+
 
 def candle(day, close):
     return SimpleNamespace(time=datetime.fromisoformat(day).replace(tzinfo=timezone.utc), close=close)
+
+
+def intelligence_snapshot():
+    levels = {}
+    for number in range(1, 16):
+        levels[f"level_{number:02d}"] = SimpleNamespace(
+            score=number / 20,
+            analyzer_results=(
+                SimpleNamespace(analyzer="sample", score=number / 20),
+            ) if number == 1 else (),
+            metadata={"regime": "bullish"} if number == 3 else {},
+        )
+    return SimpleNamespace(**levels)
+
 
 class DecisionAuditStoreTests(unittest.TestCase):
     def test_records_recommendations_and_virtual_actions(self):
@@ -121,6 +137,53 @@ class DecisionAuditStoreTests(unittest.TestCase):
             summary = store.summary()
             self.assertEqual([row["horizon_sessions"] for row in summary["forward_outcomes"]], [1, 3, 5])
             self.assertTrue(all(row["scored"] == 0 for row in summary["forward_outcomes"]))
+
+    def test_matured_three_session_outcome_becomes_l11_learning_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            history = [candle("2026-10-01", 100)]
+            store.record_cycle(
+                "learning-anchor",
+                {"AAA": SimpleNamespace(action="BUY", reason="test", score=.8, confidence=.8, consistency=.8)},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": history},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                commission_rate=.001,
+            )
+            self.assertEqual(store.learning_observations_by_ticker(), {})
+            future = [
+                candle("2026-10-02", 101),
+                candle("2026-10-05", 102),
+                candle("2026-10-06", 103),
+            ]
+            store.record_cycle(
+                "learning-followup",
+                {},
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                candle_history={"AAA": history + future},
+                commission_rate=.001,
+            )
+            observations = store.learning_observations_by_ticker()["AAA"]
+            self.assertEqual(len(observations), 1)
+            self.assertTrue(observations[0].correct)
+            self.assertGreater(observations[0].outcome_return, 0)
+            self.assertEqual(observations[0].level_scores["L01"], .05)
+            self.assertEqual(observations[0].level_scores["L15"], .75)
+            self.assertEqual(observations[0].analyzer_scores["L01:sample"], .05)
+            self.assertEqual(observations[0].regime, "bullish")
+
+    def test_learning_history_ignores_waits_and_is_capped_per_ticker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            self.assertEqual(store.learning_observations_by_ticker(), {})
+            self.assertEqual(store.summary()["learning_observations"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
