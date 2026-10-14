@@ -167,3 +167,81 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
             "multiple time-ordered windows and transaction-cost-aware backtests confirm improvement."
         ),
     }
+
+def evaluate_multiple_windows(observations, window_count: int = 3, min_test_size: int = 10) -> dict:
+    """Evaluate expanding, chronological holdout windows with disjoint test slices."""
+    observations = tuple(observations)
+    if window_count < 2:
+        raise ValueError("window_count must be at least 2")
+    if min_test_size < 1:
+        raise ValueError("min_test_size must be positive")
+    test_size = max(min_test_size, len(observations) // (window_count + 2))
+    windows = []
+    for index in range(window_count):
+        end = len(observations) - (window_count - index - 1) * test_size
+        start = end - test_size
+        if start <= 0:
+            continue
+        fraction = start / end
+        result = evaluate_walk_forward(observations[:end], train_fraction=fraction)
+        if result.get("status") == "evaluated" and result.get("test_count") == test_size:
+            result = {**result, "window": index + 1,
+                      "train_end_index": result["raw_train_count"],
+                      "test_start_index": start, "test_end_index": end}
+            windows.append(result)
+
+    if len(windows) < 2:
+        return {
+            "status": "insufficient_data",
+            "reason": "at least two valid chronological holdout windows are required",
+            "requested_windows": window_count,
+            "evaluated_windows": len(windows),
+            "windows": windows,
+            "deployment_allowed": False,
+        }
+
+    def mean_metric(section: str, model: str, metric: str):
+        values = [
+            item[section][model][metric]
+            for item in windows
+            if item[section][model].get(metric) is not None
+        ]
+        return sum(values) / len(values) if values else None
+
+    summary = {}
+    for section in ("levels", "analyzers"):
+        summary[section] = {}
+        for model in ("equal_weight_baseline", "proposed_weighted"):
+            summary[section][model] = {
+                metric: mean_metric(section, model, metric)
+                for metric in ("brier_score", "auc", "accuracy_at_0_5")
+            }
+        baseline = summary[section]["equal_weight_baseline"]
+        proposed = summary[section]["proposed_weighted"]
+        base_brier, proposed_brier = baseline["brier_score"], proposed["brier_score"]
+        base_auc, proposed_auc = baseline["auc"], proposed["auc"]
+        summary[section]["delta"] = {
+            "brier_score": (
+                proposed_brier - base_brier
+                if proposed_brier is not None and base_brier is not None else None
+            ),
+            "auc": (
+                proposed_auc - base_auc
+                if proposed_auc is not None and base_auc is not None else None
+            ),
+        }
+
+    return {
+        "status": "evaluated",
+        "requested_windows": window_count,
+        "evaluated_windows": len(windows),
+        "test_size_per_window": test_size,
+        "windows": windows,
+        "summary": summary,
+        "deployment_allowed": False,
+        "interpretation": (
+            "Window metrics are unweighted means across disjoint chronological holdouts. "
+            "Negative Brier delta and positive AUC delta favor the proposed model. "
+            "This diagnostic does not authorize deployment."
+        ),
+    }
