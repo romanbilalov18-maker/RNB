@@ -42,6 +42,12 @@ def main() -> None:
 
     with Client(config.invest_token) as client:
         while True:
+            if cycle and not _should_run_another_cycle(
+                deadline - time.monotonic(), cycle_interval_minutes
+            ):
+                print(f"Runtime limit reached before cycle {cycle + 1}.")
+                break
+
             cycle += 1
             print()
             print(f"=== CYCLE {cycle} ===")
