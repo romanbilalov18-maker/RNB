@@ -4,6 +4,19 @@ from bot.intelligence.levels.level_02.models.level_02_result import Level2Result
 
 
 def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
-    """Use available asset-level structure until sector data is supplied by a future adapter."""
-    strength = next((r.score for r in level2.analyzer_results if r.analyzer == "relative_strength"), 0.5)
-    return AnalyzerResult("sector_context", strength, level2.confidence * 0.75, {"proxy": "relative_strength"}, ("sector_data_not_available",))
+    if snapshot.sector is None or snapshot.sector_return is None or snapshot.peer_count < 2:
+        return AnalyzerResult(
+            "sector_context", 0.0, 0.0,
+            {"sector": snapshot.sector, "peer_count": snapshot.peer_count},
+            ("sector_data_not_available",),
+        )
+    market_return = snapshot.market_return
+    relative = snapshot.sector_return - market_return if market_return is not None else snapshot.sector_return
+    score = max(0.0, min(1.0, 0.5 + relative * 8.0))
+    confidence = min(1.0, snapshot.peer_count / 10.0)
+    return AnalyzerResult(
+        "sector_context", score, confidence,
+        {"sector": snapshot.sector, "sector_return": snapshot.sector_return,
+         "market_return": market_return, "relative_return": relative,
+         "peer_count": snapshot.peer_count},
+    )
