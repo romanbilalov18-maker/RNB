@@ -165,6 +165,7 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         historical_return_dates=tuple(sorted(own_returns)),
         market_return_history=market_history,
         correlation_asset_returns=correlation_asset_returns,
+        correlation_benchmark="scanned_peer_basket" if market_history else None,
         sector_return_history=sector_history,
         peer_return_history=sector_history,
         historical_volume_ratios=volume_ratios,
