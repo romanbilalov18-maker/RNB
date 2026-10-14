@@ -6,6 +6,7 @@ from bot.intelligence.integration import build_market_snapshot
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
+from bot.virtual_portfolio import VirtualPortfolio
 
 
 def run_real_market_intelligence(token: str, limit: int = 10) -> list:
@@ -21,6 +22,10 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         scan = market_runner.run()
 
     pipeline = IntelligencePipeline()
+    # CI smoke runs do not have access to the bot's persistent local portfolio.
+    # Supply a known-empty diagnostic portfolio rather than letting L9 confuse
+    # missing portfolio context with a real zero-position portfolio.
+    diagnostic_portfolio = VirtualPortfolio(initial_balance=10_000.0)
     results = []
     for analysis in scan.buy_candidates[:limit]:
         current_price = scan.current_prices.get(analysis.ticker)
@@ -30,7 +35,7 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         # Use the same full-context integration as the bot's main scan path:
         # market breadth/return, sector and peer history, aligned return series,
         # and current portfolio holdings must reach the live Intelligence run.
-        snapshot = build_market_snapshot(scan, analysis)
+        snapshot = build_market_snapshot(scan, analysis, portfolio=diagnostic_portfolio)
         if snapshot is None:
             continue
         intelligence = pipeline.analyze(snapshot)
@@ -48,6 +53,7 @@ def main() -> None:
 
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
+    print("Portfolio context: empty diagnostic paper portfolio (persistent bot portfolio is not available in CI)")
     print("-" * 72)
 
     for analysis, result, current_price in results:
