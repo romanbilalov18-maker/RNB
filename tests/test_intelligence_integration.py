@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from bot.intelligence.integration import analyze_scan, build_market_snapshot
 
@@ -12,6 +13,23 @@ class FakePipeline:
         self.symbols.append(snapshot.symbol)
         return SimpleNamespace(
             symbol=snapshot.symbol,
+            overall_score=0.6,
+            overall_confidence=0.7,
+            overall_consistency=0.8,
+        )
+
+
+class LearningPipeline:
+    created = []
+
+    def __init__(self, learning_observations=()):
+        self.learning_observations = tuple(learning_observations)
+        self.created.append(self)
+
+    def analyze(self, snapshot):
+        return SimpleNamespace(
+            symbol=snapshot.symbol,
+            learning_samples=len(self.learning_observations),
             overall_score=0.6,
             overall_confidence=0.7,
             overall_consistency=0.8,
@@ -59,6 +77,21 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.scan.current_prices.pop("HELD")
         results = analyze_scan(self.scan, FakePipeline())
         self.assertEqual(set(results), {"AAA"})
+
+    def test_passes_only_each_tickers_learning_history_to_its_pipeline(self):
+        LearningPipeline.created = []
+        observations = {"AAA": (object(), object()), "HELD": (object(),)}
+        with patch("bot.intelligence.integration.IntelligencePipeline", LearningPipeline):
+            results = analyze_scan(
+                self.scan,
+                learning_observations_by_ticker=observations,
+            )
+        self.assertEqual(results["AAA"].learning_samples, 2)
+        self.assertEqual(results["HELD"].learning_samples, 1)
+        self.assertEqual(
+            {tuple(item.learning_observations) for item in LearningPipeline.created},
+            {observations["AAA"], observations["HELD"]},
+        )
 
 
 if __name__ == "__main__":
