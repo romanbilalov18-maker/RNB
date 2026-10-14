@@ -223,3 +223,58 @@ def evaluate_level12_anomaly_history(
             "metrics_are_probabilities": False,
         },
     }
+
+
+def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dict, *, alert_threshold: float = 0.65) -> dict:
+    """Compare L4, L4+L6, L4+L12 and L4+L6+L12 on shared historical dates.
+
+    Uses the complete L12 date grid; absent L4 outcomes mean no SELL_PRESSURE
+    alert on that date. This is diagnostic classification, not a trade rule.
+    """
+    if not 0.0 <= alert_threshold <= 1.0:
+        raise ValueError("alert_threshold must be between 0 and 1")
+    l4 = {(x["signal_date"], x["horizon"]): x for x in l4_report.get("outcomes", ()) if x.get("signal") == "SELL_PRESSURE"}
+    l6 = {(x["signal_date"], x["horizon"]): x for x in l6_report.get("outcomes", ())}
+    l12 = {(x["signal_date"], x["horizon"]): x for x in l12_report.get("outcomes", ())}
+    rows = []
+    for key, anomaly in l12.items():
+        risk = l6.get(key)
+        pressure = l4.get(key)
+        l4_alert = pressure is not None
+        l6_alert = risk is not None and risk.get("downside_risk_score", 0.0) >= alert_threshold
+        l12_alert = anomaly.get("anomaly_score", 0.0) >= alert_threshold
+        rows.append({
+            "signal_date": key[0], "horizon": key[1],
+            "event": bool(anomaly.get("adverse_event")),
+            "l4_alert": l4_alert, "l4_l6_alert": l4_alert or l6_alert,
+            "l4_l12_alert": l4_alert or l12_alert,
+            "l4_l6_l12_alert": l4_alert or l6_alert or l12_alert,
+        })
+    def metrics(group, name):
+        if not group:
+            return {"count": 0, "event_rate": None, "alert_rate": None, "precision": None, "recall": None, "false_positive_rate": None, "lift": None}
+        alerts = [x for x in group if x[name]]
+        events = [x for x in group if x["event"]]
+        tp = sum(x["event"] for x in alerts)
+        fp = len(alerts) - tp
+        event_rate = len(events) / len(group)
+        precision = tp / len(alerts) if alerts else None
+        recall = tp / len(events) if events else None
+        return {
+            "count": len(group), "alert_count": len(alerts), "event_count": len(events),
+            "event_rate": event_rate, "alert_rate": len(alerts) / len(group),
+            "precision": precision, "recall": recall,
+            "false_positive_rate": fp / (len(group) - len(events)) if len(group) > len(events) else None,
+            "lift": precision / event_rate if precision is not None and event_rate > 0 else None,
+        }
+    summary = {}
+    for horizon in sorted({x["horizon"] for x in rows}):
+        group = [x for x in rows if x["horizon"] == horizon]
+        summary[f"h{horizon}"] = {
+            "count": len(group),
+            "variants": {name: metrics(group, name) for name in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert")},
+        }
+    return {
+        "outcomes": rows, "summary": summary,
+        "methodology": {"same_dates_for_all_variants": True, "lookahead": False, "alert_threshold": alert_threshold},
+    }
