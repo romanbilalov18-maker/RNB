@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -88,8 +88,8 @@ class DecisionAuditStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
             as_of = datetime.now(timezone.utc)
-            today = as_of.date().isoformat()
-            yesterday = (as_of.date() - timedelta(days=1)).isoformat()
+            today = as_of.astimezone(DecisionAuditStore.MARKET_TIMEZONE).date().isoformat()
+            yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
             history = [candle(yesterday, 100), candle(today, 999)]
             store.record_cycle(
                 "cycle-current",
@@ -247,7 +247,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
             observations = store.learning_observations_by_ticker()["AAA"]
             self.assertEqual(len(observations), 2)
             self.assertAlmostEqual(observations[0].outcome_return, .028)
-            self.assertAlmostEqual(observations[1].outcome_return, (104 / 200 - 1) - .002)
+            self.assertAlmostEqual(observations[1].outcome_return, (103 / 200 - 1) - .002)
 
     def test_summary_explains_learning_readiness_and_counts_only_trainable_observations(self):
         with tempfile.TemporaryDirectory() as tmp:
