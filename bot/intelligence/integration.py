@@ -12,7 +12,6 @@ def _quotation(value: object) -> float:
     return float(units) + float(nano or 0) / 1_000_000_000
 
 
-
 def _close(value: object) -> float | None:
     raw = getattr(value, "close", None)
     if raw is None:
@@ -46,7 +45,12 @@ def _returns_by_date(candles) -> dict[str, float]:
     return result
 
 
-def _aligned_peer_series(scan, ticker: str, target_returns: dict[str, float], sector: str | None = None) -> tuple[tuple[float, ...], tuple[float, ...]]:
+def _aligned_peer_series(
+    scan,
+    ticker: str,
+    target_returns: dict[str, float],
+    sector: str | None = None,
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
     peer_series = []
     for peer, candles in getattr(scan, "candle_history", {}).items():
         if peer == ticker:
@@ -64,6 +68,7 @@ def _aligned_peer_series(scan, ticker: str, target_returns: dict[str, float], se
             aligned_target.append(target_returns[day])
             aligned_peers.append(sum(observations) / len(observations))
     return tuple(aligned_target), tuple(aligned_peers)
+
 
 def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | None:
     """Build Intelligence input from the current real-market scan."""
@@ -91,7 +96,6 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
             if analysis.average_volume > 0:
                 volume_ratio = candle_volume / analysis.average_volume
 
-
     own_returns = _returns_by_date(getattr(scan, "candle_history", {}).get(ticker, ()))
     sector = getattr(scan, "sector_by_ticker", {}).get(ticker)
     _, sector_history = _aligned_peer_series(scan, ticker, own_returns, sector) if sector else ((), ())
@@ -104,8 +108,11 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         and (previous := scan.previous_closes.get(peer)) is not None
         and previous > 0 and current > 0
     ]
-    sector_return = getattr(scan, "sector_returns", {}).get(sector) if sector else None
+    # Exclude the analyzed instrument from its sector benchmark. Otherwise its
+    # own return leaks into the comparison and weakens/changes the relative signal.
     peer_return = sum(sector_changes) / len(sector_changes) if sector_changes else None
+    reported_sector_return = getattr(scan, "sector_returns", {}).get(sector) if sector else None
+    sector_return = peer_return if peer_return is not None else reported_sector_return
     history_volumes = [
         float(getattr(item, "volume", 0) or 0)
         for item in getattr(scan, "candle_history", {}).get(ticker, ())
