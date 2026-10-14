@@ -22,7 +22,26 @@ class Level7Engine:
             "temporal_anomaly": temporal_anomaly.analyze(snapshot, level4_result),
             "dynamic_stability": dynamic_stability.analyze(level5_result, level6_result),
         }
-        score = sum(results[k].score * w for k, w in self.WEIGHTS.items())
+        # Level 7's aggregate is a quality score. Exhaustion, regime-transition
+        # signals, and abnormal temporal activity are risk/anomaly severities:
+        # a high raw severity must lower aggregate quality.
+        quality_scores = {
+            "momentum_acceleration": results["momentum_acceleration"].score,
+            "trend_persistence": results["trend_persistence"].score,
+            "movement_exhaustion": 1.0 - results["movement_exhaustion"].score,
+            "regime_transition": 1.0 - results["regime_transition"].score,
+            "temporal_anomaly": 1.0 - results["temporal_anomaly"].score,
+            "dynamic_stability": results["dynamic_stability"].score,
+        }
+        effective_weights = {
+            key: weight * max(0.0, min(1.0, results[key].confidence))
+            for key, weight in self.WEIGHTS.items()
+        }
+        total_effective = sum(effective_weights.values())
+        score = (
+            sum(quality_scores[key] * weight for key, weight in effective_weights.items()) / total_effective
+            if total_effective > 0.0 else 0.0
+        )
         confidence = sum(r.confidence for r in results.values()) / len(results)
         consistency = min(1.0, max(0.0, (level5_result.consistency + level6_result.consistency) / 2.0))
         warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
@@ -37,5 +56,5 @@ class Level7Engine:
             trend_persistence=results["trend_persistence"].score, movement_exhaustion=results["movement_exhaustion"].score,
             regime_transition=results["regime_transition"].score, temporal_anomaly=results["temporal_anomaly"].score,
             dynamic_stability=results["dynamic_stability"].score, analyzer_results=results,
-            strengths=strengths, weaknesses=weaknesses, warnings=warnings, metadata={"version": "1.0"},
+            strengths=strengths, weaknesses=weaknesses, warnings=warnings, metadata={"version": "1.1"},
         )
