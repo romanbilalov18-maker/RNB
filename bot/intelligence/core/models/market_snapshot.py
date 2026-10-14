@@ -38,6 +38,9 @@ class MarketSnapshot:
     cross_asset_correlation: Optional[float] = None
     correlation_observations: int = 0
     historical_returns: tuple[float, ...] = ()
+    market_return_history: tuple[float, ...] = ()
+    sector_return_history: tuple[float, ...] = ()
+    peer_return_history: tuple[float, ...] = ()
     historical_volume_ratios: tuple[float, ...] = ()
 
     def price_change(self) -> Optional[float]:
