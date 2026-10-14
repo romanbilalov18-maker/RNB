@@ -25,6 +25,8 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     candidate = dict(zip(snapshot.historical_return_dates, snapshot.historical_returns))
     correlations = []
     for position in positions:
+        if position.get("symbol") == snapshot.symbol:
+            continue
         dates = position.get("historical_return_dates", ())
         returns = position.get("historical_returns", ())
         held = dict(zip(dates, returns))
