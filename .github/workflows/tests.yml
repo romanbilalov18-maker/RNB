@@ -128,6 +128,49 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Diagnose decision history and build L11 report
+        if: always()
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          path = Path("data/decision_audit.sqlite")
+          if not path.exists():
+              print("L11_DIAGNOSTIC status=database_missing path=data/decision_audit.sqlite")
+              raise SystemExit(0)
+
+          with sqlite3.connect(path) as db:
+              tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+              print(f"L11_DIAGNOSTIC database_bytes={path.stat().st_size}")
+              for table in ("decision_audit", "market_session_prices", "decision_outcomes", "decision_learning_snapshots"):
+                  if table not in tables:
+                      print(f"L11_DIAGNOSTIC table={table} status=missing")
+                      continue
+                  count = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                  print(f"L11_DIAGNOSTIC table={table} rows={count}")
+              if "decision_audit" in tables:
+                  row = db.execute("SELECT COUNT(DISTINCT cycle_id), COUNT(DISTINCT ticker), MIN(recorded_at), MAX(recorded_at) FROM decision_audit").fetchone()
+                  print(f"L11_DIAGNOSTIC cycles={row[0]} tickers={row[1]} first_record={row[2]} last_record={row[3]}")
+          PY
+          if [ -f data/decision_audit.sqlite ]; then
+            python -m bot.intelligence.levels.level_11.walk_forward_report \
+              --database data/decision_audit.sqlite \
+              --output data/l11_walk_forward_report.json
+            cat data/l11_walk_forward_report.json
+          fi
+
+      - name: Upload L11 diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l11-walk-forward-diagnostics-${{ github.run_id }}
+          path: |
+            data/decision_audit.sqlite
+            data/l11_walk_forward_report.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Verify persisted state
         if: always()
         run: |
