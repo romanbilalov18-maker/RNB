@@ -12,6 +12,57 @@ def _quotation(value: object) -> float:
     return float(units) + float(nano or 0) / 1_000_000_000
 
 
+
+def _close(value: object) -> float | None:
+    raw = getattr(value, "close", None)
+    if raw is None:
+        return None
+    try:
+        result = _quotation(raw)
+    except (TypeError, ValueError):
+        return None
+    return result if result > 0 else None
+
+
+def _candle_date(candle: object) -> str | None:
+    value = getattr(candle, "time", None) or getattr(candle, "date", None)
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _returns_by_date(candles) -> dict[str, float]:
+    points = []
+    for candle in candles or ():
+        close = _close(candle)
+        day = _candle_date(candle)
+        if close is not None and day is not None:
+            points.append((day, close))
+    points.sort()
+    result = {}
+    for (previous_day, previous), (day, current) in zip(points, points[1:]):
+        if previous > 0 and current > 0 and day != previous_day:
+            result[day] = current / previous - 1.0
+    return result
+
+
+def _aligned_peer_history(scan, ticker: str, target_returns: dict[str, float], sector: str | None = None) -> tuple[float, ...]:
+    peer_series = []
+    for peer, candles in getattr(scan, "candle_history", {}).items():
+        if peer == ticker:
+            continue
+        if sector is not None and getattr(scan, "sector_by_ticker", {}).get(peer) != sector:
+            continue
+        values = _returns_by_date(candles)
+        if values:
+            peer_series.append(values)
+    aligned = []
+    for day in sorted(target_returns):
+        observations = [values[day] for values in peer_series if day in values]
+        if observations:
+            aligned.append(sum(observations) / len(observations))
+    return tuple(aligned)
+
 def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
     """Build Intelligence input from the current real-market scan."""
     ticker = analysis.ticker
@@ -38,6 +89,29 @@ def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
             if analysis.average_volume > 0:
                 volume_ratio = candle_volume / analysis.average_volume
 
+
+    own_returns = _returns_by_date(getattr(scan, "candle_history", {}).get(ticker, ()))
+    sector = getattr(scan, "sector_by_ticker", {}).get(ticker)
+    sector_history = _aligned_peer_history(scan, ticker, own_returns, sector) if sector else ()
+    market_history = _aligned_peer_history(scan, ticker, own_returns)
+    sector_changes = [
+        current / previous - 1.0
+        for peer, current in scan.current_prices.items()
+        if peer != ticker and sector
+        and getattr(scan, "sector_by_ticker", {}).get(peer) == sector
+        and (previous := scan.previous_closes.get(peer)) is not None
+        and previous > 0 and current > 0
+    ]
+    sector_return = getattr(scan, "sector_returns", {}).get(sector) if sector else None
+    peer_return = sum(sector_changes) / len(sector_changes) if sector_changes else None
+    history_volumes = [
+        float(getattr(item, "volume", 0) or 0)
+        for item in getattr(scan, "candle_history", {}).get(ticker, ())
+        if float(getattr(item, "volume", 0) or 0) > 0
+    ]
+    average_history_volume = sum(history_volumes) / len(history_volumes) if history_volumes else 0.0
+    volume_ratios = tuple(value / average_history_volume for value in history_volumes) if average_history_volume > 0 else ()
+
     return MarketSnapshot(
         symbol=ticker,
         price=float(price),
@@ -57,6 +131,18 @@ def build_market_snapshot(scan, analysis) -> MarketSnapshot | None:
         close_position=close_position,
         volume_ratio=volume_ratio,
         lot_size=scan.lot_sizes.get(ticker, 1),
+        market_return=getattr(scan, "market_return", None),
+        market_breadth=getattr(scan, "market_breadth", None),
+        market_sample_count=getattr(scan, "market_sample_count", 0),
+        sector=sector,
+        sector_return=sector_return,
+        peer_return=peer_return,
+        peer_count=len(sector_changes),
+        historical_returns=tuple(own_returns[day] for day in sorted(own_returns)),
+        market_return_history=market_history,
+        sector_return_history=sector_history,
+        peer_return_history=sector_history,
+        historical_volume_ratios=volume_ratios,
     )
 
 
