@@ -19,7 +19,7 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     # Read-only: LiveMarketRunner only requests market data and candles.
     client = TInvestClient(token)
     with client._client() as raw_client:
-        market_runner = LiveMarketRunner(raw_client, history_days=30)
+        market_runner = LiveMarketRunner(raw_client, history_days=180)
         scan = market_runner.run()
 
     pipeline = IntelligencePipeline()
