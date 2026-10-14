@@ -55,6 +55,7 @@ def main() -> None:
             intelligence_results = analyze_scan(
                 result,
                 learning_observations_by_ticker=learning_observations,
+                portfolio=portfolio,
             )
             decisions = _evaluate_decisions(intelligence_results, portfolio)
             # Only explicit BUY recommendations from a valid L1-L15 result may
