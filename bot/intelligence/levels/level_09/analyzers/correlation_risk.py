@@ -38,10 +38,10 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
         return AnalyzerResult("correlation_risk", 0.0, 0.0, {"position_count": len(positions)}, ["portfolio_correlation_history_insufficient"])
     total_value = sum(value for _, value, _, _ in correlations)
     weighted_correlation = sum(correlation * value for correlation, value, _, _ in correlations) / total_value
-    score = max(0.0, min(1.0, 0.7 * weighted_correlation + 0.3 * level6_result.adverse_scenario))
+    score = max(0.0, min(1.0, weighted_correlation))
     coverage = len(correlations) / len(positions)
     history_confidence = min(1.0, min(count for _, _, count, _ in correlations) / 30.0)
-    confidence = min(1.0, coverage * history_confidence * level6_result.confidence)
+    confidence = min(1.0, coverage * history_confidence)
     return AnalyzerResult(
         "correlation_risk", score, confidence,
         {"weighted_absolute_correlation": weighted_correlation,
