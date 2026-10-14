@@ -216,6 +216,24 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(summary["learning_observations"], 0)
             self.assertEqual(summary["outcomes_ready_but_missing"], {"1": 0, "3": 0, "5": 0})
 
+    def test_pending_tickers_excludes_decisions_without_a_valid_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            store.record_cycle(
+                "legacy",
+                {
+                    "NO_PRICE": SimpleNamespace(action="BUY", reason="missing live price"),
+                    "ANCHORED": SimpleNamespace(action="BUY", reason="valid live price"),
+                },
+                [],
+                equity=1000,
+                cash=1000,
+                total_commissions=0,
+                current_prices={"ANCHORED": 100},
+                as_of=datetime.fromisoformat("2026-10-02T12:00:00+00:00"),
+            )
+            self.assertEqual(store.pending_tickers(), {"ANCHORED"})
+
     def test_learning_history_ignores_waits_and_is_capped_per_ticker(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
