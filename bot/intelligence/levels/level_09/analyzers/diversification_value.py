@@ -14,5 +14,12 @@ def analyze(snapshot, level8_result) -> AnalyzerResult:
     sectors = [item.get("sector") for item in positions if item.get("sector")]
     distinct_sectors = len(set(sectors))
     coverage = len(sectors) / len(positions)
-    score = min(1.0, (distinct_sectors / len(positions)) * coverage)
-    return AnalyzerResult("diversification_value", score, min(1.0, len(positions) / 10.0), {"position_count": len(positions), "distinct_sectors": distinct_sectors, "sector_coverage": coverage})
+    score = min(1.0, distinct_sectors / len(sectors)) if sectors else 0.0
+    confidence = min(1.0, len(positions) / 10.0) * coverage
+    warnings = () if coverage >= 1.0 else ("some_position_sectors_unavailable",)
+    return AnalyzerResult(
+        "diversification_value", score, confidence,
+        {"position_count": len(positions), "positions_with_known_sector": len(sectors),
+         "distinct_sectors": distinct_sectors, "sector_coverage": coverage},
+        warnings,
+    )
