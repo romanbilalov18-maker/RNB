@@ -66,6 +66,23 @@ class L11WalkForwardTests(unittest.TestCase):
         self.assertAlmostEqual(_weighted_prediction({}, weights), 0.5)
         self.assertAlmostEqual(_weighted_prediction({"L01": 0.8, "L02": 0.2}, weights), 0.62)
 
+    def test_purges_training_labels_that_mature_in_holdout_period(self):
+        rows = []
+        for i in range(60):
+            rows.append(LearningObservation(
+                outcome_return=0.01, correct=(i % 2 == 0),
+                level_scores={"L01": 0.8 if i % 2 == 0 else 0.2},
+                analyzer_scores={"trend": 0.8 if i % 2 == 0 else 0.2},
+                decision_time=f"2026-01-{i + 1:02d}T12:00:00+00:00",
+                outcome_target_date=("2026-02-08" if i == 34 else f"2026-01-{min(i + 4, 31):02d}"),
+            ))
+        result = evaluate_walk_forward(rows, train_fraction=0.6)
+        self.assertEqual(result["status"], "evaluated")
+        self.assertEqual(result["raw_train_count"], 36)
+        self.assertEqual(result["purged_train_count"], 1)
+        self.assertEqual(result["train_count"], 35)
+        self.assertTrue(result["purging_applied"])
+
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
         self.assertIsNotNone(result["levels"]["proposed_weighted"]["auc"])
