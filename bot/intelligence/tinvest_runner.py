@@ -6,6 +6,7 @@ from bot.intelligence.integration import build_market_snapshot
 from bot.intelligence.levels.level_04.historical_backtest import (
     build_market_regime_by_date,
     evaluate_pressure_history,
+    evaluate_pressure_rolling_walk_forward,
     evaluate_pressure_walk_forward,
 )
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
@@ -63,7 +64,17 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
             train_fraction=0.70,
             market_regime_by_date=market_regimes,
         )
-        results.append((analysis, intelligence, current_price, backtest, walk_forward))
+        rolling_walk_forward = evaluate_pressure_rolling_walk_forward(
+            historical_candles,
+            symbol=analysis.ticker,
+            horizons=(1, 3, 5),
+            round_trip_cost=0.001,
+            train_fraction=0.50,
+            holdout_fraction=0.20,
+            step_fraction=0.15,
+            market_regime_by_date=market_regimes,
+        )
+        results.append((analysis, intelligence, current_price, backtest, walk_forward, rolling_walk_forward))
 
     return results
 
@@ -78,10 +89,10 @@ def main() -> None:
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
     print("Portfolio context: empty diagnostic paper portfolio (persistent bot portfolio is not available in CI)")
-    print("Level 4 evaluation: chronological 70/30 train/holdout; no forward outcomes cross the split")
+    print("Level 4 evaluation: training-only threshold selection; fixed and rolling chronological holdouts")
     print("-" * 72)
 
-    for analysis, result, current_price, backtest, walk_forward in results:
+    for analysis, result, current_price, backtest, walk_forward, rolling_walk_forward in results:
         snapshot = result.level_01
         print(
             f"{analysis.ticker}: "
@@ -142,6 +153,17 @@ def main() -> None:
                 )
         if walk_forward["warnings"]:
             print(f"    L4 walk-forward warnings: {'; '.join(walk_forward['warnings'][:2])}")
+        rolling_metrics = rolling_walk_forward["aggregate"]
+        baseline_metrics = rolling_walk_forward.get("baseline_aggregate", {})
+        print(
+            f"  L4 rolling walk-forward: windows={len(rolling_walk_forward['windows'])} "
+            f"selected_n={rolling_metrics['count']} "
+            f"selected_net={rolling_metrics['mean_net_directional_return']} "
+            f"baseline_n={baseline_metrics.get('count')} "
+            f"baseline_net={baseline_metrics.get('mean_net_directional_return')}"
+        )
+        if rolling_walk_forward["warnings"]:
+            print(f"    L4 rolling warnings: {'; '.join(rolling_walk_forward['warnings'][:2])}")
 
     print("-" * 72)
     print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
@@ -149,7 +171,7 @@ def main() -> None:
         for horizon in (1, 3, 5):
             observations = [
                 outcome
-                for _, _, _, backtest, _ in results
+                for _, _, _, backtest, _, _ in results
                 for outcome in backtest["outcomes"]
                 if outcome["signal"] == signal and outcome["horizon"] == horizon
             ]
@@ -169,7 +191,7 @@ def main() -> None:
     print("L4 WALK-FORWARD HOLDOUT SUMMARY (UNSEEN CHRONOLOGICAL PERIOD)")
     holdout_outcomes = [
         outcome
-        for _, _, _, _, walk_forward in results
+        for _, _, _, _, walk_forward, _ in results
         for outcome in walk_forward["holdout"]["outcomes"]
     ]
     regimes = sorted({item["market_regime"] for item in holdout_outcomes}) or ["UNCLASSIFIED"]
@@ -206,6 +228,22 @@ def main() -> None:
     print("  Threshold is selected on training outcomes only; holdout is comparison-only.")
     print("  Training-period outcomes are descriptive only; no model weights are trained or changed.")
     print("  Training outcomes end before the split; holdout signals start on/after the split.")
+    rolling_selected = [
+        item for _, _, _, _, _, rolling in results
+        for window in rolling["windows"] for item in window["selected_outcomes"]
+    ]
+    rolling_baseline = [
+        item for _, _, _, _, _, rolling in results
+        for window in rolling["windows"] for item in window["baseline_outcomes"]
+    ]
+    for label, observations in (("rolling_selected", rolling_selected), ("rolling_baseline_0.65", rolling_baseline)):
+        if observations:
+            win_rate = sum(item["correct_after_costs"] for item in observations) / len(observations)
+            mean_net = sum(item["net_forward_return"] for item in observations) / len(observations)
+            print(
+                f"  aggregate {label}: n={len(observations)} "
+                f"win_after_costs={win_rate:.1%} mean_net_directional_return={mean_net:+.3%}"
+            )
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
     print("Trade execution: DISABLED")
