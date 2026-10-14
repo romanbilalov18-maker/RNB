@@ -1,6 +1,8 @@
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
 
 
-def analyze(level3_result) -> AnalyzerResult:
-    score = max(0.0, min(1.0, level3_result.correlation_context if hasattr(level3_result, "correlation_context") else level3_result.consistency))
-    return AnalyzerResult("cross_asset_context", score, 0.25, {}, ["cross_asset_data_not_available"])
+def analyze(snapshot, level3_result) -> AnalyzerResult:
+    result = next((item for item in level3_result.analyzer_results if item.analyzer == "correlation_context"), None)
+    if result is None or result.confidence <= 0:
+        return AnalyzerResult("cross_asset_context", 0.0, 0.0, {}, ["cross_asset_history_insufficient"])
+    return AnalyzerResult("cross_asset_context", result.score, result.confidence, dict(result.metrics))
