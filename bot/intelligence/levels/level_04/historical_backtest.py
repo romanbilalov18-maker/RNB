@@ -98,7 +98,7 @@ def evaluate_pressure_history(
     max_horizon = max(horizons)
 
     # i is the last fully closed candle available at decision time.
-    for i in range(1, len(bars) - max_horizon + 1):
+    for i in range(1, len(bars) - max_horizon):
         current, previous = bars[i], bars[i - 1]
         if previous["close"] <= 0:
             continue
