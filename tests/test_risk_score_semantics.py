@@ -5,6 +5,7 @@ from unittest.mock import patch
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_06.level_06_engine import Level6Engine
+from bot.intelligence.levels.level_07.level_07_engine import Level7Engine
 from bot.intelligence.levels.level_09.level_09_engine import Level9Engine
 
 
@@ -39,6 +40,41 @@ class RiskScoreSemanticsTests(unittest.TestCase):
         self.assertLess(riskier.score, safer.score)
         self.assertEqual(riskier.downside_risk, 0.9)
         self.assertEqual(riskier.volatility_risk, 0.9)
+
+    def test_level7_higher_exhaustion_transition_and_anomaly_reduce_quality(self):
+        snapshot = MarketSnapshot(symbol="AAA", price=100.0)
+        level3 = SimpleNamespace(score=0.6, confidence=0.9, consistency=0.8)
+        level4 = SimpleNamespace(confidence=0.9, abnormal_activity=0.4)
+        level5 = SimpleNamespace(confidence=0.9, consistency=0.8, signal_stability=0.8)
+        level6 = SimpleNamespace(confidence=0.9, consistency=0.8)
+
+        def result(name, score, confidence=1.0):
+            return AnalyzerResult(name, score, confidence)
+
+        def run(exhaustion, transition, anomaly):
+            with (
+                patch("bot.intelligence.levels.level_07.level_07_engine.momentum_acceleration.analyze",
+                     return_value=result("momentum_acceleration", 0.6)),
+                patch("bot.intelligence.levels.level_07.level_07_engine.trend_persistence.analyze",
+                     return_value=result("trend_persistence", 0.6)),
+                patch("bot.intelligence.levels.level_07.level_07_engine.movement_exhaustion.analyze",
+                     return_value=result("movement_exhaustion", exhaustion)),
+                patch("bot.intelligence.levels.level_07.level_07_engine.regime_transition.analyze",
+                     return_value=result("regime_transition", transition)),
+                patch("bot.intelligence.levels.level_07.level_07_engine.temporal_anomaly.analyze",
+                     return_value=result("temporal_anomaly", anomaly)),
+                patch("bot.intelligence.levels.level_07.level_07_engine.dynamic_stability.analyze",
+                     return_value=result("dynamic_stability", 0.8)),
+            ):
+                return Level7Engine().analyze(snapshot, level3, level4, level5, level6)
+
+        safer = run(exhaustion=0.1, transition=0.1, anomaly=0.1)
+        riskier = run(exhaustion=0.9, transition=0.9, anomaly=0.9)
+
+        self.assertLess(riskier.score, safer.score)
+        self.assertEqual(riskier.movement_exhaustion, 0.9)
+        self.assertEqual(riskier.regime_transition, 0.9)
+        self.assertEqual(riskier.temporal_anomaly, 0.9)
 
     def test_level9_higher_concentration_and_correlation_reduce_quality(self):
         snapshot = MarketSnapshot(symbol="AAA", price=100.0)
