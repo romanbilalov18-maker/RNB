@@ -34,5 +34,5 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
     return AnalyzerResult(
         "correlation_context", score, confidence,
         {"pearson_correlation": correlation,
-         "observations": min(len(snapshot.historical_returns), len(snapshot.market_return_history))},
+         "observations": min(len(snapshot.correlation_asset_returns), len(snapshot.market_return_history))},
     )
