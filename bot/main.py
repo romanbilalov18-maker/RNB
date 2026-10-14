@@ -51,7 +51,11 @@ def main() -> None:
                 held_tickers=set(portfolio.positions),
                 tracked_tickers=audit_store.pending_tickers(),
             )
-            intelligence_results = analyze_scan(result)
+            learning_observations = audit_store.learning_observations_by_ticker()
+            intelligence_results = analyze_scan(
+                result,
+                learning_observations_by_ticker=learning_observations,
+            )
             decisions = _evaluate_decisions(intelligence_results, portfolio)
             # Only explicit BUY recommendations from a valid L1-L15 result may
             # authorize new virtual entries. Existing PositionManager exits and
@@ -85,6 +89,7 @@ def main() -> None:
                 total_commissions=portfolio.commissions,
                 current_prices=result.current_prices,
                 candle_history=result.candle_history,
+                intelligence_results=intelligence_results,
                 commission_rate=portfolio.commission_rate,
             )
             print(f"Decision audit: recorded {audit_count} ticker observations")
