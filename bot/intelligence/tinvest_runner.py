@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from bot.intelligence.core.models.market_snapshot import MarketSnapshot
+from bot.intelligence.integration import build_market_snapshot
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
@@ -85,18 +85,15 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     results = []
     for analysis in scan.buy_candidates[:limit]:
         current_price = scan.current_prices.get(analysis.ticker)
-        if current_price is None:
+        if current_price is None or scan.previous_closes.get(analysis.ticker) is None:
             continue
-        previous_close = scan.previous_closes.get(analysis.ticker)
-        if previous_close is None:
+
+        # Use the same full-context integration as the bot's main scan path:
+        # market breadth/return, sector and peer history, aligned return series,
+        # and current portfolio holdings must reach the live Intelligence run.
+        snapshot = build_market_snapshot(scan, analysis)
+        if snapshot is None:
             continue
-        snapshot = _build_snapshot(
-            analysis,
-            current_price,
-            previous_close,
-            scan.lot_sizes.get(analysis.ticker, 1),
-            scan.latest_candles.get(analysis.ticker),
-        )
         intelligence = pipeline.analyze(snapshot)
         results.append((analysis, intelligence, current_price))
 
