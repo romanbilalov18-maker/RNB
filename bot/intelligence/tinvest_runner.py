@@ -10,7 +10,7 @@ from bot.intelligence.levels.level_04.historical_backtest import (
     evaluate_pressure_walk_forward,
 )
 from bot.intelligence.levels.level_06.historical_risk_backtest import evaluate_level6_risk_history
-from bot.intelligence.levels.level_12.historical_anomaly_backtest import evaluate_level12_anomaly_history
+from bot.intelligence.levels.level_12.historical_anomaly_backtest import evaluate_level12_anomaly_history, compare_level_combinations
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
@@ -82,6 +82,9 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         anomaly_backtest = evaluate_level12_anomaly_history(
             historical_candles, symbol=analysis.ticker, horizons=(1, 3, 5),
             lookback=20, adverse_move_threshold=0.02, anomaly_score_threshold=0.50,
+        )
+        anomaly_backtest["combination_comparison"] = compare_level_combinations(
+            backtest, risk_backtest, anomaly_backtest, alert_threshold=0.65,
         )
         results.append((analysis, intelligence, current_price, backtest, walk_forward, rolling_walk_forward, risk_backtest, anomaly_backtest))
 
@@ -193,6 +196,15 @@ def main() -> None:
             )
         if anomaly_backtest["warnings"]:
             print(f"    L12 anomaly warnings: {'; '.join(anomaly_backtest['warnings'][:2])}")
+        print("  L4/L6/L12 same-date alert comparison:")
+        for metric, values in anomaly_backtest["combination_comparison"]["summary"].items():
+            print(f"    {metric}: observations={values['count']}")
+            for variant, stats in values["variants"].items():
+                print(
+                    f"      {variant}: alerts={stats.get('alert_count', 0)} "
+                    f"precision={stats['precision']} recall={stats['recall']} "
+                    f"false_positive_rate={stats['false_positive_rate']} lift={stats['lift']}"
+                )
 
     print("-" * 72)
     print("L4 HISTORICAL PRESSURE SUMMARY ACROSS SCANNED INSTRUMENTS")
@@ -309,6 +321,33 @@ def main() -> None:
             f"threshold_metrics={_binary_metrics(observations, 0.50)}"
         )
     print("  Anomaly scores are diagnostic; no weights or trade rules are changed.")
+    print("L4/L6/L12 COMBINATION SUMMARY (SAME DATES)")
+    combination_rows = [
+        row for _, _, _, _, _, _, _, anomaly in results
+        for row in anomaly["combination_comparison"]["outcomes"]
+    ]
+    for horizon in (1, 3, 5):
+        rows = [row for row in combination_rows if row["horizon"] == horizon]
+        if not rows:
+            print(f"  h{horizon}: insufficient observations")
+            continue
+        event_count = sum(row["event"] for row in rows)
+        event_rate = event_count / len(rows)
+        print(f"  h{horizon}: n={len(rows)} adverse_event_rate={event_rate:.1%}")
+        for variant in ("l4_alert", "l4_l6_alert", "l4_l12_alert", "l4_l6_l12_alert"):
+            alerts = [row for row in rows if row[variant]]
+            true_positive = sum(row["event"] for row in alerts)
+            negatives = len(rows) - event_count
+            false_positive = len(alerts) - true_positive
+            precision = true_positive / len(alerts) if alerts else None
+            recall = true_positive / event_count if event_count else None
+            fpr = false_positive / negatives if negatives else None
+            lift = precision / event_rate if precision is not None and event_rate > 0 else None
+            print(
+                f"    {variant}: alerts={len(alerts)} precision={precision} "
+                f"recall={recall} false_positive_rate={fpr} lift={lift}"
+            )
+    print("  Same-date alert comparison is diagnostic only; no weights or trade rules changed.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
     print("Trade execution: DISABLED")
