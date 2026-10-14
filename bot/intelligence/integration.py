@@ -160,6 +160,7 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         peer_return_history=sector_history,
         historical_volume_ratios=volume_ratios,
         portfolio_positions=tuple(positions),
+        portfolio_context_available=portfolio is not None,
     )
 
 
