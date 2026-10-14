@@ -156,7 +156,6 @@ def evaluate_level12_anomaly_history(
         )
         result = pipeline.analyze(snapshot)
         level12 = result.level_12
-        future = bars[i + 1:i + horizon + 1] if False else None
         for horizon in horizons:
             future = bars[i + 1:i + horizon + 1]
             if len(future) != horizon:
