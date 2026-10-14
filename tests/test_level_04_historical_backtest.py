@@ -159,6 +159,35 @@ class Level4HistoricalBacktestTests(unittest.TestCase):
         self.assertTrue(all(item["signal_date"] >= split_date for item in report["holdout"]["outcomes"]))
         self.assertTrue(all(item["signal_date"] >= split_date for item in report["baseline_holdout"]["outcomes"]))
 
+    def test_holdout_price_changes_do_not_change_selected_training_threshold(self):
+        closes = [100.0]
+        for index in range(1, 181):
+            closes.append(closes[-1] * (1.011 if index % 6 in (0, 1, 2, 3) else 0.987))
+        original = make_candles(closes)
+        changed = list(original)
+        split_index = int(len(original) * 0.7)
+        for index in range(split_index, len(changed)):
+            value = changed[index].close * (1.12 if index % 2 else 0.91)
+            changed[index] = SimpleNamespace(
+                time=changed[index].time,
+                open=value * 0.995, high=value * 1.02,
+                low=value * 0.98, close=value,
+                volume=changed[index].volume,
+            )
+        kwargs = dict(
+            symbol="TEST", horizons=(1, 3, 5), signal_threshold=0.65,
+            train_fraction=0.7, threshold_candidates=(0.55, 0.65, 0.75),
+            min_train_outcomes=10,
+        )
+        before = evaluate_pressure_walk_forward(original, **kwargs)
+        after = evaluate_pressure_walk_forward(changed, **kwargs)
+        self.assertEqual(before["split_date"], after["split_date"])
+        self.assertEqual(before["selected_threshold"], after["selected_threshold"])
+        self.assertEqual(
+            before["threshold_selection"]["scores_mean_net_directional_return"],
+            after["threshold_selection"]["scores_mean_net_directional_return"],
+        )
+
     def test_walk_forward_rejects_invalid_threshold_candidates(self):
         candles = make_candles([100.0 + index for index in range(40)])
         with self.assertRaises(ValueError):
