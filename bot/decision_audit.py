@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping
+
+from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
 
 
 class DecisionAuditStore:
     """Persist recommendations and evaluate forward price outcomes."""
 
     HORIZONS = (1, 3, 5)
+    LEARNING_HORIZON = 3
+    MAX_LEARNING_OBSERVATIONS_PER_TICKER = 200
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -48,6 +53,14 @@ class DecisionAuditStore:
                     raw_return_pct REAL NOT NULL, net_return_pct REAL NOT NULL,
                     direction_correct INTEGER, evaluated_at TEXT NOT NULL,
                     PRIMARY KEY(audit_id, horizon_sessions),
+                    FOREIGN KEY(audit_id) REFERENCES decision_audit(id))
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS decision_learning_snapshots (
+                    audit_id INTEGER PRIMARY KEY,
+                    level_scores_json TEXT NOT NULL,
+                    analyzer_scores_json TEXT NOT NULL,
+                    regime TEXT,
                     FOREIGN KEY(audit_id) REFERENCES decision_audit(id))
             """)
             db.commit()
@@ -112,15 +125,59 @@ class DecisionAuditStore:
             return None
         return price if price > 0 else None
 
+    @staticmethod
+    def _learning_snapshot(intelligence: object) -> tuple[str, str, str | None]:
+        level_scores: dict[str, float] = {}
+        analyzer_scores: dict[str, float] = {}
+        for number in range(1, 16):
+            level_name = f"L{number:02d}"
+            level = getattr(intelligence, f"level_{number:02d}", None)
+            if level is None:
+                continue
+            score = getattr(level, "score", None)
+            try:
+                score = float(score)
+            except (TypeError, ValueError, OverflowError):
+                score = None
+            if score is not None and 0.0 <= score <= 1.0:
+                level_scores[level_name] = score
+
+            results = getattr(level, "analyzer_results", ())
+            values = results.values() if isinstance(results, Mapping) else results
+            for analyzer_result in values or ():
+                name = getattr(analyzer_result, "analyzer", None)
+                value = getattr(analyzer_result, "score", None)
+                if not name:
+                    continue
+                try:
+                    value = float(value)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if 0.0 <= value <= 1.0:
+                    analyzer_scores[f"{level_name}:{name}"] = value
+
+        level_03 = getattr(intelligence, "level_03", None)
+        metadata = getattr(level_03, "metadata", {}) or {}
+        regime = metadata.get("regime") or metadata.get("market_regime")
+        if regime is not None:
+            regime = str(regime)
+        return (
+            json.dumps(level_scores, sort_keys=True),
+            json.dumps(analyzer_scores, sort_keys=True),
+            regime,
+        )
+
     def record_cycle(
         self, cycle_id: str, decisions: Mapping[str, object], virtual_trades: list,
         *, equity: float, cash: float, total_commissions: float,
         current_prices: Mapping[str, float] | None = None,
         candle_history: Mapping[str, list] | None = None,
+        intelligence_results: Mapping[str, object] | None = None,
         commission_rate: float = 0.0005,
     ) -> int:
-        """Record anchor prices, ingest daily closes, and score matured outcomes."""
+        """Record recommendations, their L1-L15 snapshot, and matured forward outcomes."""
         current_prices, candle_history = current_prices or {}, candle_history or {}
+        intelligence_results = intelligence_results or {}
         actions: dict[str, list] = {}
         for trade in virtual_trades:
             actions.setdefault(trade.ticker, []).append(trade)
@@ -159,6 +216,22 @@ class DecisionAuditStore:
                     anchor_price=COALESCE(decision_audit.anchor_price, excluded.anchor_price),
                     anchor_session_date=COALESCE(decision_audit.anchor_session_date, excluded.anchor_session_date)
             """, rows)
+
+            for ticker, intelligence in intelligence_results.items():
+                audit = db.execute(
+                    "SELECT id FROM decision_audit WHERE cycle_id=? AND ticker=?",
+                    (cycle_id, ticker),
+                ).fetchone()
+                if audit is None:
+                    continue
+                level_json, analyzer_json, regime = self._learning_snapshot(intelligence)
+                db.execute("""
+                    INSERT INTO decision_learning_snapshots
+                    (audit_id, level_scores_json, analyzer_scores_json, regime)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(audit_id) DO NOTHING
+                """, (audit["id"], level_json, analyzer_json, regime))
+
             for ticker, raw_candles in candle_history.items():
                 for candle in raw_candles:
                     if not self._is_completed_daily_candle(candle):
@@ -207,6 +280,39 @@ class DecisionAuditStore:
                 """, (anchor["id"], horizon, target["session_date"], float(target["close_price"]),
                       raw, net, correct, now))
 
+    def learning_observations_by_ticker(self) -> dict[str, tuple[LearningObservation, ...]]:
+        """Return only matured, scored 3-session outcomes with their original L1-L15 scores."""
+        grouped: dict[str, list[LearningObservation]] = {}
+        with self._connect() as db:
+            rows = db.execute("""
+                SELECT a.ticker, o.net_return_pct, o.direction_correct,
+                       s.level_scores_json, s.analyzer_scores_json, s.regime
+                FROM decision_outcomes AS o
+                JOIN decision_audit AS a ON a.id = o.audit_id
+                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                WHERE o.horizon_sessions=? AND o.direction_correct IS NOT NULL
+                ORDER BY o.evaluated_at ASC, o.audit_id ASC
+            """, (self.LEARNING_HORIZON,)).fetchall()
+        for row in rows:
+            try:
+                level_scores = json.loads(row["level_scores_json"])
+                analyzer_scores = json.loads(row["analyzer_scores_json"])
+                observation = LearningObservation(
+                    outcome_return=float(row["net_return_pct"]) / 100.0,
+                    correct=bool(row["direction_correct"]),
+                    level_scores=level_scores,
+                    analyzer_scores=analyzer_scores,
+                    regime=row["regime"],
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                # Ignore malformed legacy/corrupt records rather than breaking a live cycle.
+                continue
+            grouped.setdefault(str(row["ticker"]), []).append(observation)
+        return {
+            ticker: tuple(observations[-self.MAX_LEARNING_OBSERVATIONS_PER_TICKER:])
+            for ticker, observations in grouped.items()
+        }
+
     def pending_tickers(self) -> set[str]:
         """Tickers whose recorded decisions still lack one or more forward horizons."""
         with self._connect() as db:
@@ -248,4 +354,8 @@ class DecisionAuditStore:
             """).fetchall()
         result = dict(row)
         result["forward_outcomes"] = [dict(item) for item in outcomes]
+        result["learning_observations"] = sum(
+            item["scored"] for item in result["forward_outcomes"]
+            if item["horizon_sessions"] == self.LEARNING_HORIZON
+        )
         return result
