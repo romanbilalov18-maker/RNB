@@ -47,6 +47,33 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.positions["TEST"].quantity, 10)
 
+    def test_drawdown_uses_equity_history_across_store_reopen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("TEST", 10, 100, datetime.now(timezone.utc))
+
+            store.save(portfolio, {"TEST": 100})
+            store.save(portfolio, {"TEST": 80})
+
+            # Simulate a process restart by constructing a new store instance.
+            restarted_store = SQLitePortfolioStore(path)
+            restored = restarted_store.load_or_create(10_000, 0.001)
+            restarted_store.save(restored, {"TEST": 90})
+
+            history = restarted_store.equity_history()
+            current_equity = restored.equity({"TEST": 90})
+            stats = restored.statistics(current_equity, history)
+
+            self.assertEqual(len(history), 3)
+            self.assertAlmostEqual(history[0], 9_999.0)
+            self.assertAlmostEqual(history[1], 9_799.0)
+            self.assertAlmostEqual(history[2], 9_899.0)
+            self.assertAlmostEqual(stats.peak_equity, 9_999.0)
+            self.assertAlmostEqual(stats.max_drawdown, 200.0)
+            self.assertAlmostEqual(stats.max_drawdown_pct, 200.0 / 9_999.0 * 100.0)
+
     def test_missing_market_price_does_not_append_equity_history(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
