@@ -18,6 +18,11 @@ class LiveScanResult:
     lot_sizes: dict[str, int]
     latest_candles: dict[str, object] = field(default_factory=dict)
     candle_history: dict[str, list[object]] = field(default_factory=dict)
+    sector_by_ticker: dict[str, str] = field(default_factory=dict)
+    sector_returns: dict[str, float] = field(default_factory=dict)
+    market_return: float | None = None
+    market_breadth: float | None = None
+    market_sample_count: int = 0
 
 
 class LiveMarketRunner:
@@ -180,6 +185,34 @@ class LiveMarketRunner:
                 latest_candles[ticker] = candles[-1]
                 candle_history[ticker] = list(candles)
 
+        ticker_changes = {
+            ticker: current / previous - 1.0
+            for ticker, current in current_prices.items()
+            if current > 0 and (previous := previous_closes.get(ticker)) is not None and previous > 0
+        }
+        sector_by_ticker = {}
+        sector_groups = {}
+        for share in shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            raw_sector = getattr(share, "sector", None)
+            sector = str(getattr(raw_sector, "name", raw_sector) or "").strip()
+            if "." in sector:
+                sector = sector.rsplit(".", 1)[-1]
+            if ticker and sector and sector.lower() not in {"none", "unknown", "instrument_sector_unspecified"}:
+                sector_by_ticker[ticker] = sector
+                if ticker in ticker_changes:
+                    sector_groups.setdefault(sector, []).append(ticker_changes[ticker])
+        sector_returns = {
+            sector: sum(changes) / len(changes)
+            for sector, changes in sector_groups.items() if changes
+        }
+        market_changes = list(ticker_changes.values())
+        market_return = sum(market_changes) / len(market_changes) if market_changes else None
+        market_breadth = (
+            sum(change > 0 for change in market_changes) / len(market_changes)
+            if market_changes else None
+        )
+
         return LiveScanResult(
             selected_10=selected_10,
             selected_3=ranked_selected[:3],
@@ -190,6 +223,11 @@ class LiveMarketRunner:
             lot_sizes=lot_sizes,
             latest_candles=latest_candles,
             candle_history=candle_history,
+            sector_by_ticker=sector_by_ticker,
+            sector_returns=sector_returns,
+            market_return=market_return,
+            market_breadth=market_breadth,
+            market_sample_count=len(market_changes),
         )
 
     def _get_candles_with_retry(
