@@ -8,67 +8,6 @@ from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
 
 
-def _quotation(value: object) -> float:
-    units = getattr(value, "units", None)
-    nano = getattr(value, "nano", None)
-    if units is None:
-        return float(value)
-    return float(units) + float(nano or 0) / 1_000_000_000
-
-
-def _build_snapshot(
-    analysis,
-    current_price: float,
-    previous_close: float,
-    lot_size: int,
-    latest_candle: object | None = None,
-) -> MarketSnapshot:
-    liquidity = min(max(analysis.volume_ratio / 2.0, 0.0), 1.0)
-
-    open_price = high_price = low_price = close_price = None
-    candle_volume = None
-    candle_range = None
-    close_position = None
-    volume_ratio = None
-
-    if latest_candle is not None:
-        open_price = _quotation(getattr(latest_candle, "open"))
-        high_price = _quotation(getattr(latest_candle, "high"))
-        low_price = _quotation(getattr(latest_candle, "low"))
-        close_price = _quotation(getattr(latest_candle, "close"))
-        candle_volume = float(getattr(latest_candle, "volume", 0) or 0)
-
-        if close_price > 0 and high_price >= low_price:
-            candle_range = (high_price - low_price) / close_price
-
-        if high_price > low_price:
-            close_position = (close_price - low_price) / (high_price - low_price)
-
-        if analysis.average_volume > 0 and candle_volume >= 0:
-            volume_ratio = candle_volume / analysis.average_volume
-
-    return MarketSnapshot(
-        symbol=analysis.ticker,
-        price=current_price,
-        previous_price=previous_close,
-        volume=candle_volume,
-        average_volume=analysis.average_volume,
-        volatility=analysis.volatility,
-        momentum=analysis.momentum,
-        liquidity=liquidity,
-        open_price=open_price,
-        high_price=high_price,
-        low_price=low_price,
-        close_price=close_price,
-        candle_volume=candle_volume,
-        average_candle_volume=analysis.average_volume,
-        candle_range=candle_range,
-        close_position=close_position,
-        volume_ratio=volume_ratio,
-        lot_size=lot_size,
-    )
-
-
 def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     if not token.strip():
         raise ValueError("T-Invest token is required")
