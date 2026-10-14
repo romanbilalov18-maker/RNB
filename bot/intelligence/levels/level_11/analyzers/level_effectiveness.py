@@ -1,11 +1,19 @@
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
+from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
+    effectiveness_score,
+    feature_predictive_metrics,
+)
 
 
 def analyze(observations) -> AnalyzerResult:
     if not observations:
         return AnalyzerResult("level_effectiveness", 0.5, 0.0, {}, ("learning_history_not_available",))
-    names = sorted({name for item in observations for name in item.level_scores})
-    if not names:
+    metrics = feature_predictive_metrics(observations, "level_scores")
+    if not metrics:
         return AnalyzerResult("level_effectiveness", 0.5, 0.0, {}, ("level_history_not_available",))
-    values = [sum(item.level_scores.get(name, 0.5) for item in observations) / len(observations) for name in names]
-    return AnalyzerResult("level_effectiveness", sum(values) / len(values), min(1.0, len(observations) / 20.0), {"levels": names})
+    return AnalyzerResult(
+        "level_effectiveness",
+        effectiveness_score(metrics),
+        min(1.0, len(observations) / 30.0),
+        {"levels": metrics, "method": "score_outcome_correlation"},
+    )
