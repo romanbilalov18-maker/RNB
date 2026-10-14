@@ -174,24 +174,35 @@ class DecisionAuditStore:
         candle_history: Mapping[str, list] | None = None,
         intelligence_results: Mapping[str, object] | None = None,
         commission_rate: float = 0.0005,
+        as_of: datetime | None = None,
     ) -> int:
-        """Record recommendations, their L1-L15 snapshot, and matured forward outcomes."""
+        """Record recommendations, their L1-L15 snapshot, and matured forward outcomes.
+
+        The outcome anchor is the decision-time market price and calendar date.
+        Same-day closing prices are excluded, preventing after-close cycles from
+        being scored against a close that was already known when the decision ran.
+        """
         current_prices, candle_history = current_prices or {}, candle_history or {}
         intelligence_results = intelligence_results or {}
+        as_of = as_of or datetime.now(timezone.utc)
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        as_of = as_of.astimezone(timezone.utc)
         actions: dict[str, list] = {}
         for trade in virtual_trades:
             actions.setdefault(trade.ticker, []).append(trade)
-        rows, now = [], datetime.now(timezone.utc).isoformat()
+        rows, now = [], as_of.isoformat()
         for ticker in sorted(set(decisions) | set(actions)):
             decision, trades = decisions.get(ticker), actions.get(ticker, [])
             candles = [
                 candle for candle in candle_history.get(ticker, [])
-                if self._is_completed_daily_candle(candle)
+                if self._is_completed_daily_candle(candle, now=as_of)
             ]
-            # Exclude the current, potentially incomplete daily candle from both
-            # the anchor and the forward-outcome price series.
-            anchor_date = self._session_date(candles[-1]) if candles else None
-            anchor_price = self._price(getattr(candles[-1], "close", None)) if candles else None
+            # Use the price actually available when the decision was recorded.
+            # Outcomes must come from sessions strictly after this calendar date.
+            # A stale/missing live price must not create a trainable anchor.
+            anchor_price = self._price(current_prices.get(ticker))
+            anchor_date = as_of.date().isoformat() if anchor_price is not None else None
             rows.append((
                 cycle_id, now, ticker, getattr(decision, "action", "NO_RECOMMENDATION"),
                 getattr(decision, "reason", "нет рекомендации"), getattr(decision, "score", None),
@@ -234,7 +245,7 @@ class DecisionAuditStore:
 
             for ticker, raw_candles in candle_history.items():
                 for candle in raw_candles:
-                    if not self._is_completed_daily_candle(candle):
+                    if not self._is_completed_daily_candle(candle, now=as_of):
                         continue
                     session = self._session_date(candle)
                     close = self._price(getattr(candle, "close", None))
