@@ -487,3 +487,173 @@ def evaluate_pressure_walk_forward(
             "round_trip_cost": round_trip_cost,
         },
     }
+
+
+def evaluate_pressure_rolling_walk_forward(
+    candles: Iterable[object],
+    *,
+    symbol: str = "UNKNOWN",
+    horizons: tuple[int, ...] = (1, 3, 5),
+    round_trip_cost: float = 0.001,
+    train_fraction: float = 0.50,
+    holdout_fraction: float = 0.20,
+    step_fraction: float = 0.15,
+    market_regime_by_date: dict[str, str] | None = None,
+    threshold_candidates: tuple[float, ...] = (0.55, 0.65, 0.75),
+    min_train_outcomes: int = 20,
+) -> dict:
+    """Run sequential expanding-window evaluations without reusing holdout labels.
+
+    Each window selects a threshold from training outcomes ending before the
+    window's holdout starts. Holdout outcomes must also finish before the next
+    window boundary. Window metrics are reported separately and in aggregate.
+    """
+    if not 0.3 <= train_fraction <= 0.8:
+        raise ValueError("train_fraction must be between 0.3 and 0.8")
+    if not 0.1 <= holdout_fraction <= 0.4:
+        raise ValueError("holdout_fraction must be between 0.1 and 0.4")
+    if not 0.05 <= step_fraction <= holdout_fraction:
+        raise ValueError("step_fraction must be between 0.05 and holdout_fraction")
+    if not horizons or any(not isinstance(h, int) or h < 1 for h in horizons):
+        raise ValueError("horizons must contain positive integers")
+    if not threshold_candidates or any(
+        not isfinite(value) or not 0.0 <= value <= 1.0
+        for value in threshold_candidates
+    ):
+        raise ValueError("threshold_candidates must contain values between 0 and 1")
+    if min_train_outcomes < 1:
+        raise ValueError("min_train_outcomes must be positive")
+    if not isfinite(round_trip_cost) or round_trip_cost < 0:
+        raise ValueError("round_trip_cost must be finite and non-negative")
+
+    bars = []
+    for index, candle in enumerate(candles or ()):
+        close = _field(candle, "close")
+        if close is not None and close > 0:
+            bars.append((_date(candle, index), close))
+    bars.sort()
+    n = len(bars)
+    initial_train_end = int(n * train_fraction)
+    holdout_size = max(max(horizons) + 1, int(n * holdout_fraction))
+    step_size = max(1, int(n * step_fraction))
+    if initial_train_end < max(horizons) + 12 or initial_train_end + max(horizons) + 1 >= n:
+        return {
+            "symbol": symbol,
+            "bars": n,
+            "windows": [],
+            "aggregate": {"count": 0, "win_rate_after_costs": None, "mean_net_directional_return": None},
+            "warnings": ["rolling_walk_forward_history_insufficient"],
+            "methodology": {"lookahead": False, "threshold_selection_uses_training_only": True},
+        }
+
+    candidates = tuple(sorted(set(threshold_candidates)))
+    windows = []
+    train_end = initial_train_end
+    while train_end < n - max(horizons):
+        holdout_end = min(n, train_end + holdout_size)
+        if holdout_end - train_end <= max(horizons):
+            break
+        split_date = bars[train_end][0]
+        holdout_end_date = bars[holdout_end - 1][0]
+        reports = {
+            threshold: evaluate_pressure_history(
+                candles,
+                symbol=symbol,
+                horizons=horizons,
+                signal_threshold=threshold,
+                round_trip_cost=round_trip_cost,
+                market_regime_by_date=market_regime_by_date,
+            )
+            for threshold in candidates
+        }
+        train_by_threshold = {
+            threshold: [
+                item for item in report["outcomes"]
+                if item["outcome_date"] < split_date
+            ]
+            for threshold, report in reports.items()
+        }
+        scores = {
+            threshold: (
+                fmean(item["net_forward_return"] for item in outcomes)
+                if len(outcomes) >= min_train_outcomes else None
+            )
+            for threshold, outcomes in train_by_threshold.items()
+        }
+        eligible = [threshold for threshold, score in scores.items() if score is not None]
+        baseline = 0.65 if 0.65 in reports else min(candidates, key=lambda value: abs(value - 0.65))
+        selected = (
+            max(eligible, key=lambda threshold: (scores[threshold], threshold == baseline))
+            if eligible else baseline
+        )
+        selected_outcomes = [
+            item for item in reports[selected]["outcomes"]
+            if item["signal_date"] >= split_date
+            and item["signal_date"] < holdout_end_date
+            and item["outcome_date"] <= holdout_end_date
+        ]
+        baseline_outcomes = [
+            item for item in reports[baseline]["outcomes"]
+            if item["signal_date"] >= split_date
+            and item["signal_date"] < holdout_end_date
+            and item["outcome_date"] <= holdout_end_date
+        ]
+        windows.append({
+            "train_start": bars[0][0],
+            "train_end": bars[train_end - 1][0],
+            "holdout_start": split_date,
+            "holdout_end": holdout_end_date,
+            "selected_threshold": selected,
+            "baseline_threshold": baseline,
+            "threshold_scores": scores,
+            "fallback_used": not bool(eligible),
+            "selected_outcomes": selected_outcomes,
+            "baseline_outcomes": baseline_outcomes,
+            "selected_metrics": _pressure_metrics(selected_outcomes),
+            "baseline_metrics": _pressure_metrics(baseline_outcomes),
+        })
+        if holdout_end == n:
+            break
+        train_end += step_size
+
+    selected_all = [item for window in windows for item in window["selected_outcomes"]]
+    baseline_all = [item for window in windows for item in window["baseline_outcomes"]]
+    return {
+        "symbol": symbol,
+        "bars": n,
+        "windows": windows,
+        "aggregate": _pressure_metrics(selected_all),
+        "baseline_aggregate": _pressure_metrics(baseline_all),
+        "warnings": (
+            ["rolling_holdout_has_fewer_than_30_outcomes"]
+            if len(selected_all) < 30 else []
+        ),
+        "methodology": {
+            "lookahead": False,
+            "windowing": "expanding training window with sequential non-overlapping holdout blocks",
+            "train_fraction_initial": train_fraction,
+            "holdout_fraction": holdout_fraction,
+            "step_fraction": step_fraction,
+            "threshold_selection_uses_training_only": True,
+            "holdout_outcomes_end_within_each_window": True,
+            "threshold_candidates": list(candidates),
+            "round_trip_cost": round_trip_cost,
+        },
+    }
+
+
+def _pressure_metrics(items: list[dict]) -> dict:
+    return {
+        "count": len(items),
+        "win_rate_after_costs": (
+            sum(item["correct_after_costs"] for item in items) / len(items)
+            if items else None
+        ),
+        "mean_net_directional_return": (
+            fmean(item["net_forward_return"] for item in items) if items else None
+        ),
+        "false_signal_rate": (
+            sum(not item["correct_after_costs"] for item in items) / len(items)
+            if items else None
+        ),
+    }
