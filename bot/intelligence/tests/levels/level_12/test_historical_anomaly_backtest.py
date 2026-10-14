@@ -36,6 +36,7 @@ class HistoricalLevel12AnomalyBacktestTests(unittest.TestCase):
             self.assertGreaterEqual(item["anomaly_score"], 0.0)
             self.assertLessEqual(item["anomaly_score"], 1.0)
             self.assertGreaterEqual(item["realized_adverse_move"], 0.0)
+            self.assertIsInstance(item["forward_return"], float)
             self.assertIsInstance(item["adverse_event"], bool)
         for summary in report["summary"].values():
             self.assertIn("precision", summary["threshold_metrics"])
@@ -110,6 +111,11 @@ class HistoricalLevel12AnomalyBacktestTests(unittest.TestCase):
         self.assertEqual(variants["l4_l6_alert"]["alert_count"], 2)
         self.assertEqual(variants["l4_l12_alert"]["alert_count"], 3)
         self.assertEqual(variants["l4_l6_l12_alert"]["alert_count"], 3)
+        trading = variants["l4_l12_alert"]["trading_filter"]
+        self.assertIn("mean_net_return", trading)
+        self.assertIn("compounded_net_return", trading)
+        self.assertEqual(trading["round_trip_cost"], 0.001)
+        self.assertTrue(trading["overlapping_horizons_not_independent"])
 
 
 if __name__ == "__main__":
