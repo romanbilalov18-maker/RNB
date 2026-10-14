@@ -4,6 +4,8 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 def analyze(results) -> AnalyzerResult:
     if not results:
         return AnalyzerResult("scenario_confidence", 0.0, 0.0, {}, ("scenario_results_not_available",))
+    if not any(result.confidence > 0 for result in results):
+        return AnalyzerResult("scenario_confidence", 0.0, 0.0, {"available": False}, ("scenario_confidence_unavailable",))
     scores = [result.score for result in results]
     spread = max(scores) - min(scores)
     confidence = max(result.confidence for result in results)
