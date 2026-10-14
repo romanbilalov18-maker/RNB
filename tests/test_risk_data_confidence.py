@@ -5,6 +5,7 @@ from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_06.analyzers import adverse_scenario, downside_risk, volatility_risk
 from bot.intelligence.levels.level_06.level_06_engine import Level6Engine
 from bot.intelligence.levels.level_12.level_12_engine import Level12Engine
+from bot.intelligence.levels.level_12.analyzers.data_anomaly import analyze as analyze_data_anomaly
 
 
 class RiskDataConfidenceTests(unittest.TestCase):
@@ -74,6 +75,30 @@ class RiskDataConfidenceTests(unittest.TestCase):
         self.assertAlmostEqual(result.score, 0.8)
         self.assertAlmostEqual(result.confidence, 0.18)
         self.assertAlmostEqual(result.consistency, 1.0)
+
+
+    def test_data_anomaly_detects_invalid_ohlc_and_nonpositive_volume_baseline(self):
+        snapshot = MarketSnapshot(
+            symbol="AAA",
+            price=100.0,
+            previous_price=99.0,
+            volume=1000.0,
+            average_volume=0.0,
+            volatility=0.02,
+            momentum=0.01,
+            liquidity=0.7,
+            open_price=105.0,
+            high_price=103.0,
+            low_price=98.0,
+            close_price=100.0,
+        )
+
+        result = analyze_data_anomaly(snapshot)
+
+        self.assertIn("average_volume", result.metrics["invalid_fields"])
+        self.assertIn("inconsistent_ohlc", result.metrics["invalid_fields"])
+        self.assertIn("market_snapshot_invalid_values", result.warnings)
+        self.assertGreater(result.score, 0.0)
 
 
 if __name__ == "__main__":
