@@ -195,6 +195,60 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(observations[0].analyzer_scores["L01:sample"], .05)
             self.assertEqual(observations[0].regime, "bullish")
 
+    def test_learning_observations_are_ordered_by_decision_time_not_maturity_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            first_as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
+            second_as_of = datetime.fromisoformat("2026-10-03T12:00:00+00:00")
+            first_history = [candle("2026-10-01", 100)]
+            second_history = first_history + [candle("2026-10-02", 100)]
+            for cycle_id, as_of, price, history in (
+                ("older-decision", first_as_of, 100, first_history),
+                ("newer-decision", second_as_of, 200, second_history),
+            ):
+                store.record_cycle(
+                    cycle_id,
+                    {"AAA": SimpleNamespace(action="BUY", reason="test")},
+                    [],
+                    equity=1000, cash=1000, total_commissions=0,
+                    current_prices={"AAA": price},
+                    candle_history={"AAA": history},
+                    intelligence_results={"AAA": intelligence_snapshot()},
+                    commission_rate=.001,
+                    as_of=as_of,
+                )
+
+            future = [
+                candle("2026-10-03", 101),
+                candle("2026-10-05", 102),
+                candle("2026-10-06", 103),
+                candle("2026-10-07", 104),
+            ]
+            store.record_cycle(
+                "maturity-cycle", {}, [], equity=1000, cash=1000, total_commissions=0,
+                candle_history={"AAA": first_history + future},
+                commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-10T12:00:00+00:00"),
+            )
+            # Simulate asynchronous maturity: the older decision's outcome is
+            # processed later. Learning order must still follow decision time.
+            with store._connect() as db:
+                db.execute("""
+                    UPDATE decision_outcomes
+                    SET evaluated_at=CASE
+                        WHEN audit_id=(SELECT id FROM decision_audit WHERE cycle_id='older-decision')
+                        THEN '2026-10-12T00:00:00+00:00'
+                        ELSE '2026-10-11T00:00:00+00:00'
+                    END
+                    WHERE horizon_sessions=3
+                """)
+                db.commit()
+
+            observations = store.learning_observations_by_ticker()["AAA"]
+            self.assertEqual(len(observations), 2)
+            self.assertAlmostEqual(observations[0].outcome_return, .018)
+            self.assertAlmostEqual(observations[1].outcome_return, (103 / 200 - 1) - .002)
+
     def test_summary_explains_learning_readiness_and_counts_only_trainable_observations(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
