@@ -11,6 +11,8 @@ class LearningObservation:
     level_scores: Dict[str, float] = field(default_factory=dict)
     analyzer_scores: Dict[str, float] = field(default_factory=dict)
     regime: Optional[str] = None
+    decision_time: Optional[str] = None
+    outcome_target_date: Optional[str] = None
 
     def __post_init__(self) -> None:
         for name, mapping in (("level_scores", self.level_scores), ("analyzer_scores", self.analyzer_scores)):
