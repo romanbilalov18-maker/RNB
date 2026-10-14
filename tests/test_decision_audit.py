@@ -234,6 +234,37 @@ class DecisionAuditStoreTests(unittest.TestCase):
             )
             self.assertEqual(store.pending_tickers(), {"ANCHORED"})
 
+    def test_successful_sell_learning_return_is_positive_when_price_falls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
+            history = [candle("2026-10-01", 100)]
+            store.record_cycle(
+                "sell-anchor",
+                {"AAA": SimpleNamespace(action="SELL", reason="downside signal")},
+                [],
+                equity=1000, cash=1000, total_commissions=0,
+                current_prices={"AAA": 100},
+                candle_history={"AAA": history},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                commission_rate=.001,
+                as_of=as_of,
+            )
+            future = [
+                candle("2026-10-03", 99),
+                candle("2026-10-05", 98),
+                candle("2026-10-06", 95),
+            ]
+            store.record_cycle(
+                "sell-followup", {}, [], equity=1000, cash=1000,
+                total_commissions=0, candle_history={"AAA": history + future},
+                commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+            observation = store.learning_observations_by_ticker()["AAA"][0]
+            self.assertTrue(observation.correct)
+            self.assertGreater(observation.outcome_return, 0)
+
     def test_learning_history_ignores_waits_and_is_capped_per_ticker(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
