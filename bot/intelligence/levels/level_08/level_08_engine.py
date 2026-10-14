@@ -16,9 +16,9 @@ class Level8Engine:
     def analyze(self, snapshot: MarketSnapshot, level3_result, level4_result, level7_result) -> Level8Result:
         results = {
             "market_relative_strength": market_relative_strength.analyze(snapshot, level3_result),
-            "sector_relative_strength": sector_relative_strength.analyze(level3_result),
-            "peer_context": peer_context.analyze(level4_result),
-            "cross_asset_context": cross_asset_context.analyze(level3_result),
+            "sector_relative_strength": sector_relative_strength.analyze(snapshot, level3_result),
+            "peer_context": peer_context.analyze(snapshot, level4_result),
+            "cross_asset_context": cross_asset_context.analyze(snapshot, level3_result),
             "benchmark_alignment": benchmark_alignment.analyze(snapshot, level7_result),
         }
         results["relative_consistency"] = relative_consistency.analyze(level3_result, level7_result)
