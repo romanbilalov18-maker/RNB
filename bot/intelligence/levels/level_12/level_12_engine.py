@@ -23,7 +23,7 @@ class Level12Engine:
         )
         score = sum(result.score * weight for result, weight in zip(results, self.WEIGHTS))
         confidence = sum(result.confidence for result in results) / len(results)
-        consistency = 1.0 - (max(result.score for result in results) - min(result.score for result in results))
+        consistency = (1.0 - (max(result.score for result in results) - min(result.score for result in results))) if any(result.confidence > 0 for result in results) else 0.0
         return Level12Result(
             symbol=snapshot.symbol,
             score=max(0.0, min(1.0, score)),
