@@ -18,7 +18,7 @@ class Level9Engine:
             "concentration_risk": concentration_risk.analyze(snapshot, level6_result),
             "diversification_value": diversification_value.analyze(snapshot, level8_result),
             "portfolio_compatibility": portfolio_compatibility.analyze(snapshot, level5_result, level8_result),
-            "correlation_risk": correlation_risk.analyze(level8_result, level6_result),
+            "correlation_risk": correlation_risk.analyze(snapshot, level8_result, level6_result),
             "opportunity_priority": opportunity_priority.analyze(level5_result, level6_result, level8_result),
             "portfolio_consistency": portfolio_consistency.analyze(level5_result, level6_result, level8_result),
         }
