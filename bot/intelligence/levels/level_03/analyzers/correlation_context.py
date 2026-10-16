@@ -41,7 +41,7 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
         return AnalyzerResult(
             "correlation_context", 0.0, 0.0,
             {"observations": observations, "invalid_or_unpaired_observations": invalid_count},
-            ("cross_asset_history_insufficient_or_invalid",),
+            ("cross_asset_history_insufficient", "cross_asset_history_insufficient_or_invalid"),
         )
     score = (correlation + 1.0) / 2.0
     confidence = min(1.0, observations / 30.0)
