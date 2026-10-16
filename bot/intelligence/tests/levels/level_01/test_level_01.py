@@ -58,6 +58,53 @@ class Level01EngineTests(unittest.TestCase):
             },
         )
 
+    def test_invalid_numeric_inputs_are_not_treated_as_valid_signals(self):
+        cases = (
+            MarketSnapshot(symbol="TEST", price=float("nan"), previous_price=100.0),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=float("inf")),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, volume=float("nan"), average_volume=10.0),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, volume=10.0, average_volume=float("inf")),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, volatility=float("nan")),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, volatility=-0.1),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, momentum=float("inf")),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, liquidity=float("nan")),
+            MarketSnapshot(symbol="TEST", price=100.0, previous_price=100.0, liquidity=1.5),
+        )
+        for snapshot in cases:
+            with self.subTest(snapshot=snapshot):
+                results = analyze(snapshot)
+                self.assertTrue(all(0.0 <= result.score <= 1.0 for result in results))
+                self.assertTrue(all(0.0 <= result.confidence <= 1.0 for result in results))
+                self.assertTrue(
+                    any(result.confidence == 0.0 and result.warnings for result in results)
+                )
+
+    def test_aggregate_ignores_unavailable_analyzers(self):
+        snapshot = MarketSnapshot(
+            symbol="TEST",
+            price=110.0,
+            previous_price=100.0,
+            volume=None,
+            average_volume=None,
+            volatility=None,
+            momentum=None,
+            liquidity=None,
+        )
+        self.assertAlmostEqual(aggregate(analyze(snapshot)), 1.0)
+
+    def test_aggregate_returns_zero_when_no_signal_is_available(self):
+        snapshot = MarketSnapshot(
+            symbol="TEST",
+            price=float("nan"),
+            previous_price=100.0,
+            volume=None,
+            average_volume=None,
+            volatility=None,
+            momentum=None,
+            liquidity=None,
+        )
+        self.assertEqual(aggregate(analyze(snapshot)), 0.0)
+
 
 class ModelTests(unittest.TestCase):
     def test_price_change(self):
