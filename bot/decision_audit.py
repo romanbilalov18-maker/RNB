@@ -323,25 +323,28 @@ class DecisionAuditStore:
         grouped: dict[str, list[LearningObservation]] = {}
         with self._connect() as db:
             rows = db.execute("""
-                WITH ranked_audit AS (
-                    SELECT id, ticker, recommendation, recorded_at, anchor_session_date,
+                WITH eligible_audit AS (
+                    SELECT a.id, a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
+                           o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
+                           s.level_scores_json, s.analyzer_scores_json, s.regime,
                            ROW_NUMBER() OVER (
-                               PARTITION BY ticker, anchor_session_date
-                               ORDER BY recorded_at DESC, id DESC
+                               PARTITION BY a.ticker, a.anchor_session_date
+                               ORDER BY a.recorded_at DESC, a.id DESC
                            ) AS session_rank
-                    FROM decision_audit
-                    WHERE anchor_session_date IS NOT NULL
+                    FROM decision_audit AS a
+                    JOIN decision_outcomes AS o ON o.audit_id = a.id
+                    JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                    WHERE a.anchor_session_date IS NOT NULL
+                      AND o.horizon_sessions = ?
+                      AND o.direction_correct IS NOT NULL
+                      AND a.recommendation IN ('BUY', 'SELL')
                 )
-                SELECT a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
-                       o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
-                       s.level_scores_json, s.analyzer_scores_json, s.regime
-                FROM ranked_audit AS a
-                JOIN decision_outcomes AS o ON o.audit_id = a.id
-                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE a.session_rank = 1
-                  AND o.horizon_sessions = ?
-                  AND o.direction_correct IS NOT NULL
-                ORDER BY a.recorded_at ASC, a.id ASC
+                SELECT ticker, recommendation, recorded_at, anchor_session_date,
+                       target_session_date, raw_return_pct, net_return_pct, direction_correct,
+                       level_scores_json, analyzer_scores_json, regime
+                FROM eligible_audit
+                WHERE session_rank = 1
+                ORDER BY recorded_at ASC, id ASC
             """, (self.LEARNING_HORIZON,)).fetchall()
         for row in rows:
             try:
@@ -440,6 +443,38 @@ class DecisionAuditStore:
                                       WHERE o.audit_id=a.id AND o.horizon_sessions=?)
                 """, (horizon, horizon)).fetchone()
                 due[str(horizon)] = int(due_row["ready"] or 0)
+            learning_pipeline = db.execute("""
+                SELECT
+                    COUNT(*) AS total_decisions,
+                    SUM(CASE WHEN a.anchor_price IS NULL OR a.anchor_session_date IS NULL
+                             THEN 1 ELSE 0 END) AS missing_anchor,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation NOT IN ('BUY', 'SELL')
+                             THEN 1 ELSE 0 END) AS non_directional,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NULL
+                             THEN 1 ELSE 0 END) AS missing_learning_snapshot,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM decision_outcomes AS o
+                                      WHERE o.audit_id = a.id
+                                        AND o.horizon_sessions = ?
+                                        AND o.direction_correct IS NOT NULL
+                                  )
+                             THEN 1 ELSE 0 END) AS awaiting_matured_outcome,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NOT NULL
+                                  AND EXISTS (
+                                      SELECT 1 FROM decision_outcomes AS o
+                                      WHERE o.audit_id = a.id
+                                        AND o.horizon_sessions = ?
+                                        AND o.direction_correct IS NOT NULL
+                                  )
+                             THEN 1 ELSE 0 END) AS matured_scored_before_deduplication
+                FROM decision_audit AS a
+                LEFT JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+            """, (self.LEARNING_HORIZON, self.LEARNING_HORIZON)).fetchone()
             session_quality = db.execute("""
                 WITH anchored AS (
                     SELECT ticker, anchor_session_date
@@ -453,31 +488,58 @@ class DecisionAuditStore:
                 FROM anchored
             """).fetchone()
             dedup_quality = db.execute("""
-                WITH ranked_audit AS (
-                    SELECT id, ticker, recommendation, anchor_session_date,
+                WITH eligible_audit AS (
+                    SELECT a.id, a.ticker, a.recommendation, a.anchor_session_date,
                            ROW_NUMBER() OVER (
-                               PARTITION BY ticker, anchor_session_date
-                               ORDER BY recorded_at DESC, id DESC
+                               PARTITION BY a.ticker, a.anchor_session_date
+                               ORDER BY a.recorded_at DESC, a.id DESC
                            ) AS session_rank
-                    FROM decision_audit
-                    WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
+                    FROM decision_audit AS a
+                    JOIN decision_outcomes AS o ON o.audit_id = a.id
+                    JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                    WHERE a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                      AND a.recommendation IN ('BUY', 'SELL')
+                      AND o.horizon_sessions = ?
+                      AND o.direction_correct IS NOT NULL
                 )
                 SELECT
                     SUM(CASE WHEN session_rank = 1 THEN 1 ELSE 0 END) AS scored_learning_observations,
                     SUM(CASE WHEN session_rank > 1 THEN 1 ELSE 0 END) AS duplicate_decisions_excluded
-                FROM ranked_audit AS a
-                JOIN decision_outcomes AS o ON o.audit_id = a.id
-                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE a.recommendation IN ('BUY', 'SELL')
-                  AND o.horizon_sessions = ?
-                  AND o.direction_correct IS NOT NULL
+                FROM eligible_audit
             """, (self.LEARNING_HORIZON,)).fetchone()
             all_duplicates = int(session_quality["anchored_decisions"] or 0) - int(session_quality["unique_ticker_sessions"] or 0)
         result = dict(row)
-        result["forward_outcomes"] = [dict(item) for item in outcomes]
+        outcome_by_horizon = {int(item["horizon_sessions"]): dict(item) for item in outcomes}
+        result["forward_outcomes"] = [
+            outcome_by_horizon.get(horizon, {
+                "horizon_sessions": horizon,
+                "evaluated": 0,
+                "scored": 0,
+                "directional_accuracy": None,
+                "avg_net_return_pct": None,
+            })
+            for horizon in self.HORIZONS
+        ]
         result["outcome_readiness"] = dict(readiness)
         result["outcomes_ready_but_missing"] = due
         result["learning_observations"] = int(dedup_quality["scored_learning_observations"] or 0)
+        result["learning_pipeline"] = {
+            key: int(learning_pipeline[key] or 0)
+            for key in (
+                "total_decisions",
+                "missing_anchor",
+                "non_directional",
+                "missing_learning_snapshot",
+                "awaiting_matured_outcome",
+                "matured_scored_before_deduplication",
+            )
+        }
+        result["learning_pipeline"]["duplicate_scored_observations_excluded"] = int(
+            dedup_quality["duplicate_decisions_excluded"] or 0
+        )
+        result["learning_pipeline"]["observations_after_deduplication"] = int(
+            dedup_quality["scored_learning_observations"] or 0
+        )
         result["learning_data_quality"] = {
             "anchored_decisions": int(session_quality["anchored_decisions"] or 0),
             "unique_ticker_sessions": int(session_quality["unique_ticker_sessions"] or 0),
