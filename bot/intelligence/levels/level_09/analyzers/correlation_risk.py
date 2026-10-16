@@ -6,7 +6,7 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 
 
 def _dated_returns(dates: Sequence, returns: Sequence) -> tuple[dict, bool]:
-    """Pair only explicitly aligned, finite observations; report shape mismatch."""
+    """Pair only unique, explicitly aligned, finite observations."""
     if len(dates) != len(returns):
         return {}, True
     paired = {}
@@ -15,8 +15,11 @@ def _dated_returns(dates: Sequence, returns: Sequence) -> tuple[dict, bool]:
             value = float(raw_value)
         except (TypeError, ValueError):
             continue
-        if day is not None and math.isfinite(value):
-            paired[day] = value
+        if day is None or not math.isfinite(value):
+            continue
+        if day in paired:
+            return {}, True
+        paired[day] = value
     return paired, False
 
 
@@ -53,8 +56,12 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     )
     correlations = []
     mismatched_histories = int(candidate_mismatch)
+    eligible_positions = 0
     for position in positions:
         if position.get("symbol") == snapshot.symbol:
+            continue
+        eligible_positions += 1
+        if not position.get("market_value_available", True):
             continue
         held, mismatch = _dated_returns(
             position.get("historical_return_dates", ()),
@@ -83,7 +90,7 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     total_value = sum(value for _, value, _, _ in correlations)
     weighted_correlation = sum(correlation * value for correlation, value, _, _ in correlations) / total_value
     score = max(0.0, min(1.0, weighted_correlation))
-    coverage = len(correlations) / max(1, len(positions) - sum(1 for p in positions if p.get("symbol") == snapshot.symbol))
+    coverage = len(correlations) / max(1, eligible_positions)
     history_confidence = min(1.0, min(count for _, _, count, _ in correlations) / 30.0)
     confidence = min(1.0, coverage * history_confidence)
     warnings = []
@@ -94,12 +101,9 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
         confidence *= max(0.0, 1.0 - mismatched_histories / max(1, len(positions) + 1))
     return AnalyzerResult(
         "correlation_risk", score, max(0.0, min(1.0, confidence)),
-        {
-            "weighted_absolute_correlation": weighted_correlation,
-            "position_correlations": {symbol: correlation for correlation, _, _, symbol in correlations},
-            "positions_with_valid_history": len(correlations),
-            "position_count": len(positions),
-            "misaligned_histories": mismatched_histories,
-        },
+        {"weighted_absolute_correlation": weighted_correlation,
+         "position_correlations": {symbol: correlation for correlation, _, _, symbol in correlations},
+         "positions_with_valid_history": len(correlations), "position_count": len(positions),
+         "misaligned_histories": mismatched_histories},
         warnings,
     )
