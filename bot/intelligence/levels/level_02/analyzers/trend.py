@@ -1,3 +1,5 @@
+import math
+
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
@@ -10,6 +12,10 @@ def analyze(snapshot: MarketSnapshot, level1: Level1Result) -> AnalyzerResult:
         return AnalyzerResult("trend", 0.0, 0.0, {"momentum": momentum}, ("price_signal_unavailable",))
     if momentum is None:
         return AnalyzerResult("trend", 0.0, 0.0, {"momentum": None}, ("momentum_missing",))
+    if isinstance(momentum, bool) or not isinstance(momentum, (int, float)) or not math.isfinite(momentum):
+        return AnalyzerResult("trend", 0.0, 0.0, {"momentum": None}, ("invalid_momentum",))
+    # Match the fractional-momentum mapping used by Level 1.
     direction = min(max(0.5 + momentum * 5.0, 0.0), 1.0)
     score = 0.6 * direction + 0.4 * price_result.score
-    return AnalyzerResult("trend", score, min(price_result.confidence, level1.confidence), {"direction": direction, "price_score": price_result.score})
+    return AnalyzerResult("trend", score, min(price_result.confidence, level1.confidence),
+                          {"direction": direction, "price_score": price_result.score, "momentum": momentum})
