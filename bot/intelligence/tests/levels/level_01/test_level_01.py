@@ -75,9 +75,7 @@ class Level01EngineTests(unittest.TestCase):
                 results = analyze(snapshot)
                 self.assertTrue(all(0.0 <= result.score <= 1.0 for result in results))
                 self.assertTrue(all(0.0 <= result.confidence <= 1.0 for result in results))
-                self.assertTrue(
-                    any(result.confidence == 0.0 and result.warnings for result in results)
-                )
+                self.assertTrue(any(result.confidence == 0.0 and result.warnings for result in results))
 
     def test_aggregate_ignores_unavailable_analyzers(self):
         snapshot = MarketSnapshot(
@@ -111,9 +109,33 @@ class ModelTests(unittest.TestCase):
         snapshot = MarketSnapshot(symbol="TEST", price=110.0, previous_price=100.0)
         self.assertAlmostEqual(snapshot.price_change(), 0.10)
 
+    def test_price_change_rejects_invalid_prices(self):
+        for price, previous in (
+            (float("nan"), 100.0),
+            (float("inf"), 100.0),
+            (100.0, float("nan")),
+            (100.0, float("inf")),
+            (-1.0, 100.0),
+            (100.0, 0.0),
+            (100.0, None),
+        ):
+            with self.subTest(price=price, previous=previous):
+                self.assertIsNone(MarketSnapshot(symbol="TEST", price=price, previous_price=previous).price_change())
+
     def test_result_rejects_invalid_score(self):
         with self.assertRaises(ValueError):
             AnalyzerResult("bad", 1.5, 1.0)
+
+    def test_result_rejects_non_finite_scores_and_confidence(self):
+        for score, confidence in (
+            (float("nan"), 1.0),
+            (float("inf"), 1.0),
+            (0.5, float("nan")),
+            (0.5, float("inf")),
+        ):
+            with self.subTest(score=score, confidence=confidence):
+                with self.assertRaises(ValueError):
+                    AnalyzerResult("bad", score, confidence)
 
 
 if __name__ == "__main__":
