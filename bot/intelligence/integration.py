@@ -155,7 +155,9 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         average_volume=float(analysis.average_volume),
         volatility=float(analysis.volatility),
         momentum=float(analysis.momentum),
-        liquidity=min(max(float(analysis.volume_ratio) / 2.0, 0.0), 1.0),
+        # Volume ratio is not a liquidity measurement. Keep liquidity unknown
+        # until the source supplies a real metric (e.g. spread/depth).
+        liquidity=None,
         open_price=open_price,
         high_price=high_price,
         low_price=low_price,
