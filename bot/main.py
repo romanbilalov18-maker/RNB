@@ -55,68 +55,88 @@ def main() -> None:
             print(f"Cycle interval: {cycle_interval_minutes:g} min")
             print(f"Take Profit: {config.take_profit_percent:g} %")
 
-            result = LiveMarketRunner(client).run(
-                held_tickers=set(portfolio.positions),
-                tracked_tickers=audit_store.pending_tickers(),
-            )
-            learning_observations = audit_store.learning_observations_by_ticker()
-            intelligence_results = analyze_scan(
-                result,
-                learning_observations_by_ticker=learning_observations,
-                portfolio=portfolio,
-            )
-            decisions = _evaluate_decisions(intelligence_results, portfolio)
-            # Only explicit BUY recommendations from a valid L1-L15 result may
-            # authorize new virtual entries. Existing PositionManager exits and
-            # PositionSizer risk/cash/commission controls remain authoritative.
-            eligible_buy_tickers = {
-                ticker for ticker, decision in decisions.items()
-                if decision.action == "BUY"
-            }
-            eligible_buy_reasons = {
-                ticker: decision.reason
-                for ticker, decision in decisions.items()
-                if decision.action == "BUY"
-            }
-            sell_trades, buy_trades = PaperExecutor(
-                take_profit=config.take_profit_percent / 100.0
-            ).execute(
-                portfolio,
-                result,
-                eligible_buy_tickers=eligible_buy_tickers,
-                eligible_buy_reasons=eligible_buy_reasons,
-            )
+            try:
+                result = LiveMarketRunner(client).run(
+                    held_tickers=set(portfolio.positions),
+                    tracked_tickers=audit_store.pending_tickers(),
+                )
+                _validate_held_position_prices(portfolio, result.current_prices)
+                learning_observations = audit_store.learning_observations_by_ticker()
+                intelligence_results = analyze_scan(
+                    result,
+                    learning_observations_by_ticker=learning_observations,
+                    portfolio=portfolio,
+                )
+                decisions = _evaluate_decisions(intelligence_results, portfolio)
+                # Only explicit BUY recommendations from a valid L1-L15 result may
+                # authorize new virtual entries. Existing PositionManager exits and
+                # PositionSizer risk/cash/commission controls remain authoritative.
+                eligible_buy_tickers = {
+                    ticker for ticker, decision in decisions.items()
+                    if decision.action == "BUY"
+                }
+                eligible_buy_reasons = {
+                    ticker: decision.reason
+                    for ticker, decision in decisions.items()
+                    if decision.action == "BUY"
+                }
+                sell_trades, buy_trades = PaperExecutor(
+                    take_profit=config.take_profit_percent / 100.0
+                ).execute(
+                    portfolio,
+                    result,
+                    eligible_buy_tickers=eligible_buy_tickers,
+                    eligible_buy_reasons=eligible_buy_reasons,
+                )
 
-            equity = portfolio.equity(result.current_prices)
-            store.save(portfolio, result.current_prices)
-            audit_count = audit_store.record_cycle(
-                cycle_id=f"{cycle}:{time.time_ns()}",
-                decisions=decisions,
-                virtual_trades=[*sell_trades, *buy_trades],
-                equity=equity,
-                cash=portfolio.cash,
-                total_commissions=portfolio.commissions,
-                current_prices=result.current_prices,
-                candle_history=result.candle_history,
-                intelligence_results=intelligence_results,
-                commission_rate=portfolio.commission_rate,
-            )
-            print(f"Decision audit: recorded {audit_count} ticker observations")
-            print(f"Decision audit summary: {audit_store.summary()}")
-            history = store.equity_history()
-            stats = portfolio.statistics(equity, history)
+                equity = portfolio.equity(result.current_prices)
+                store.save(portfolio, result.current_prices)
+                cycle_id = f"{cycle}:{time.time_ns()}"
+                audit_count = _record_cycle_with_retries(
+                    audit_store,
+                    cycle_id=cycle_id,
+                    decisions=decisions,
+                    virtual_trades=[*sell_trades, *buy_trades],
+                    equity=equity,
+                    cash=portfolio.cash,
+                    total_commissions=portfolio.commissions,
+                    current_prices=result.current_prices,
+                    candle_history=result.candle_history,
+                    intelligence_results=intelligence_results,
+                    commission_rate=portfolio.commission_rate,
+                )
+                print(f"Decision audit: recorded {audit_count} ticker observations")
+                print(f"Decision audit summary: {audit_store.summary()}")
+                history = store.equity_history()
+                stats = portfolio.statistics(equity, history)
 
-            _print_cycle_result(
-                portfolio,
-                result,
-                sell_trades,
-                buy_trades,
-                equity,
-                stats,
-                config.take_profit_percent,
-                intelligence_results,
-                decisions,
-            )
+                _print_cycle_result(
+                    portfolio,
+                    result,
+                    sell_trades,
+                    buy_trades,
+                    equity,
+                    stats,
+                    config.take_profit_percent,
+                    intelligence_results,
+                    decisions,
+                )
+
+            except Exception as exc:
+                print(f"Cycle {cycle} failed: {type(exc).__name__}: {exc}")
+                # Discard any uncommitted in-memory mutations and resume from
+                # the last durable portfolio snapshot before the next attempt.
+                portfolio = store.load_or_create(
+                    initial_balance=config.initial_virtual_balance,
+                    commission_rate=config.commission_rate,
+                )
+                remaining_after_error = deadline - time.monotonic()
+                if not _should_run_another_cycle(remaining_after_error, cycle_interval_minutes):
+                    print("Runtime limit reached after failed cycle; stopping safely.")
+                    break
+                print(f"Retrying in {cycle_interval_minutes:.2f} min from saved portfolio state.")
+                time.sleep(cycle_interval_minutes * 60)
+                continue
 
             remaining = deadline - time.monotonic()
             if not _should_run_another_cycle(remaining, cycle_interval_minutes):
@@ -127,6 +147,33 @@ def main() -> None:
             print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
             time.sleep(sleep_seconds)
 
+
+
+def _validate_held_position_prices(portfolio, market_prices) -> None:
+    """Reject an incomplete mark-to-market snapshot before mutating the portfolio."""
+    missing = sorted(set(portfolio.positions) - set(market_prices))
+    if missing:
+        raise RuntimeError(
+            "Cycle skipped: missing live prices for open positions: "
+            + ", ".join(missing)
+        )
+
+
+def _record_cycle_with_retries(audit_store, *, cycle_id: str, **kwargs) -> int:
+    """Retry transient audit persistence failures with a stable idempotency key."""
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            return audit_store.record_cycle(cycle_id=cycle_id, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"Decision audit write attempt {attempt}/3 failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            if attempt < 3:
+                time.sleep(2 ** (attempt - 1))
+    raise RuntimeError("Decision audit write failed after 3 attempts") from last_error
 
 def _env_positive_float(name: str, default: float) -> float:
     raw = os.getenv(name, str(default)).strip()
