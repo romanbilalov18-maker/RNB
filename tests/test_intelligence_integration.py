@@ -64,6 +64,8 @@ class IntelligenceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.price, 105.0)
         self.assertEqual(snapshot.previous_price, 100.0)
         self.assertEqual(snapshot.lot_size, 10)
+        # Volume ratio must not be mislabeled as true market liquidity.
+        self.assertIsNone(snapshot.liquidity)
         self.assertFalse(snapshot.portfolio_context_available)
         self.assertAlmostEqual(snapshot.candle_range, 15.0 / 105.0)
         self.assertAlmostEqual(snapshot.close_position, 10.0 / 15.0)
