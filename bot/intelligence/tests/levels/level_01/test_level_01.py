@@ -2,6 +2,7 @@ import unittest
 
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
+from bot.intelligence.levels.level_01.analyzers.data_quality import analyze as analyze_data_quality
 from bot.intelligence.levels.level_01.level_01_engine import aggregate, analyze
 
 
@@ -31,6 +32,31 @@ class Level01EngineTests(unittest.TestCase):
         results = analyze(MarketSnapshot(symbol="TEST", price=100.0))
         self.assertEqual(len(results), 6)
         self.assertTrue(any("missing" in warning for result in results for warning in result.warnings))
+
+    def test_data_quality_flags_non_finite_and_out_of_range_values(self):
+        result = analyze_data_quality(
+            MarketSnapshot(
+                symbol="TEST",
+                price=float("nan"),
+                previous_price=-1.0,
+                volume=-5.0,
+                average_volume=float("inf"),
+            )
+        )
+        self.assertEqual(result.metrics["available_fields"], 0)
+        self.assertEqual(
+            set(result.metrics["invalid_fields"]),
+            {"price", "previous_price", "volume", "average_volume"},
+        )
+        self.assertEqual(
+            set(result.warnings),
+            {
+                "invalid_price",
+                "invalid_previous_price",
+                "invalid_volume",
+                "invalid_average_volume",
+            },
+        )
 
 
 class ModelTests(unittest.TestCase):
