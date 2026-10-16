@@ -15,6 +15,7 @@ def normalized_value(result, field):
 
 def context_warnings(snapshot, *results):
     warnings = []
+    known_symbols = []
     for index, result in enumerate(results, start=2):
         if result is None:
             warnings.append(f"level{index}_context_not_available")
@@ -22,8 +23,12 @@ def context_warnings(snapshot, *results):
         symbol = getattr(result, "symbol", None)
         if not isinstance(symbol, str) or not symbol:
             warnings.append(f"level{index}_symbol_not_available")
-        elif snapshot is not None and symbol != getattr(snapshot, "symbol", None):
-            warnings.append(f"level{index}_symbol_mismatch")
+        else:
+            known_symbols.append((index, symbol))
+            if snapshot is not None and symbol != getattr(snapshot, "symbol", None):
+                warnings.append(f"level{index}_symbol_mismatch")
+    if snapshot is None and len({symbol for _, symbol in known_symbols}) > 1:
+        warnings.append("input_symbol_mismatch")
     return warnings
 
 
