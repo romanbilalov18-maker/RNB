@@ -1,5 +1,6 @@
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from .analyzers import momentum_acceleration, trend_persistence, movement_exhaustion, regime_transition, temporal_anomaly, dynamic_stability
+from .analyzers._validation import finite
 from .models.level_07_result import Level7Result
 
 
@@ -14,6 +15,17 @@ class Level7Engine:
     }
 
     def analyze(self, snapshot: MarketSnapshot, level3_result, level4_result, level5_result, level6_result) -> Level7Result:
+        context_warnings = []
+        for name, result in (("level3", level3_result), ("level4", level4_result), ("level5", level5_result), ("level6", level6_result)):
+            if result is None:
+                context_warnings.append(f"{name}_context_not_available")
+                continue
+            if hasattr(result, "symbol"):
+                symbol = getattr(result, "symbol")
+                if not isinstance(symbol, str) or not symbol:
+                    context_warnings.append(f"{name}_symbol_not_available")
+                elif symbol != snapshot.symbol:
+                    context_warnings.append(f"{name}_symbol_mismatch")
         results = {
             "momentum_acceleration": momentum_acceleration.analyze(snapshot, level6_result),
             "trend_persistence": trend_persistence.analyze(snapshot, level3_result),
@@ -22,9 +34,8 @@ class Level7Engine:
             "temporal_anomaly": temporal_anomaly.analyze(snapshot, level4_result),
             "dynamic_stability": dynamic_stability.analyze(level5_result, level6_result),
         }
-        # Level 7's aggregate is a quality score. Exhaustion, regime-transition
-        # signals, and abnormal temporal activity are risk/anomaly severities:
-        # a high raw severity must lower aggregate quality.
+        # Higher raw exhaustion/transition/anomaly scores are risk severities,
+        # so invert them when computing the higher-is-better quality aggregate.
         quality_scores = {
             "momentum_acceleration": results["momentum_acceleration"].score,
             "trend_persistence": results["trend_persistence"].score,
@@ -42,19 +53,33 @@ class Level7Engine:
             sum(quality_scores[key] * weight for key, weight in effective_weights.items()) / total_effective
             if total_effective > 0.0 else 0.0
         )
-        confidence = sum(r.confidence for r in results.values()) / len(results)
-        consistency = min(1.0, max(0.0, (level5_result.consistency + level6_result.consistency) / 2.0))
-        warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
+        confidence = sum(self.WEIGHTS[key] * max(0.0, min(1.0, result.confidence)) for key, result in results.items())
+        c5 = finite(getattr(level5_result, "consistency", None))
+        c6 = finite(getattr(level6_result, "consistency", None))
+        consistency = (c5 + c6) / 2.0 if c5 is not None and c6 is not None else 0.0
+        warnings = list(dict.fromkeys(context_warnings + [w for result in results.values() for w in result.warnings]))
         strengths, weaknesses = [], []
-        if results["trend_persistence"].score >= 0.7: strengths.append("persistent_trend")
-        if results["momentum_acceleration"].score >= 0.7: strengths.append("positive_dynamic_acceleration")
-        if results["movement_exhaustion"].score >= 0.7: weaknesses.append("movement_exhaustion_risk")
-        if results["regime_transition"].score >= 0.7: weaknesses.append("regime_transition_detected")
+        if not context_warnings and results["trend_persistence"].score >= 0.7:
+            strengths.append("persistent_trend")
+        if not context_warnings and results["momentum_acceleration"].score >= 0.7:
+            strengths.append("positive_dynamic_acceleration")
+        if results["movement_exhaustion"].score >= 0.7:
+            weaknesses.append("movement_exhaustion_risk")
+        if results["regime_transition"].score >= 0.7:
+            weaknesses.append("regime_transition_detected")
+        if context_warnings:
+            score = 0.0
+            confidence = 0.0
+            weaknesses.append("invalid_cross_level_context")
         return Level7Result(
-            symbol=snapshot.symbol, score=max(0.0, min(1.0, score)), confidence=max(0.0, min(1.0, confidence)),
-            consistency=consistency, momentum_acceleration=results["momentum_acceleration"].score,
-            trend_persistence=results["trend_persistence"].score, movement_exhaustion=results["movement_exhaustion"].score,
-            regime_transition=results["regime_transition"].score, temporal_anomaly=results["temporal_anomaly"].score,
-            dynamic_stability=results["dynamic_stability"].score, analyzer_results=results,
-            strengths=strengths, weaknesses=weaknesses, warnings=warnings, metadata={"version": "1.1"},
+            symbol=snapshot.symbol, score=max(0.0, min(1.0, score)),
+            confidence=max(0.0, min(1.0, confidence)), consistency=max(0.0, min(1.0, consistency)),
+            momentum_acceleration=results["momentum_acceleration"].score,
+            trend_persistence=results["trend_persistence"].score,
+            movement_exhaustion=results["movement_exhaustion"].score,
+            regime_transition=results["regime_transition"].score,
+            temporal_anomaly=results["temporal_anomaly"].score,
+            dynamic_stability=results["dynamic_stability"].score,
+            analyzer_results=results, strengths=strengths, weaknesses=weaknesses,
+            warnings=warnings, metadata={"version": "1.2", "cross_level_context_valid": not context_warnings},
         )
