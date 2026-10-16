@@ -443,6 +443,38 @@ class DecisionAuditStore:
                                       WHERE o.audit_id=a.id AND o.horizon_sessions=?)
                 """, (horizon, horizon)).fetchone()
                 due[str(horizon)] = int(due_row["ready"] or 0)
+            learning_pipeline = db.execute("""
+                SELECT
+                    COUNT(*) AS total_decisions,
+                    SUM(CASE WHEN a.anchor_price IS NULL OR a.anchor_session_date IS NULL
+                             THEN 1 ELSE 0 END) AS missing_anchor,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation NOT IN ('BUY', 'SELL')
+                             THEN 1 ELSE 0 END) AS non_directional,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NULL
+                             THEN 1 ELSE 0 END) AS missing_learning_snapshot,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM decision_outcomes AS o
+                                      WHERE o.audit_id = a.id
+                                        AND o.horizon_sessions = ?
+                                        AND o.direction_correct IS NOT NULL
+                                  )
+                             THEN 1 ELSE 0 END) AS awaiting_matured_outcome,
+                    SUM(CASE WHEN a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                                  AND a.recommendation IN ('BUY', 'SELL') AND s.audit_id IS NOT NULL
+                                  AND EXISTS (
+                                      SELECT 1 FROM decision_outcomes AS o
+                                      WHERE o.audit_id = a.id
+                                        AND o.horizon_sessions = ?
+                                        AND o.direction_correct IS NOT NULL
+                                  )
+                             THEN 1 ELSE 0 END) AS matured_scored_before_deduplication
+                FROM decision_audit AS a
+                LEFT JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+            """, (self.LEARNING_HORIZON, self.LEARNING_HORIZON)).fetchone()
             session_quality = db.execute("""
                 WITH anchored AS (
                     SELECT ticker, anchor_session_date
@@ -477,10 +509,37 @@ class DecisionAuditStore:
             """, (self.LEARNING_HORIZON,)).fetchone()
             all_duplicates = int(session_quality["anchored_decisions"] or 0) - int(session_quality["unique_ticker_sessions"] or 0)
         result = dict(row)
-        result["forward_outcomes"] = [dict(item) for item in outcomes]
+        outcome_by_horizon = {int(item["horizon_sessions"]): dict(item) for item in outcomes}
+        result["forward_outcomes"] = [
+            outcome_by_horizon.get(horizon, {
+                "horizon_sessions": horizon,
+                "evaluated": 0,
+                "scored": 0,
+                "directional_accuracy": None,
+                "avg_net_return_pct": None,
+            })
+            for horizon in self.HORIZONS
+        ]
         result["outcome_readiness"] = dict(readiness)
         result["outcomes_ready_but_missing"] = due
         result["learning_observations"] = int(dedup_quality["scored_learning_observations"] or 0)
+        result["learning_pipeline"] = {
+            key: int(learning_pipeline[key] or 0)
+            for key in (
+                "total_decisions",
+                "missing_anchor",
+                "non_directional",
+                "missing_learning_snapshot",
+                "awaiting_matured_outcome",
+                "matured_scored_before_deduplication",
+            )
+        }
+        result["learning_pipeline"]["duplicate_scored_observations_excluded"] = int(
+            dedup_quality["duplicate_decisions_excluded"] or 0
+        )
+        result["learning_pipeline"]["observations_after_deduplication"] = int(
+            dedup_quality["scored_learning_observations"] or 0
+        )
         result["learning_data_quality"] = {
             "anchored_decisions": int(session_quality["anchored_decisions"] or 0),
             "unique_ticker_sessions": int(session_quality["unique_ticker_sessions"] or 0),
