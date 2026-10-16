@@ -1,4 +1,16 @@
+import math
+
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
+
+
+def _market_value(item: dict) -> float | None:
+    if not item.get("market_value_available", True):
+        return None
+    try:
+        value = float(item.get("market_value"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value >= 0.0 else None
 
 
 def analyze(snapshot, level5_result, level8_result) -> AnalyzerResult:
@@ -12,32 +24,55 @@ def analyze(snapshot, level5_result, level8_result) -> AnalyzerResult:
             )
         warning = "candidate_sector_not_available" if getattr(snapshot, "portfolio_context_available", False) else "existing_positions_not_available"
         return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": 0}, [warning])
+
     if any(item.get("symbol") == snapshot.symbol for item in positions):
-        return AnalyzerResult("portfolio_compatibility", 0.0, 1.0, {"already_held": True, "position_count": len(positions)}, ["candidate_already_in_portfolio"])
+        return AnalyzerResult(
+            "portfolio_compatibility", 0.0, 1.0,
+            {"already_held": True, "position_count": len(positions)},
+            ["candidate_already_in_portfolio"],
+        )
     if not snapshot.sector:
         return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": len(positions)}, ["candidate_sector_not_available"])
+
     sector_values = {}
+    total_value = 0.0
     known_value = 0.0
-    total_value = sum(max(0.0, float(item.get("market_value", 0.0))) for item in positions)
+    valued_count = 0
+    invalid_count = 0
     for item in positions:
-        value = max(0.0, float(item.get("market_value", 0.0)))
+        value = _market_value(item)
+        if value is None:
+            invalid_count += 1
+            continue
+        total_value += value
+        valued_count += 1
         sector = item.get("sector")
-        if sector:
+        if isinstance(sector, str) and sector.strip():
+            sector = sector.strip()
             sector_values[sector] = sector_values.get(sector, 0.0) + value
             known_value += value
-    if total_value <= 0 or known_value <= 0:
-        return AnalyzerResult("portfolio_compatibility", 0.0, 0.0, {"position_count": len(positions)}, ["portfolio_sector_exposure_not_available"])
-    # Unknown-sector holdings must not be treated as holdings in other sectors.
-    # Calculate compatibility only over known sector exposure and express coverage
-    # separately through confidence.
+
+    if total_value <= 0.0 or known_value <= 0.0:
+        return AnalyzerResult(
+            "portfolio_compatibility", 0.0, 0.0,
+            {"position_count": len(positions), "valued_position_count": valued_count},
+            ["portfolio_sector_exposure_not_available"],
+        )
+
     same_sector_weight = sector_values.get(snapshot.sector, 0.0) / known_value
     score = max(0.0, min(1.0, 1.0 - same_sector_weight))
-    confidence = min(1.0, len(positions) / 10.0) * (known_value / total_value)
-    warnings = () if known_value >= total_value else ("some_position_sectors_unavailable",)
+    value_coverage = known_value / total_value
+    position_coverage = valued_count / len(positions)
+    confidence = min(1.0, valued_count / 10.0) * value_coverage * position_coverage
+    warnings = []
+    if value_coverage < 1.0:
+        warnings.append("some_position_sectors_unavailable")
+    if invalid_count:
+        warnings.append("some_position_market_values_invalid")
     return AnalyzerResult(
-        "portfolio_compatibility", score, confidence,
-        {"position_count": len(positions), "candidate_sector": snapshot.sector,
-         "existing_sector_weight": same_sector_weight,
-         "known_sector_exposure": known_value / total_value},
+        "portfolio_compatibility", score, max(0.0, min(1.0, confidence)),
+        {"position_count": len(positions), "valued_position_count": valued_count,
+         "candidate_sector": snapshot.sector, "existing_sector_weight": same_sector_weight,
+         "known_sector_exposure": value_coverage, "invalid_value_count": invalid_count},
         warnings,
     )
