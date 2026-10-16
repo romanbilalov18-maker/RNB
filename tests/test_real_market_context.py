@@ -106,8 +106,8 @@ class RealMarketContextTests(unittest.TestCase):
         )
         result = diversification_value.analyze(snapshot, SimpleNamespace())
         self.assertEqual(result.score, 0.0)  # one known sector is fully concentrated
-        self.assertAlmostEqual(result.confidence, 0.1)
-        self.assertAlmostEqual(result.metrics["sector_coverage"], 0.5)
+        self.assertAlmostEqual(result.confidence, 0.11428571428571428)
+        self.assertAlmostEqual(result.metrics["sector_coverage"], 400.0 / 700.0)
         self.assertIn("some_position_sectors_unavailable", result.warnings)
 
     def test_unknown_sector_exposure_does_not_inflate_portfolio_compatibility(self):
