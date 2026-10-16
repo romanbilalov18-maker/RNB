@@ -32,11 +32,20 @@ def _candle_date(candle: object) -> str | None:
 
 def _returns_by_date(candles) -> dict[str, float]:
     points = []
+    seen_dates = set()
+    duplicate_dates = set()
     for candle in candles or ():
         close = _close(candle)
         day = _candle_date(candle)
         if close is not None and day is not None:
+            if day in seen_dates:
+                duplicate_dates.add(day)
+            seen_dates.add(day)
             points.append((day, close))
+    # A duplicate timestamp makes the return for that interval ambiguous.
+    # Do not select an arbitrary close or let a later item overwrite a return.
+    if duplicate_dates:
+        return {}
     points.sort()
     result = {}
     for (previous_day, previous), (day, current) in zip(points, points[1:]):
