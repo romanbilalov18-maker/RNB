@@ -323,25 +323,28 @@ class DecisionAuditStore:
         grouped: dict[str, list[LearningObservation]] = {}
         with self._connect() as db:
             rows = db.execute("""
-                WITH ranked_audit AS (
-                    SELECT id, ticker, recommendation, recorded_at, anchor_session_date,
+                WITH eligible_audit AS (
+                    SELECT a.id, a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
+                           o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
+                           s.level_scores_json, s.analyzer_scores_json, s.regime,
                            ROW_NUMBER() OVER (
-                               PARTITION BY ticker, anchor_session_date
-                               ORDER BY recorded_at DESC, id DESC
+                               PARTITION BY a.ticker, a.anchor_session_date
+                               ORDER BY a.recorded_at DESC, a.id DESC
                            ) AS session_rank
-                    FROM decision_audit
-                    WHERE anchor_session_date IS NOT NULL
+                    FROM decision_audit AS a
+                    JOIN decision_outcomes AS o ON o.audit_id = a.id
+                    JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                    WHERE a.anchor_session_date IS NOT NULL
+                      AND o.horizon_sessions = ?
+                      AND o.direction_correct IS NOT NULL
+                      AND a.recommendation IN ('BUY', 'SELL')
                 )
-                SELECT a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
-                       o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
-                       s.level_scores_json, s.analyzer_scores_json, s.regime
-                FROM ranked_audit AS a
-                JOIN decision_outcomes AS o ON o.audit_id = a.id
-                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE a.session_rank = 1
-                  AND o.horizon_sessions = ?
-                  AND o.direction_correct IS NOT NULL
-                ORDER BY a.recorded_at ASC, a.id ASC
+                SELECT ticker, recommendation, recorded_at, anchor_session_date,
+                       target_session_date, raw_return_pct, net_return_pct, direction_correct,
+                       level_scores_json, analyzer_scores_json, regime
+                FROM eligible_audit
+                WHERE session_rank = 1
+                ORDER BY recorded_at ASC, id ASC
             """, (self.LEARNING_HORIZON,)).fetchall()
         for row in rows:
             try:
