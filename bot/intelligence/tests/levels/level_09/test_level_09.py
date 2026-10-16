@@ -126,6 +126,52 @@ class TestLevel9(unittest.TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertIn("portfolio_return_dates_values_misaligned", result.warnings)
 
+    def test_single_position_has_maximum_concentration(self):
+        from bot.intelligence.levels.level_09.analyzers.concentration_risk import analyze
+        snapshot = SimpleNamespace(portfolio_context_available=True, portfolio_positions=({"market_value": 250.0, "market_value_available": True},))
+        result = analyze(snapshot, None)
+        self.assertAlmostEqual(result.score, 1.0)
+        self.assertAlmostEqual(result.metrics["herfindahl_index"], 1.0)
+        self.assertAlmostEqual(result.metrics["largest_position_weight"], 1.0)
+
+    def test_equal_sector_exposure_scores_more_diversified_than_concentrated_exposure(self):
+        concentrated = SimpleNamespace(portfolio_context_available=True, portfolio_positions=(
+            {"market_value": 90.0, "market_value_available": True, "sector": "A"},
+            {"market_value": 10.0, "market_value_available": True, "sector": "B"},
+        ))
+        balanced = SimpleNamespace(portfolio_context_available=True, portfolio_positions=(
+            {"market_value": 50.0, "market_value_available": True, "sector": "A"},
+            {"market_value": 50.0, "market_value_available": True, "sector": "B"},
+        ))
+        concentrated_result = analyze_diversification(concentrated, None)
+        balanced_result = analyze_diversification(balanced, None)
+        self.assertAlmostEqual(concentrated_result.score, 0.36)
+        self.assertAlmostEqual(balanced_result.score, 1.0)
+        self.assertGreater(balanced_result.score, concentrated_result.score)
+
+    def test_correlation_requires_sufficient_history(self):
+        snapshot = SimpleNamespace(symbol="TEST", portfolio_context_available=True,
+            portfolio_positions=({"symbol":"OTHER", "market_value":100.0,
+                "historical_return_dates":[str(i) for i in range(9)],
+                "historical_returns":[float(i) for i in range(9)]},),
+            historical_return_dates=tuple(str(i) for i in range(9)),
+            historical_returns=tuple(float(i * 2) for i in range(9)))
+        result = analyze_correlation(snapshot, None, None)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("portfolio_correlation_history_insufficient", result.warnings)
+
+    def test_correlation_uses_only_shared_dates_and_reports_coverage(self):
+        snapshot = SimpleNamespace(symbol="TEST", portfolio_context_available=True,
+            portfolio_positions=({"symbol":"OTHER", "market_value":100.0,
+                "historical_return_dates":[str(i) for i in range(12)],
+                "historical_returns":[float(i * 2) for i in range(12)]},),
+            historical_return_dates=tuple(str(i) for i in range(10, 22)),
+            historical_returns=tuple(float(i) for i in range(12)))
+        result = analyze_correlation(snapshot, None, None)
+        self.assertEqual(result.metrics["positions_with_valid_history"], 1)
+        self.assertAlmostEqual(result.metrics["weighted_absolute_correlation"], 1.0)
+        self.assertGreater(result.confidence, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
