@@ -1,0 +1,86 @@
+name: Level 1 Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bot/intelligence/levels/level_01/**"
+      - "bot/intelligence/core/models/market_snapshot.py"
+      - "bot/intelligence/core/models/analysis_result.py"
+      - "tests/test_level_01_historical_validation.py"
+      - ".github/workflows/level-01-validation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bot/intelligence/levels/level_01/**"
+      - "bot/intelligence/core/models/market_snapshot.py"
+      - "bot/intelligence/core/models/analysis_result.py"
+      - "tests/test_level_01_historical_validation.py"
+      - ".github/workflows/level-01-validation.yml"
+  workflow_dispatch:
+    inputs:
+      dataset_path:
+        description: "Path to a real OHLCV CSV committed to the repository (timestamp,symbol,close,volume)"
+        required: true
+        default: "data/level_01_history.csv"
+        type: string
+      window:
+        description: "Trailing lookback rows"
+        required: true
+        default: "20"
+        type: string
+      horizon:
+        description: "Rows ahead to evaluate"
+        required: true
+        default: "5"
+        type: string
+
+jobs:
+  fast-tests:
+    name: Level 1 unit and contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Level 1 tests
+        run: |
+          python -m unittest bot.intelligence.tests.levels.level_01.test_level_01 -v
+          python -m unittest tests.test_level_01_historical_validation -v
+
+  historical-validation:
+    name: Historical signal diagnostic
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate dataset path
+        env:
+          DATASET_PATH: ${{ inputs.dataset_path }}
+        run: |
+          test -f "$DATASET_PATH" || {
+            echo "ERROR: CSV not found: $DATASET_PATH"
+            echo "Commit a real market-data CSV to the repository, then rerun this workflow."
+            exit 2
+          }
+      - name: Run historical validation
+        env:
+          DATASET_PATH: ${{ inputs.dataset_path }}
+          WINDOW: ${{ inputs.window }}
+          HORIZON: ${{ inputs.horizon }}
+        run: |
+          python -m bot.intelligence.levels.level_01.historical_validation \
+            --csv "$DATASET_PATH" --window "$WINDOW" --horizon "$HORIZON" \
+            --output data/level_01_historical_report.json
+      - name: Upload historical report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: level-01-historical-report-${{ github.run_id }}
+          path: data/level_01_historical_report.json
+          if-no-files-found: warn
+          retention-days: 30
