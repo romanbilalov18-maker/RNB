@@ -8,7 +8,12 @@ def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
     volatility = snapshot.volatility
     if volatility is None:
         return AnalyzerResult("volatility", 0.0, 0.0, {"volatility": None}, ("volatility_missing",))
-    if not isinstance(volatility, (int, float)) or not math.isfinite(volatility) or volatility < 0:
+    if (
+        isinstance(volatility, bool)
+        or not isinstance(volatility, (int, float))
+        or not math.isfinite(volatility)
+        or volatility < 0
+    ):
         return AnalyzerResult("volatility", 0.0, 0.0, {"volatility": None}, ("invalid_volatility",))
     score = min(max(1.0 - volatility, 0.0), 1.0)
     return AnalyzerResult("volatility", score, 1.0, {"volatility": volatility})
