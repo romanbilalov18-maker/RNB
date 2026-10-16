@@ -41,12 +41,15 @@ class Level01EngineTests(unittest.TestCase):
                 previous_price=-1.0,
                 volume=-5.0,
                 average_volume=float("inf"),
+                volatility=float("nan"),
+                momentum=float("inf"),
+                liquidity=1.5,
             )
         )
         self.assertEqual(result.metrics["available_fields"], 0)
         self.assertEqual(
             set(result.metrics["invalid_fields"]),
-            {"price", "previous_price", "volume", "average_volume"},
+            {"price", "previous_price", "volume", "average_volume", "volatility", "momentum", "liquidity"},
         )
         self.assertEqual(
             set(result.warnings),
@@ -55,6 +58,9 @@ class Level01EngineTests(unittest.TestCase):
                 "invalid_previous_price",
                 "invalid_volume",
                 "invalid_average_volume",
+                "invalid_volatility",
+                "invalid_momentum",
+                "invalid_liquidity",
             },
         )
 
