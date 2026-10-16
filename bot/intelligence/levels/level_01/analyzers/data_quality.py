@@ -11,6 +11,9 @@ def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
         "previous_price": (snapshot.previous_price, lambda value: value > 0),
         "volume": (snapshot.volume, lambda value: value >= 0),
         "average_volume": (snapshot.average_volume, lambda value: value > 0),
+        "volatility": (snapshot.volatility, lambda value: value >= 0),
+        "momentum": (snapshot.momentum, lambda value: True),
+        "liquidity": (snapshot.liquidity, lambda value: 0.0 <= value <= 1.0),
     }
 
     available = 0
