@@ -18,16 +18,20 @@ def result_or_unavailable(name, warnings, metrics=None):
 
 
 def level5_context(snapshot, result):
-    warnings = []
     if result is None:
         return ["level5_context_not_available"]
-    symbol = getattr(result, "symbol", None)
+    # Older internal callers may pass compact analyzer context objects without
+    # a symbol. Validate identity whenever it is supplied; the engine enforces
+    # symbol identity for the canonical Level5Result contract.
+    if not hasattr(result, "symbol"):
+        return []
+    symbol = getattr(result, "symbol")
     snapshot_symbol = getattr(snapshot, "symbol", None)
     if not isinstance(symbol, str) or not symbol:
-        warnings.append("level5_symbol_not_available")
-    elif not isinstance(snapshot_symbol, str) or symbol != snapshot_symbol:
-        warnings.append("level5_symbol_mismatch")
-    return warnings
+        return ["level5_symbol_not_available"]
+    if not isinstance(snapshot_symbol, str) or symbol != snapshot_symbol:
+        return ["level5_symbol_mismatch"]
+    return []
 
 
 def confidence(result):
