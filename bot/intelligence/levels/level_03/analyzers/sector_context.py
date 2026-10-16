@@ -32,7 +32,7 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> AnalyzerResult:
                 "sector_return_available": isinstance(sector_return, (int, float)) and not isinstance(sector_return, bool) and math.isfinite(sector_return),
                 "market_return_available": isinstance(market_return, (int, float)) and not isinstance(market_return, bool) and math.isfinite(market_return),
             },
-            ("sector_relative_context_unavailable",),
+            ("sector_data_not_available", "sector_relative_context_unavailable"),
         )
 
     relative = sector_return - market_return
