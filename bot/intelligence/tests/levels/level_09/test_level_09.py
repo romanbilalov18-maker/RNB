@@ -85,6 +85,47 @@ class TestLevel9(unittest.TestCase):
         Level9Engine().analyze(self.snapshot, *before)
         self.assertEqual(before, (self.l5, self.l6, self.l8))
 
+    def test_portfolio_compatibility_handles_invalid_market_values(self):
+        from bot.intelligence.levels.level_09.analyzers.portfolio_compatibility import analyze
+        snapshot = SimpleNamespace(
+            symbol="TEST", sector="Technology", portfolio_context_available=True,
+            portfolio_positions=(
+                {"symbol":"AAA", "market_value":"not-a-number", "sector":"Finance"},
+                {"symbol":"BBB", "market_value":float("nan"), "sector":"Technology"},
+                {"symbol":"CCC", "market_value":100.0, "sector":"Finance"},
+            ),
+        )
+        result = analyze(snapshot, self.l5, self.l8)
+        self.assertTrue(0.0 <= result.score <= 1.0)
+        self.assertIn("some_position_market_values_invalid", result.warnings)
+        self.assertEqual(result.metrics["invalid_value_count"], 2)
+
+    def test_portfolio_compatibility_rejects_infinite_values_without_crashing(self):
+        from bot.intelligence.levels.level_09.analyzers.portfolio_compatibility import analyze
+        snapshot = SimpleNamespace(
+            symbol="TEST", sector="Technology", portfolio_context_available=True,
+            portfolio_positions=({"symbol":"AAA", "market_value":float("inf"), "sector":"Finance"},),
+        )
+        result = analyze(snapshot, self.l5, self.l8)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("portfolio_sector_exposure_not_available", result.warnings)
+
+    def test_duplicate_return_dates_make_correlation_unavailable(self):
+        snapshot = SimpleNamespace(
+            symbol="TEST",
+            portfolio_positions=({
+                "symbol":"OTHER", "market_value":100.0,
+                "historical_return_dates":["same"] * 12,
+                "historical_returns":[i / 100 for i in range(12)],
+            },),
+            historical_return_dates=tuple(str(i) for i in range(12)),
+            historical_returns=tuple(i / 100 for i in range(12)),
+            portfolio_context_available=True,
+        )
+        result = analyze_correlation(snapshot, None, None)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("portfolio_return_dates_values_misaligned", result.warnings)
+
 
 if __name__ == "__main__":
     unittest.main()
