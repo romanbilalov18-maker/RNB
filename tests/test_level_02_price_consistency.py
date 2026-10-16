@@ -40,8 +40,7 @@ class Level02PriceAndConsistencyTests(unittest.TestCase):
     def test_signal_conflict_has_zero_confidence_without_level1_evidence(self):
         result = analyze_signal_conflict(
             MarketSnapshot(symbol="TEST", price=100),
-            make_level1(AnalyzerResult("price", 0.9, 0.0)),
-            confidence=0.0,
+            make_level1(AnalyzerResult("price", 0.9, 0.0), confidence=0.0),
         )
         self.assertEqual(result.confidence, 0.0)
         self.assertIn("no_observed_analyzer_results", result.warnings)
