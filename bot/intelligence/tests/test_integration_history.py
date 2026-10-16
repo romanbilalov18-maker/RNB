@@ -1,5 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
+
+import pytest
 
 from bot.intelligence.integration import _returns_by_date, build_market_snapshot
 
@@ -40,10 +42,10 @@ def test_returns_by_date_preserves_clean_real_observations():
 
     returns = _returns_by_date(candles)
 
-    assert returns == {
+    assert returns == pytest.approx({
         datetime(2026, 10, 2, tzinfo=timezone.utc).isoformat(): 0.1,
         datetime(2026, 10, 3, tzinfo=timezone.utc).isoformat(): 0.1,
-    }
+    })
 
 
 def test_snapshot_does_not_pass_ambiguous_history_to_level_09():
