@@ -456,24 +456,24 @@ class DecisionAuditStore:
                 FROM anchored
             """).fetchone()
             dedup_quality = db.execute("""
-                WITH ranked_audit AS (
-                    SELECT id, ticker, recommendation, anchor_session_date,
+                WITH eligible_audit AS (
+                    SELECT a.id, a.ticker, a.recommendation, a.anchor_session_date,
                            ROW_NUMBER() OVER (
-                               PARTITION BY ticker, anchor_session_date
-                               ORDER BY recorded_at DESC, id DESC
+                               PARTITION BY a.ticker, a.anchor_session_date
+                               ORDER BY a.recorded_at DESC, a.id DESC
                            ) AS session_rank
-                    FROM decision_audit
-                    WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
+                    FROM decision_audit AS a
+                    JOIN decision_outcomes AS o ON o.audit_id = a.id
+                    JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                    WHERE a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
+                      AND a.recommendation IN ('BUY', 'SELL')
+                      AND o.horizon_sessions = ?
+                      AND o.direction_correct IS NOT NULL
                 )
                 SELECT
                     SUM(CASE WHEN session_rank = 1 THEN 1 ELSE 0 END) AS scored_learning_observations,
                     SUM(CASE WHEN session_rank > 1 THEN 1 ELSE 0 END) AS duplicate_decisions_excluded
-                FROM ranked_audit AS a
-                JOIN decision_outcomes AS o ON o.audit_id = a.id
-                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE a.recommendation IN ('BUY', 'SELL')
-                  AND o.horizon_sessions = ?
-                  AND o.direction_correct IS NOT NULL
+                FROM eligible_audit
             """, (self.LEARNING_HORIZON,)).fetchone()
             all_duplicates = int(session_quality["anchored_decisions"] or 0) - int(session_quality["unique_ticker_sessions"] or 0)
         result = dict(row)
