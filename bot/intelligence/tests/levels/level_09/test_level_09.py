@@ -149,6 +149,32 @@ class TestLevel9(unittest.TestCase):
         self.assertAlmostEqual(balanced_result.score, 1.0)
         self.assertGreater(balanced_result.score, concentrated_result.score)
 
+    def test_corrupt_history_warning_reaches_l9_and_reduces_correlation_confidence(self):
+        dates = [str(i) for i in range(12)]
+        returns = [float(i * i % 7) / 100 for i in range(12)]
+        snapshot = SimpleNamespace(
+            symbol="TEST", portfolio_context_available=True,
+            historical_return_dates=dates, historical_returns=returns,
+            historical_return_warnings=("portfolio_candidate_history_duplicate_timestamps",),
+            portfolio_positions=(
+                {"symbol": "GOOD", "market_value": 100.0, "market_value_available": True,
+                 "historical_return_dates": dates, "historical_returns": returns},
+                {"symbol": "BAD", "market_value": 50.0, "market_value_available": True,
+                 "historical_return_dates": [], "historical_returns": [],
+                 "historical_return_warnings": ["portfolio_position_history_duplicate_timestamps"]},
+            ),
+        )
+        correlation = analyze_correlation(snapshot, self.l8, self.l6)
+        self.assertIn("portfolio_candidate_history_duplicate_timestamps", correlation.warnings)
+        self.assertIn("portfolio_position_history_duplicate_timestamps", correlation.warnings)
+        self.assertLess(correlation.confidence, 1.0)
+
+        aggregate = Level9Engine().analyze(snapshot, self.l5, self.l6, self.l8)
+        self.assertEqual(len(aggregate.analyzer_results), 6)
+        self.assertIn("portfolio_candidate_history_duplicate_timestamps", aggregate.warnings)
+        self.assertIn("portfolio_position_history_duplicate_timestamps", aggregate.warnings)
+        self.assertLess(aggregate.confidence, 1.0)
+
     def test_correlation_requires_sufficient_history(self):
         snapshot = SimpleNamespace(symbol="TEST", portfolio_context_available=True,
             portfolio_positions=({"symbol":"OTHER", "market_value":100.0,

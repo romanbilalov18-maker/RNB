@@ -30,6 +30,26 @@ def _candle_date(candle: object) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
+def _history_warnings(candles, *, candidate: bool = False) -> tuple[str, ...]:
+    """Describe known history defects without inventing or repairing observations."""
+    seen_dates = set()
+    duplicate_dates = set()
+    for candle in candles or ():
+        day = _candle_date(candle)
+        if day is None or _close(candle) is None:
+            continue
+        if day in seen_dates:
+            duplicate_dates.add(day)
+        seen_dates.add(day)
+    if duplicate_dates:
+        warning = (
+            "portfolio_candidate_history_duplicate_timestamps"
+            if candidate else "portfolio_position_history_duplicate_timestamps"
+        )
+        return (warning,)
+    return ()
+
+
 def _returns_by_date(candles) -> dict[str, float]:
     points = []
     seen_dates = set()
@@ -105,7 +125,9 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
             if analysis.average_volume > 0:
                 volume_ratio = candle_volume / analysis.average_volume
 
-    own_returns = _returns_by_date(getattr(scan, "candle_history", {}).get(ticker, ()))
+    own_candles = getattr(scan, "candle_history", {}).get(ticker, ())
+    own_returns = _returns_by_date(own_candles)
+    own_history_warnings = _history_warnings(own_candles, candidate=True)
     sector = getattr(scan, "sector_by_ticker", {}).get(ticker)
     _, sector_history = _aligned_peer_series(scan, ticker, own_returns, sector) if sector else ((), ())
     correlation_asset_returns, market_history = _aligned_peer_series(scan, ticker, own_returns)
@@ -145,6 +167,8 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
     positions = []
     for symbol, position in getattr(portfolio, "positions", {}).items():
         market_price = scan.current_prices.get(symbol)
+        position_candles = getattr(scan, "candle_history", {}).get(symbol, ())
+        position_returns = _returns_by_date(position_candles)
         positions.append({
             "symbol": symbol,
             "quantity": int(getattr(position, "quantity", 0)),
@@ -152,8 +176,9 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
             "market_value": float(market_price or 0.0) * int(getattr(position, "quantity", 0)),
             "market_value_available": market_price is not None and float(market_price) > 0,
             "sector": getattr(scan, "sector_by_ticker", {}).get(symbol),
-            "historical_return_dates": list(sorted(_returns_by_date(getattr(scan, "candle_history", {}).get(symbol, ())))),
-            "historical_returns": [value for _, value in sorted(_returns_by_date(getattr(scan, "candle_history", {}).get(symbol, ())).items())],
+            "historical_return_dates": list(sorted(position_returns)),
+            "historical_returns": [value for _, value in sorted(position_returns.items())],
+            "historical_return_warnings": list(_history_warnings(position_candles)),
         })
 
     return MarketSnapshot(
@@ -189,6 +214,7 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         peer_count=len(sector_changes),
         historical_returns=tuple(own_returns[day] for day in sorted(own_returns)),
         historical_return_dates=tuple(sorted(own_returns)),
+        historical_return_warnings=own_history_warnings,
         market_return_history=market_history,
         correlation_asset_returns=correlation_asset_returns,
         correlation_benchmark="scanned_peer_basket" if market_history else None,

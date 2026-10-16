@@ -56,6 +56,7 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     )
     correlations = []
     mismatched_histories = int(candidate_mismatch)
+    history_warnings = list(getattr(snapshot, "historical_return_warnings", ()) or ())
     eligible_positions = 0
     for position in positions:
         if position.get("symbol") == snapshot.symbol:
@@ -63,6 +64,10 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
         eligible_positions += 1
         if not position.get("market_value_available", True):
             continue
+        history_warnings.extend(
+            warning for warning in (position.get("historical_return_warnings", ()) or ())
+            if isinstance(warning, str) and warning
+        )
         held, mismatch = _dated_returns(
             position.get("historical_return_dates", ()),
             position.get("historical_returns", ()),
@@ -79,7 +84,7 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
             correlations.append((abs(correlation), value, len(pairs), position.get("symbol")))
 
     if not correlations:
-        warnings = ["portfolio_correlation_history_insufficient"]
+        warnings = ["portfolio_correlation_history_insufficient"] + history_warnings
         if mismatched_histories:
             warnings.append("portfolio_return_dates_values_misaligned")
         return AnalyzerResult(
@@ -99,6 +104,11 @@ def analyze(snapshot, level8_result, level6_result) -> AnalyzerResult:
     if mismatched_histories:
         warnings.append("portfolio_return_dates_values_misaligned")
         confidence *= max(0.0, 1.0 - mismatched_histories / max(1, len(positions) + 1))
+    if history_warnings:
+        warnings.extend(history_warnings)
+        # Known corrupt histories reduce confidence even when other positions
+        # still have enough data to calculate a correlation.
+        confidence *= max(0.0, 1.0 - len(set(history_warnings)) / max(1, len(positions) + 1))
     return AnalyzerResult(
         "correlation_risk", score, max(0.0, min(1.0, confidence)),
         {"weighted_absolute_correlation": weighted_correlation,

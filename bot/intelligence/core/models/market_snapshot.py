@@ -46,6 +46,8 @@ class MarketSnapshot:
     correlation_benchmark: Optional[str] = None
     historical_returns: tuple[float, ...] = ()
     historical_return_dates: tuple[str, ...] = ()
+    # Explicit provenance for unavailable/ambiguous return history; never infer clean history from empty arrays.
+    historical_return_warnings: tuple[str, ...] = ()
     market_return_history: tuple[float, ...] = ()
     correlation_asset_returns: tuple[float, ...] = ()
     sector_return_history: tuple[float, ...] = ()
