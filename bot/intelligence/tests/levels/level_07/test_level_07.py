@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import Level1Engine
 from bot.intelligence.levels.level_02.level_02_engine import Level2Engine
@@ -7,6 +8,7 @@ from bot.intelligence.levels.level_04.level_04_engine import Level4Engine
 from bot.intelligence.levels.level_05.level_05_engine import Level5Engine
 from bot.intelligence.levels.level_06.level_06_engine import Level6Engine
 from bot.intelligence.levels.level_07.level_07_engine import Level7Engine
+from bot.intelligence.levels.level_07.analyzers.regime_transition import analyze as analyze_regime_transition
 
 
 class TestLevel7(unittest.TestCase):
@@ -41,6 +43,31 @@ class TestLevel7(unittest.TestCase):
         before = (self.l3, self.l4, self.l5, self.l6)
         Level7Engine().analyze(self.snapshot, *before)
         self.assertEqual(before, (self.l3, self.l4, self.l5, self.l6))
+
+    def test_upstream_symbol_mismatch_disables_aggregate(self):
+        result = Level7Engine().analyze(self.snapshot, replace(self.l3, symbol="OTHER"), self.l4, self.l5, self.l6)
+        self.assertEqual(result.score, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("level3_symbol_mismatch", result.warnings)
+        self.assertFalse(result.metadata["cross_level_context_valid"])
+
+    def test_non_finite_historical_returns_are_filtered_and_reported(self):
+        snapshot = replace(self.snapshot, historical_returns=[0.01, 0.02, float("nan"), 0.03, 0.01, 0.02, 0.01, 0.03, 0.01])
+        result = Level7Engine().analyze(snapshot, self.l3, self.l4, self.l5, self.l6)
+        self.assertIn("historical_returns_invalid_observations", result.warnings)
+        self.assertTrue(0.0 <= result.momentum_acceleration <= 1.0)
+
+    def test_zero_momentum_does_not_claim_regime_transition(self):
+        snapshot = replace(self.snapshot, momentum=0.0)
+        result = analyze_regime_transition(snapshot, self.l3)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("regime_direction_ambiguous", result.warnings)
+
+    def test_missing_volume_baseline_is_unavailable(self):
+        snapshot = replace(self.snapshot, average_volume=0.0)
+        result = Level7Engine().analyze(snapshot, self.l3, self.l4, self.l5, self.l6)
+        self.assertEqual(result.analyzer_results["temporal_anomaly"].confidence, 0.0)
+        self.assertIn("historical_volume_not_available", result.warnings)
 
 
 if __name__ == "__main__":
