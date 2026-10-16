@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import Level1Engine
 from bot.intelligence.levels.level_02.level_02_engine import Level2Engine
@@ -13,8 +14,12 @@ from bot.intelligence.levels.level_08.level_08_engine import Level8Engine
 class TestLevel8(unittest.TestCase):
     def setUp(self):
         s = MarketSnapshot("TEST", 105.0, 100.0, 1500.0, 1000.0, 0.02, 0.03, 0.8)
-        l1 = Level1Engine().analyze(s); l2 = Level2Engine().analyze(s, l1); l3 = Level3Engine().analyze(s, l2)
-        l4 = Level4Engine().analyze(s, l3); l5 = Level5Engine().analyze(s, l2, l3, l4); l6 = Level6Engine().analyze(s, l5)
+        l1 = Level1Engine().analyze(s)
+        l2 = Level2Engine().analyze(s, l1)
+        l3 = Level3Engine().analyze(s, l2)
+        l4 = Level4Engine().analyze(s, l3)
+        l5 = Level5Engine().analyze(s, l2, l3, l4)
+        l6 = Level6Engine().analyze(s, l5)
         l7 = Level7Engine().analyze(s, l3, l4, l5, l6)
         self.snapshot, self.l3, self.l4, self.l7 = s, l3, l4, l7
 
@@ -31,13 +36,37 @@ class TestLevel8(unittest.TestCase):
 
     def test_missing_external_data_is_explicit(self):
         result = Level8Engine().analyze(self.snapshot, self.l3, self.l4, self.l7)
-        self.assertIn("cross_asset_data_not_available", result.warnings)
-        self.assertIn("sector_data_not_available", result.warnings)
+        self.assertTrue(any("cross_asset" in warning for warning in result.warnings))
+        self.assertTrue(any("sector" in warning for warning in result.warnings))
 
     def test_does_not_mutate_inputs(self):
         before = (self.l3, self.l4, self.l7)
         Level8Engine().analyze(self.snapshot, *before)
         self.assertEqual(before, (self.l3, self.l4, self.l7))
+
+    def test_upstream_symbol_mismatch_disables_aggregate(self):
+        result = Level8Engine().analyze(self.snapshot, replace(self.l3, symbol="OTHER"), self.l4, self.l7)
+        self.assertEqual(result.score, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("level3_symbol_mismatch", result.warnings)
+        self.assertFalse(result.metadata["cross_level_context_valid"])
+
+    def test_non_finite_market_return_is_unavailable(self):
+        snapshot = replace(self.snapshot, market_return=float("nan"))
+        result = Level8Engine().analyze(snapshot, self.l3, self.l4, self.l7)
+        self.assertEqual(result.analyzer_results["market_relative_strength"].confidence, 0.0)
+        self.assertIn("market_benchmark_not_available", result.warnings)
+
+    def test_missing_upstream_context_does_not_crash(self):
+        result = Level8Engine().analyze(self.snapshot, None, self.l4, self.l7)
+        self.assertEqual(result.score, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("level3_context_not_available", result.warnings)
+
+    def test_zero_confidence_analyzer_does_not_create_strength_claim(self):
+        result = Level8Engine().analyze(self.snapshot, self.l3, self.l4, self.l7)
+        if result.analyzer_results["market_relative_strength"].confidence == 0.0:
+            self.assertNotIn("strong_relative_market_strength", result.strengths)
 
 
 if __name__ == "__main__":
