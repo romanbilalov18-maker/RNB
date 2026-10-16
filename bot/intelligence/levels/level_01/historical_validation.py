@@ -49,7 +49,7 @@ def load_rows(path: Path):
     return grouped
 
 
-def evaluate(path: Path, window: int = 20, horizon: int = 5):
+def evaluate(path: Path, window: int = 20, horizon: int = 5, data_source: str = "user_supplied_csv"):
     if window < 3 or horizon < 1:
         raise ValueError("window must be >= 3 and horizon must be >= 1")
     grouped = load_rows(path)
@@ -118,7 +118,7 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5):
     low = [row["future_return"] for row in predictions if row["score"] <= low_cut]
     report = {
         "status": "completed",
-        "data_source": "user_supplied_csv",
+        "data_source": data_source,
         "input_file": path.name,
         "symbols": sorted(grouped),
         "input_rows": sum(len(rows) for rows in grouped.values()),
@@ -156,9 +156,10 @@ def main():
     parser.add_argument("--csv", required=True, type=Path, help="Real OHLCV CSV; no synthetic fallback")
     parser.add_argument("--window", type=int, default=20, help="Trailing rows used for indicators (default: 20)")
     parser.add_argument("--horizon", type=int, default=5, help="Rows ahead used to score outcomes (default: 5)")
+    parser.add_argument("--data-source", default="user_supplied_csv", help="Explicit provenance label for the input dataset")
     parser.add_argument("--output", type=Path, default=Path("level_01_historical_report.json"))
     args = parser.parse_args()
-    report = evaluate(args.csv, args.window, args.horizon)
+    report = evaluate(args.csv, args.window, args.horizon, args.data_source)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, ensure_ascii=False))

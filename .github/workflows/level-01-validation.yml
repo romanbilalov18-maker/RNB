@@ -48,6 +48,7 @@ jobs:
         run: |
           python -m unittest bot.intelligence.tests.levels.level_01.test_level_01 -v
           python -m unittest tests.test_level_01_historical_validation -v
+          python -m unittest tests.test_level_01_quality_upgrade -v
 
   historical-validation:
     name: Historical signal diagnostic (real T-Invest data)
