@@ -4,16 +4,19 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 
 
+def _is_finite_number(value: object) -> bool:
+    """Reject bool explicitly: Python treats bool as a subclass of int."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
     price = snapshot.price
     previous_price = snapshot.previous_price
     if previous_price is None:
         return AnalyzerResult("price", 0.0, 0.0, {"change": None}, ("previous_price_missing",))
     if (
-        not isinstance(price, (int, float))
-        or not isinstance(previous_price, (int, float))
-        or not math.isfinite(price)
-        or not math.isfinite(previous_price)
+        not _is_finite_number(price)
+        or not _is_finite_number(previous_price)
         or price <= 0
         or previous_price <= 0
     ):
