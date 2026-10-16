@@ -425,6 +425,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(observations[0].decision_time, as_of.isoformat())
             quality = store.summary()["learning_data_quality"]
             self.assertEqual(quality["unique_ticker_sessions"], 1)
+            self.assertEqual(quality["duplicate_scored_observations_excluded"], 0)
             self.assertEqual(quality["learning_observations_after_deduplication"], 1)
 
     def test_daily_candle_completion_excludes_same_day_close_to_prevent_leakage(self):
