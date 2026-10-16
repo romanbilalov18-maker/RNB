@@ -68,6 +68,13 @@ class Level02Level01CompatibilityTests(unittest.TestCase):
         self.assertIn("relative_market_context_unavailable", result.warnings)
         self.assertIn("signal_conflict_semantics", result.metadata)
 
+    def test_level2_rejects_level1_result_for_different_symbol(self):
+        with self.assertRaisesRegex(ValueError, "does not match snapshot symbol"):
+            analyze_level_02(
+                MarketSnapshot(symbol="AAA", price=100),
+                Level1Result(symbol="BBB", score=0.5, confidence=0.8, consistency=0.8),
+            )
+
     def test_level2_does_not_claim_confident_result_without_usable_inputs(self):
         result = analyze_level_02(
             MarketSnapshot(symbol="TEST", price=100),
