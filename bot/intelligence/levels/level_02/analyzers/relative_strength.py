@@ -1,19 +1,46 @@
+import math
+
 from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
 
 
 def analyze(snapshot: MarketSnapshot, level1: Level1Result) -> AnalyzerResult:
-    results = {
-        result.analyzer: result
-        for result in level1.analyzer_results
-        if result.analyzer in {"momentum", "liquidity"} and result.confidence > 0
-    }
-    weights = {"momentum": 0.65, "liquidity": 0.35}
-    effective = {name: weights[name] * result.confidence for name, result in results.items()}
-    total = sum(effective.values())
-    if total <= 0:
-        return AnalyzerResult("relative_strength", 0.0, 0.0, {"available_inputs": []}, ("relative_strength_inputs_unavailable",))
-    score = sum(results[name].score * effective[name] for name in results) / total
-    confidence = total / sum(weights[name] for name in results)
-    return AnalyzerResult("relative_strength", score, min(1.0, confidence), {"momentum_score": results.get("momentum").score if "momentum" in results else None, "liquidity_score": results.get("liquidity").score if "liquidity" in results else None, "available_inputs": list(results)})
+    """Measure strength against a real benchmark, not liquidity or momentum proxies."""
+    relative_return = snapshot.relative_market_return
+    sample_count = snapshot.relative_market_sample_count
+
+    if (
+        not snapshot.relative_market_context_available
+        or isinstance(relative_return, bool)
+        or not isinstance(relative_return, (int, float))
+        or not math.isfinite(relative_return)
+        or isinstance(sample_count, bool)
+        or not isinstance(sample_count, int)
+        or sample_count <= 0
+    ):
+        return AnalyzerResult(
+            "relative_strength",
+            0.0,
+            0.0,
+            {
+                "relative_market_return": relative_return,
+                "relative_market_sample_count": sample_count,
+                "available_inputs": [],
+            },
+            ("relative_market_context_unavailable",),
+        )
+
+    # Scores express direction of relative performance; the raw return remains
+    # available in metrics. Avoid inventing a volatility/scale normalization.
+    score = 1.0 if relative_return > 0 else 0.0 if relative_return < 0 else 0.5
+    return AnalyzerResult(
+        "relative_strength",
+        score,
+        1.0,
+        {
+            "relative_market_return": relative_return,
+            "relative_market_sample_count": sample_count,
+            "available_inputs": ["relative_market_return"],
+        },
+    )
