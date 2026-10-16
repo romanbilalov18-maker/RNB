@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -55,6 +56,17 @@ class MarketSnapshot:
     portfolio_context_available: bool = False
 
     def price_change(self) -> Optional[float]:
-        if self.previous_price is None or self.previous_price == 0:
+        """Return a finite fractional price change only when both prices are valid."""
+        price = self.price
+        previous_price = self.previous_price
+        if (
+            not isinstance(price, (int, float))
+            or not isinstance(previous_price, (int, float))
+            or not math.isfinite(price)
+            or not math.isfinite(previous_price)
+            or price <= 0
+            or previous_price <= 0
+        ):
             return None
-        return (self.price - self.previous_price) / self.previous_price
+        change = (price - previous_price) / previous_price
+        return change if math.isfinite(change) else None
