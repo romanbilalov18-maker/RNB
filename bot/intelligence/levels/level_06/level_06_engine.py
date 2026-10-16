@@ -1,5 +1,6 @@
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from .analyzers import downside_risk, volatility_risk, reward_potential, risk_reward, adverse_scenario, risk_consistency
+from .analyzers._validation import number
 from .models.level_06_result import Level6Result
 
 
@@ -14,6 +15,21 @@ class Level6Engine:
     }
 
     def analyze(self, snapshot: MarketSnapshot, level5_result) -> Level6Result:
+        context_warnings = []
+        if level5_result is None:
+            context_warnings.append("level5_context_not_available")
+        else:
+            if hasattr(level5_result, "symbol"):
+                symbol = getattr(level5_result, "symbol")
+                if not isinstance(symbol, str) or not symbol:
+                    context_warnings.append("level5_symbol_not_available")
+                elif symbol != snapshot.symbol:
+                    context_warnings.append("level5_symbol_mismatch")
+            if number(getattr(level5_result, "score", None), minimum=0.0, maximum=1.0) is None:
+                context_warnings.append("level5_score_invalid")
+            if number(getattr(level5_result, "confidence", None), minimum=0.0, maximum=1.0) is None:
+                context_warnings.append("level5_confidence_invalid")
+
         results = {
             "downside_risk": downside_risk.analyze(snapshot, level5_result),
             "volatility_risk": volatility_risk.analyze(snapshot),
@@ -23,9 +39,7 @@ class Level6Engine:
         results["adverse_scenario"] = adverse_scenario.analyze(snapshot, level5_result)
         results["risk_consistency"] = risk_consistency.analyze(level5_result, results["downside_risk"], results["risk_reward"])
 
-        # Level 6 score is a quality score (higher is better). Risk analyzers
-        # report risk severity (higher is worse), so invert those inputs only
-        # for aggregation while preserving their raw scores in the result.
+        # Risk severity is higher-is-worse; aggregate score is higher-is-better.
         quality_scores = {
             "downside_risk": 1.0 - results["downside_risk"].score,
             "volatility_risk": 1.0 - results["volatility_risk"].score,
@@ -48,19 +62,28 @@ class Level6Engine:
             for key, result in results.items()
         ) / sum(self.WEIGHTS.values())
         consistency = results["risk_consistency"].score
-        warnings = list(dict.fromkeys(w for r in results.values() for w in r.warnings))
+        warnings = list(dict.fromkeys(context_warnings + [w for result in results.values() for w in result.warnings]))
         strengths, weaknesses = [], []
-        if results["risk_reward"].score >= 0.65:
+        if not context_warnings and results["risk_reward"].score >= 0.65:
             strengths.append("favorable_risk_reward")
         if results["downside_risk"].score >= 0.65:
             weaknesses.append("elevated_downside_risk")
         if results["adverse_scenario"].score >= 0.65:
             weaknesses.append("adverse_scenario_material")
+        if context_warnings:
+            score = 0.0
+            confidence = 0.0
+            weaknesses.append("invalid_level5_context")
         return Level6Result(
-            symbol=snapshot.symbol, score=max(0.0, min(1.0, score)), confidence=max(0.0, min(1.0, confidence)),
-            consistency=consistency, downside_risk=results["downside_risk"].score,
-            volatility_risk=results["volatility_risk"].score, reward_potential=results["reward_potential"].score,
-            risk_reward=results["risk_reward"].score, adverse_scenario=results["adverse_scenario"].score,
-            risk_consistency=results["risk_consistency"].score, analyzer_results=results,
-            strengths=strengths, weaknesses=weaknesses, warnings=warnings, metadata={"version": "1.0"},
+            symbol=snapshot.symbol, score=max(0.0, min(1.0, score)),
+            confidence=max(0.0, min(1.0, confidence)), consistency=consistency,
+            downside_risk=results["downside_risk"].score,
+            volatility_risk=results["volatility_risk"].score,
+            reward_potential=results["reward_potential"].score,
+            risk_reward=results["risk_reward"].score,
+            adverse_scenario=results["adverse_scenario"].score,
+            risk_consistency=results["risk_consistency"].score,
+            analyzer_results=results, strengths=strengths, weaknesses=weaknesses,
+            warnings=warnings,
+            metadata={"version": "1.1", "level5_context_valid": not context_warnings},
         )
