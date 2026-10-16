@@ -377,6 +377,56 @@ class DecisionAuditStoreTests(unittest.TestCase):
 
 
 
+    def test_later_wait_does_not_discard_matured_buy_learning_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-02T12:00:00+00:00")
+            history = [candle("2026-10-01", 100)]
+
+            store.record_cycle(
+                "early-buy",
+                {"AAA": SimpleNamespace(action="BUY", reason="valid signal")},
+                [],
+                equity=1000, cash=1000, total_commissions=0,
+                current_prices={"AAA": 100},
+                candle_history={"AAA": history},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                commission_rate=.001,
+                as_of=as_of,
+            )
+            # A later WAIT on the same ticker/session must not overwrite the
+            # only trainable directional prediction for that session.
+            store.record_cycle(
+                "late-wait",
+                {"AAA": SimpleNamespace(action="WAIT", reason="no signal")},
+                [],
+                equity=1000, cash=1000, total_commissions=0,
+                current_prices={"AAA": 100},
+                candle_history={"AAA": history},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                commission_rate=.001,
+                as_of=as_of + timedelta(minutes=5),
+            )
+            future = [
+                candle("2026-10-05", 101),
+                candle("2026-10-06", 102),
+                candle("2026-10-07", 103),
+            ]
+            store.record_cycle(
+                "maturity-cycle", {}, [], equity=1000, cash=1000, total_commissions=0,
+                candle_history={"AAA": history + future},
+                commission_rate=.001,
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+
+            observations = store.learning_observations_by_ticker()["AAA"]
+            self.assertEqual(len(observations), 1)
+            self.assertTrue(observations[0].correct)
+            self.assertEqual(observations[0].decision_time, as_of.isoformat())
+            quality = store.summary()["learning_data_quality"]
+            self.assertEqual(quality["unique_ticker_sessions"], 1)
+            self.assertEqual(quality["learning_observations_after_deduplication"], 1)
+
     def test_daily_candle_completion_excludes_same_day_close_to_prevent_leakage(self):
         before_close_buffer = datetime.fromisoformat("2026-10-14T15:59:00+00:00")
         after_close_buffer = datetime.fromisoformat("2026-10-14T16:00:00+00:00")
