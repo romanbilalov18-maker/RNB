@@ -78,9 +78,9 @@ class RiskScoreSemanticsTests(unittest.TestCase):
 
     def test_level9_higher_concentration_and_correlation_reduce_quality(self):
         snapshot = MarketSnapshot(symbol="AAA", price=100.0)
-        level5 = SimpleNamespace(score=0.6, confidence=0.9)
-        level6 = SimpleNamespace(score=0.6, confidence=0.9)
-        level8 = SimpleNamespace(score=0.6, confidence=0.9)
+        level5 = SimpleNamespace(symbol="AAA", score=0.6, confidence=0.9)
+        level6 = SimpleNamespace(symbol="AAA", score=0.6, risk_reward=0.6, confidence=0.9)
+        level8 = SimpleNamespace(symbol="AAA", score=0.6, confidence=0.9)
 
         def result(name, score, confidence=1.0):
             return AnalyzerResult(name, score, confidence)
