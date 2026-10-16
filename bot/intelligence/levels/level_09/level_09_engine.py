@@ -33,8 +33,6 @@ class Level9Engine:
             "opportunity_priority": opportunity_priority.analyze(level5_result, level6_result, level8_result),
             "portfolio_consistency": portfolio_consistency.analyze(level5_result, level6_result, level8_result),
         }
-
-        # Risk severity is higher-is-worse; quality is higher-is-better.
         quality_scores = {
             "concentration_risk": 1.0 - results["concentration_risk"].score,
             "diversification_value": results["diversification_value"].score,
@@ -44,8 +42,8 @@ class Level9Engine:
             "portfolio_consistency": results["portfolio_consistency"].score,
         }
         effective = {
-            key: weight * max(0.0, min(1.0, results[key].confidence))
-            for key, weight in self.WEIGHTS.items()
+            key: self.WEIGHTS[key] * max(0.0, min(1.0, results[key].confidence))
+            for key in self.WEIGHTS
         }
         total_effective = sum(effective.values())
         score = (
@@ -79,5 +77,6 @@ class Level9Engine:
             diversification_value=results["diversification_value"].score, portfolio_compatibility=results["portfolio_compatibility"].score,
             correlation_risk=results["correlation_risk"].score, opportunity_priority=results["opportunity_priority"].score,
             portfolio_consistency=results["portfolio_consistency"].score, analyzer_results=results,
-            strengths=strengths, weaknesses=weaknesses, warnings=warnings, metadata={"version": "1.1", "cross_level_context_valid": not context_warnings},
+            strengths=strengths, weaknesses=weaknesses, warnings=warnings,
+            metadata={"version": "1.1", "cross_level_context_valid": not context_warnings},
         )
