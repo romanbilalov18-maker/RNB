@@ -11,6 +11,10 @@ WEIGHTS = (0.20, 0.18, 0.18, 0.16, 0.14, 0.14)
 
 def analyze(snapshot: MarketSnapshot, level1: Level1Result) -> Level2Result:
     """Analyze the snapshot using Level 1 evidence while preserving missingness."""
+    if level1.symbol != snapshot.symbol:
+        raise ValueError(
+            f"Level 1 symbol {level1.symbol!r} does not match snapshot symbol {snapshot.symbol!r}"
+        )
     results = tuple(module.analyze(snapshot, level1) for module in ANALYZERS)
     effective_weights = [weight * result.confidence for result, weight in zip(results, WEIGHTS)]
     total_effective_weight = sum(effective_weights)
