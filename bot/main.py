@@ -60,12 +60,7 @@ def main() -> None:
                     held_tickers=set(portfolio.positions),
                     tracked_tickers=audit_store.pending_tickers(),
                 )
-                missing_prices = sorted(set(portfolio.positions) - set(result.current_prices))
-                if missing_prices:
-                    raise RuntimeError(
-                        "Cycle skipped: missing live prices for open positions: "
-                        + ", ".join(missing_prices)
-                    )
+                _validate_held_position_prices(portfolio, result.current_prices)
                 learning_observations = audit_store.learning_observations_by_ticker()
                 intelligence_results = analyze_scan(
                     result,
@@ -152,6 +147,16 @@ def main() -> None:
             print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
             time.sleep(sleep_seconds)
 
+
+
+def _validate_held_position_prices(portfolio, market_prices) -> None:
+    """Reject an incomplete mark-to-market snapshot before mutating the portfolio."""
+    missing = sorted(set(portfolio.positions) - set(market_prices))
+    if missing:
+        raise RuntimeError(
+            "Cycle skipped: missing live prices for open positions: "
+            + ", ".join(missing)
+        )
 
 
 def _record_cycle_with_retries(audit_store, *, cycle_id: str, **kwargs) -> int:
