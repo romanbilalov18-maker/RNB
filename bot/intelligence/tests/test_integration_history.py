@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.intelligence.integration import _returns_by_date, build_market_snapshot
+from bot.intelligence.integration import _history_warnings, _returns_by_date, build_market_snapshot
 
 
 def _candle(day, close, volume=100):
@@ -71,3 +71,41 @@ def test_snapshot_does_not_pass_ambiguous_history_to_level_09():
     assert held["AAA"]["historical_return_dates"] == []
     assert held["AAA"]["historical_returns"] == []
     assert snapshot.historical_returns == ()
+
+
+
+def test_history_warning_identifies_duplicate_timestamps_without_fabricating_returns():
+    candles = [_candle(1, 10.0), _candle(2, 11.0), _candle(2, 12.0)]
+
+    assert _history_warnings(candles, candidate=True) == (
+        "portfolio_candidate_history_duplicate_timestamps",
+    )
+    assert _history_warnings(candles) == (
+        "portfolio_position_history_duplicate_timestamps",
+    )
+    assert _returns_by_date(candles) == {}
+
+
+def test_snapshot_preserves_history_corruption_reason_for_candidate_and_positions():
+    duplicate = [_candle(1, 10.0), _candle(2, 11.0), _candle(2, 12.0)]
+    scan = _scan(duplicate)
+    scan.candle_history["BBB"] = duplicate
+    analysis = SimpleNamespace(ticker="AAA", average_volume=100.0, volatility=0.1, momentum=0.02)
+    portfolio = SimpleNamespace(positions={
+        "AAA": SimpleNamespace(quantity=2, average_price=9.0),
+        "BBB": SimpleNamespace(quantity=1, average_price=18.0),
+    })
+
+    snapshot = build_market_snapshot(scan, analysis, portfolio=portfolio)
+
+    assert snapshot.historical_return_warnings == (
+        "portfolio_candidate_history_duplicate_timestamps",
+    )
+    held = {item["symbol"]: item for item in snapshot.portfolio_positions}
+    assert held["AAA"]["historical_return_warnings"] == [
+        "portfolio_position_history_duplicate_timestamps"
+    ]
+    assert held["BBB"]["historical_return_warnings"] == [
+        "portfolio_position_history_duplicate_timestamps"
+    ]
+    assert held["AAA"]["historical_returns"] == []
