@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Tuple
 
@@ -20,5 +21,5 @@ class Level2Result:
 
     def __post_init__(self) -> None:
         for name, value in (("score", self.score), ("confidence", self.confidence), ("consistency", self.consistency)):
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be a finite number between 0 and 1")
