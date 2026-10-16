@@ -37,7 +37,7 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> Level3Result:
     confidence = sum(weight * value for weight, value in zip(WEIGHTS, confidences))
     strengths = tuple(r.analyzer for r in results if r.confidence > 0 and r.score >= 0.70)
     weaknesses = tuple(r.analyzer for r in results if r.confidence > 0 and r.score <= 0.30)
-    warnings = tuple(dict.fromkeys((*level2.warnings, *(w for r in results for w in r.warnings)))
+    warnings = tuple(dict.fromkeys((*level2.warnings, *(w for r in results for w in r.warnings))))
 
     return Level3Result(
         symbol=snapshot.symbol,
