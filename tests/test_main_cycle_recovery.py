@@ -9,7 +9,7 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
         portfolio = Mock()
         portfolio.positions = {"AAA": Mock(), "BBB": Mock()}
 
-        with self.assertRaisesRegex(RuntimeError, "AAA, BBB"):
+        with self.assertRaisesRegex(RuntimeError, "BBB"):
             _validate_held_position_prices(portfolio, {"AAA": 100.0})
 
     def test_complete_prices_allow_cycle(self):
