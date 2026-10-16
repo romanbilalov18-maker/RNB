@@ -269,6 +269,17 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(summary["outcome_readiness"]["learning_snapshots"], 1)
             self.assertEqual(summary["learning_observations"], 0)
             self.assertEqual(summary["outcomes_ready_but_missing"], {"1": 0, "3": 0, "5": 0})
+            self.assertEqual(
+                [(row["horizon_sessions"], row["evaluated"], row["scored"])
+                 for row in summary["forward_outcomes"]],
+                [(1, 0, 0), (3, 0, 0), (5, 0, 0)],
+            )
+            self.assertEqual(summary["learning_pipeline"]["total_decisions"], 1)
+            self.assertEqual(summary["learning_pipeline"]["missing_anchor"], 0)
+            self.assertEqual(summary["learning_pipeline"]["non_directional"], 0)
+            self.assertEqual(summary["learning_pipeline"]["missing_learning_snapshot"], 0)
+            self.assertEqual(summary["learning_pipeline"]["awaiting_matured_outcome"], 1)
+            self.assertEqual(summary["learning_pipeline"]["observations_after_deduplication"], 0)
 
     def test_pending_tickers_excludes_decisions_without_a_valid_anchor(self):
         with tempfile.TemporaryDirectory() as tmp:
