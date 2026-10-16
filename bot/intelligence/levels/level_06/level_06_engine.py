@@ -19,11 +19,12 @@ class Level6Engine:
         if level5_result is None:
             context_warnings.append("level5_context_not_available")
         else:
-            symbol = getattr(level5_result, "symbol", None)
-            if not isinstance(symbol, str) or not symbol:
-                context_warnings.append("level5_symbol_not_available")
-            elif symbol != snapshot.symbol:
-                context_warnings.append("level5_symbol_mismatch")
+            if hasattr(level5_result, "symbol"):
+                symbol = getattr(level5_result, "symbol")
+                if not isinstance(symbol, str) or not symbol:
+                    context_warnings.append("level5_symbol_not_available")
+                elif symbol != snapshot.symbol:
+                    context_warnings.append("level5_symbol_mismatch")
             if number(getattr(level5_result, "score", None), minimum=0.0, maximum=1.0) is None:
                 context_warnings.append("level5_score_invalid")
             if number(getattr(level5_result, "confidence", None), minimum=0.0, maximum=1.0) is None:
