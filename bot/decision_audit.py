@@ -389,6 +389,46 @@ class DecisionAuditStore:
                 continue
             grouped.setdefault(str(row["ticker"]), []).append(observation)
 
+        # Realized closed-trade feedback is a separate training example. It must
+        # not wait for a forward market-price horizon or require BUY/SELL as the
+        # recommendation: stop-loss/take-profit exits commonly occur while the
+        # recommendation is WAIT. Only rows with a saved L1-L15 snapshot and a
+        # valid SELL entry notional are trainable.
+        with self._connect() as db:
+            trade_rows = db.execute("""
+                SELECT a.ticker, a.recorded_at, a.virtual_action, a.virtual_quantity,
+                       a.realized_pnl, a.entry_price,
+                       s.level_scores_json, s.analyzer_scores_json, s.regime
+                FROM decision_audit AS a
+                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
+                WHERE instr('+' || a.virtual_action || '+', '+SELL+') > 0
+                  AND a.virtual_quantity > 0
+                  AND a.entry_price IS NOT NULL
+                  AND a.entry_price > 0
+                ORDER BY a.recorded_at ASC, a.id ASC
+            """).fetchall()
+        for row in trade_rows:
+            try:
+                notional = float(row["entry_price"]) * int(row["virtual_quantity"])
+                if notional <= 0 or not math.isfinite(notional):
+                    continue
+                realized_return = float(row["realized_pnl"]) / notional
+                if not math.isfinite(realized_return):
+                    continue
+                observation = LearningObservation(
+                    outcome_return=realized_return,
+                    correct=realized_return > 0,
+                    level_scores=json.loads(row["level_scores_json"]),
+                    analyzer_scores=json.loads(row["analyzer_scores_json"]),
+                    regime=row["regime"],
+                    decision_time=row["recorded_at"],
+                    outcome_target_date=row["recorded_at"][:10],
+                    realized_trade_return=realized_return,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            grouped.setdefault(str(row["ticker"]), []).append(observation)
+
         return {
             ticker: tuple(observations[-self.MAX_LEARNING_OBSERVATIONS_PER_TICKER:])
             for ticker, observations in grouped.items()
