@@ -1,4 +1,7 @@
 import unittest
+from dataclasses import replace
+
+from bot.intelligence.levels.level_13.analyzers.adverse_scenario import analyze as analyze_adverse_scenario
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import analyze as analyze_level_01, aggregate
@@ -42,6 +45,12 @@ class TestLevel13(unittest.TestCase):
     def test_detects_continuation_signal(self):
         result = Level13Engine().analyze(self.snapshot, *self.inputs)
         self.assertGreaterEqual(result.continuation, 0.0)
+
+    def test_adverse_scenario_confidence_includes_l12_confidence(self):
+        level6, _level7, level10, level12 = self.inputs
+        uncertain_l12 = replace(level12, confidence=0.05)
+        result = analyze_adverse_scenario(level6, level10, uncertain_l12)
+        self.assertEqual(result.confidence, 0.05)
 
     def test_does_not_create_trade_decision(self):
         result = Level13Engine().analyze(self.snapshot, *self.inputs)
