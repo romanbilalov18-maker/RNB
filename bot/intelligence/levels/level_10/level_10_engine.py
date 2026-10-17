@@ -27,7 +27,15 @@ class Level10Engine:
         "decision_readiness": 0.15,
     }
 
-    REQUIRED_NUMERIC_FIELDS = ("score", "confidence")
+    # These are the numeric fields consumed by L10 analyzers. Most analyzers use
+    # score/confidence; risk_adjusted_conviction also reads two level-specific metrics.
+    REQUIRED_NUMERIC_FIELDS = {
+        5: ("score", "confidence"),
+        6: ("score", "confidence", "risk_reward"),
+        7: ("score", "confidence"),
+        8: ("score", "confidence"),
+        9: ("score", "confidence", "opportunity_priority"),
+    }
 
     @staticmethod
     def _valid_unit_interval_number(value: Any) -> bool:
@@ -62,10 +70,17 @@ class Level10Engine:
             elif isinstance(expected_symbol, str) and symbol != expected_symbol:
                 warnings.append(f"{prefix}_symbol_mismatch")
 
-            for field in cls.REQUIRED_NUMERIC_FIELDS:
+            for field in cls.REQUIRED_NUMERIC_FIELDS[level]:
                 value = getattr(result, field, None)
                 if not cls._valid_unit_interval_number(value):
                     warnings.append(f"{prefix}_{field}_invalid")
+
+            result_warnings = getattr(result, "warnings", None)
+            if (
+                not isinstance(result_warnings, (list, tuple))
+                or any(not isinstance(item, str) for item in result_warnings)
+            ):
+                warnings.append(f"{prefix}_warnings_invalid")
 
         return list(dict.fromkeys(warnings))
 
@@ -91,8 +106,9 @@ class Level10Engine:
             )
             for name in analyzer_names
         }
+        snapshot_symbol = getattr(snapshot, "symbol", "")
         return Level10Result(
-            symbol=getattr(snapshot, "symbol", "") if isinstance(getattr(snapshot, "symbol", ""), str) else "",
+            symbol=snapshot_symbol if isinstance(snapshot_symbol, str) else "",
             score=0.0,
             confidence=0.0,
             consistency=0.0,
@@ -105,7 +121,7 @@ class Level10Engine:
             analyzer_results=analyzer_results,
             strengths=[],
             weaknesses=["invalid_level10_input"],
-            warnings=reason_warnings,
+            warnings=list(reason_warnings),
             metadata={"version": "1.1", "input_validation_passed": False},
         )
 
