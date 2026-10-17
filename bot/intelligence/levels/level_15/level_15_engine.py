@@ -22,14 +22,7 @@ class Level15Engine:
             adversarial_resilience.analyze(l14),
             learning_quality.analyze(l11),
         )
-
-        # Do not treat a placeholder score as evidence when its source has no
-        # confidence (notably L11 before outcomes mature).
-        observed = tuple(
-            (result, weight)
-            for result, weight in zip(results, self.WEIGHTS)
-            if result.confidence > 0.0
-        )
+        observed = tuple((result, weight) for result, weight in zip(results, self.WEIGHTS) if result.confidence > 0.0)
         if observed:
             observed_weight = sum(weight for _, weight in observed)
             observed_score = sum(result.score * weight for result, weight in observed) / observed_weight
@@ -37,10 +30,8 @@ class Level15Engine:
             master = master_confidence.analyze(tuple(result for result, _ in observed))
             score = 0.90 * observed_score + 0.10 * master.score
             confidence = 0.90 * observed_confidence + 0.10 * master.confidence
-            quality_analyzer_consistency = 1.0 - (
-                max(result.score for result, _ in observed + ((master, 0.0),))
-                - min(result.score for result, _ in observed + ((master, 0.0),))
-            )
+            quality_scores = [result.score for result, _ in observed] + [master.score]
+            quality_analyzer_consistency = 1.0 - (max(quality_scores) - min(quality_scores))
         else:
             master = master_confidence.analyze(())
             score = confidence = quality_analyzer_consistency = 0.0
@@ -49,40 +40,30 @@ class Level15Engine:
         confidence = max(0.0, min(1.0, confidence))
         quality_analyzer_consistency = max(0.0, min(1.0, quality_analyzer_consistency))
 
-        # Consistency describes cross-level agreement only when L10 actually
-        # supplies a confident agreement analyzer; no fallback to generic L10
-        # confidence, which can mask unavailable agreement evidence.
         agreement_result = (getattr(l10, "analyzer_results", {}) or {}).get("cross_level_agreement")
-        agreement_confidence = agreement_result.confidence if agreement_result is not None else 0.0
-        agreement_value = getattr(l10, "cross_level_agreement", 0.0)
+        # Keep compatibility with older Level10Result-shaped inputs that expose
+        # cross_level_agreement and overall confidence but no analyzer map.
+        agreement_confidence = (
+            agreement_result.confidence if agreement_result is not None
+            else getattr(l10, "confidence", 0.0)
+        )
         consistency = (
-            max(0.0, min(1.0, float(agreement_value)))
+            max(0.0, min(1.0, float(l10.cross_level_agreement)))
             if agreement_confidence > 0.0 else 0.0
         )
         confidence = min(confidence, max(0.0, min(1.0, float(agreement_confidence))))
         all_results = results + (master,)
         return Level15Result(
-            symbol=l10.symbol,
-            score=score,
-            confidence=confidence,
-            consistency=consistency,
-            signal_quality=results[0].score,
-            risk_quality=results[1].score,
-            scenario_quality=results[2].score,
-            anomaly_quality=results[3].score,
-            adversarial_resilience=results[4].score,
-            learning_quality=results[5].score,
-            master_confidence=master.score,
-            analyzer_results=all_results,
+            symbol=l10.symbol, score=score, confidence=confidence, consistency=consistency,
+            signal_quality=results[0].score, risk_quality=results[1].score,
+            scenario_quality=results[2].score, anomaly_quality=results[3].score,
+            adversarial_resilience=results[4].score, learning_quality=results[5].score,
+            master_confidence=master.score, analyzer_results=all_results,
             warnings=tuple(dict.fromkeys(w for result in all_results for w in result.warnings)),
             metadata={
-                "version": "1.3",
-                "master_synthesis": True,
-                "trade_decision": False,
+                "version": "1.3", "master_synthesis": True, "trade_decision": False,
                 "consistency_source": "L10.cross_level_agreement",
                 "quality_analyzer_consistency": quality_analyzer_consistency,
-                "excluded_unavailable_analyzers": tuple(
-                    result.analyzer for result in results if result.confidence <= 0.0
-                ),
+                "excluded_unavailable_analyzers": tuple(result.analyzer for result in results if result.confidence <= 0.0),
             },
         )
