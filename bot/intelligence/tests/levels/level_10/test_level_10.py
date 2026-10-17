@@ -3,31 +3,46 @@ import unittest
 from dataclasses import replace
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
-from bot.intelligence.levels.level_01.level_01_engine import Level1Engine
-from bot.intelligence.levels.level_02.level_02_engine import Level2Engine
-from bot.intelligence.levels.level_03.level_03_engine import Level3Engine
-from bot.intelligence.levels.level_04.level_04_engine import Level4Engine
-from bot.intelligence.levels.level_05.level_05_engine import Level5Engine
-from bot.intelligence.levels.level_06.level_06_engine import Level6Engine
-from bot.intelligence.levels.level_07.level_07_engine import Level7Engine
-from bot.intelligence.levels.level_08.level_08_engine import Level8Engine
-from bot.intelligence.levels.level_09.level_09_engine import Level9Engine
+from bot.intelligence.levels.level_05.models.level_05_result import Level5Result
+from bot.intelligence.levels.level_06.models.level_06_result import Level6Result
+from bot.intelligence.levels.level_07.models.level_07_result import Level7Result
+from bot.intelligence.levels.level_08.models.level_08_result import Level8Result
+from bot.intelligence.levels.level_09.models.level_09_result import Level9Result
 from bot.intelligence.levels.level_10.level_10_engine import Level10Engine
 
 
 class TestLevel10(unittest.TestCase):
     def setUp(self):
-        s = MarketSnapshot("TEST", 105.0, 100.0, 1500.0, 1000.0, 0.02, 0.03, 0.8)
-        l1 = Level1Engine().analyze(s)
-        l2 = Level2Engine().analyze(s, l1)
-        l3 = Level3Engine().analyze(s, l2)
-        l4 = Level4Engine().analyze(s, l3)
-        l5 = Level5Engine().analyze(s, l2, l3, l4)
-        l6 = Level6Engine().analyze(s, l5)
-        l7 = Level7Engine().analyze(s, l3, l4, l5, l6)
-        l8 = Level8Engine().analyze(s, l3, l4, l7)
-        l9 = Level9Engine().analyze(s, l5, l6, l8)
-        self.snapshot, self.levels = s, (l5, l6, l7, l8, l9)
+        self.snapshot = MarketSnapshot("TEST", 105.0, 100.0, 1500.0, 1000.0, 0.02, 0.03, 0.8)
+        self.levels = (
+            Level5Result(
+                symbol="TEST", score=0.72, confidence=0.80, consistency=0.70,
+                signal_strength=0.72, signal_confirmation=0.80, signal_conflict=0.20,
+                signal_consistency=0.70, signal_stability=0.65, reliability=0.80,
+            ),
+            Level6Result(
+                symbol="TEST", score=0.68, confidence=0.75, consistency=0.70,
+                downside_risk=0.30, volatility_risk=0.35, reward_potential=0.72,
+                risk_reward=0.74, adverse_scenario=0.25, risk_consistency=0.70,
+            ),
+            Level7Result(
+                symbol="TEST", score=0.70, confidence=0.78, consistency=0.70,
+                momentum_acceleration=0.65, trend_persistence=0.72, movement_exhaustion=0.25,
+                regime_transition=0.20, temporal_anomaly=0.10, dynamic_stability=0.75,
+            ),
+            Level8Result(
+                symbol="TEST", score=0.73, confidence=0.76, consistency=0.72,
+                market_relative_strength=0.72, sector_relative_strength=0.68,
+                peer_context=0.70, cross_asset_context=0.67, benchmark_alignment=0.75,
+                relative_consistency=0.72,
+            ),
+            Level9Result(
+                symbol="TEST", score=0.69, confidence=0.74, consistency=0.70,
+                concentration_risk=0.25, diversification_value=0.70,
+                portfolio_compatibility=0.71, correlation_risk=0.28,
+                opportunity_priority=0.73, portfolio_consistency=0.70,
+            ),
+        )
 
     def test_all_six_analyzers_run(self):
         result = Level10Engine().analyze(self.snapshot, *self.levels)
