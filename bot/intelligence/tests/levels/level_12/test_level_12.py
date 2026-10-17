@@ -13,6 +13,7 @@ from bot.intelligence.levels.level_08.level_08_engine import Level8Engine
 from bot.intelligence.levels.level_09.level_09_engine import Level9Engine
 from bot.intelligence.levels.level_10.level_10_engine import Level10Engine
 from bot.intelligence.levels.level_12.level_12_engine import Level12Engine
+from bot.intelligence.levels.level_12.analyzers.data_anomaly import analyze as analyze_data_anomaly
 
 
 class TestLevel12(unittest.TestCase):
@@ -41,6 +42,22 @@ class TestLevel12(unittest.TestCase):
         snapshot = MarketSnapshot("TEST", 105.0, 100.0, 5000.0, 1000.0, 0.02, 0.04, 0.85)
         result = Level12Engine().analyze(snapshot, *self.inputs)
         self.assertGreater(result.volume_anomaly, 0.0)
+
+    def test_data_anomaly_flags_non_finite_market_values(self):
+        snapshot = MarketSnapshot("TEST", float("nan"), 100.0, float("inf"), 1000.0, 0.02, 0.04, 0.85)
+        result = analyze_data_anomaly(snapshot)
+        self.assertIn("price", result.metrics["invalid_fields"])
+        self.assertIn("volume", result.metrics["invalid_fields"])
+        self.assertIn("market_snapshot_invalid_values", result.warnings)
+        self.assertGreater(result.score, 0.0)
+
+    def test_data_anomaly_flags_non_finite_ohlc(self):
+        snapshot = MarketSnapshot(
+            "TEST", 105.0, 100.0, 1500.0, 1000.0, 0.02, 0.04, 0.85,
+            open_price=100.0, high_price=float("inf"), low_price=99.0, close_price=105.0,
+        )
+        result = analyze_data_anomaly(snapshot)
+        self.assertIn("nonfinite_or_non_numeric_ohlc", result.metrics["invalid_fields"])
 
     def test_does_not_create_trade_decision(self):
         result = Level12Engine().analyze(self.snapshot, *self.inputs)
