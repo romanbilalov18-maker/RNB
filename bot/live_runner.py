@@ -206,14 +206,7 @@ class LiveMarketRunner:
                 trading_status_by_id[self._instrument_key(item)] = status_name
                 # Only exchange-session statuses authorize trading. In particular,
                 # DEALER_NORMAL_TRADING is not equivalent to NORMAL_TRADING.
-                if status_name in {
-                    "SECURITY_TRADING_STATUS_NORMAL_TRADING",
-                    "SECURITY_TRADING_STATUS_OPENING_PERIOD",
-                    "SECURITY_TRADING_STATUS_CLOSING_PERIOD",
-                    "NORMAL_TRADING",
-                    "OPENING_PERIOD",
-                    "CLOSING_PERIOD",
-                }:
+                if self._is_active_trading_status(status_name):
                     active_instrument_ids.add(self._instrument_key(item))
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
@@ -248,15 +241,11 @@ class LiveMarketRunner:
             if not isinstance(quote_time, datetime):
                 quote_reason = "missing_quote_timestamp"
             else:
-                if quote_time.tzinfo is None:
-                    quote_time = quote_time.replace(tzinfo=timezone.utc)
-                quote_age = (now_utc - quote_time.astimezone(timezone.utc)).total_seconds()
+                quote_age, quote_reason = self._quote_freshness(
+                    quote_time, now_utc, self.max_quote_age_seconds
+                )
                 quote_age_by_id[instrument_id] = quote_age
-                if quote_age < -60:
-                    quote_reason = "quote_timestamp_in_future"
-                elif quote_age > self.max_quote_age_seconds:
-                    quote_reason = "stale_quote"
-                else:
+                if quote_reason == "fresh":
                     fresh_quote_ids.add(instrument_id)
             status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
             quote_price = last_prices.get(instrument_id)
@@ -459,6 +448,36 @@ class LiveMarketRunner:
         if units is None:
             return float(value)
         return float(units) + float(nano or 0) / 1_000_000_000
+
+    @staticmethod
+    def _is_active_trading_status(status_name: str) -> bool:
+        """Accept only explicit exchange trading phases, never substring matches."""
+        return str(status_name).upper() in {
+            "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+            "SECURITY_TRADING_STATUS_OPENING_PERIOD",
+            "SECURITY_TRADING_STATUS_CLOSING_PERIOD",
+            "NORMAL_TRADING",
+            "OPENING_PERIOD",
+            "CLOSING_PERIOD",
+        }
+
+    @staticmethod
+    def _quote_freshness(
+        quote_time: datetime,
+        now: datetime,
+        max_age_seconds: float,
+    ) -> tuple[float, str]:
+        """Return age and rejection reason for a source quote timestamp."""
+        if quote_time.tzinfo is None:
+            quote_time = quote_time.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        age = (now.astimezone(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds()
+        if age < -60:
+            return age, "quote_timestamp_in_future"
+        if age > max_age_seconds:
+            return age, "stale_quote"
+        return age, "fresh"
 
     @staticmethod
     def _positive_env_float(name: str, default: float) -> float:
