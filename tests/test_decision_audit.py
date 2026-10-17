@@ -70,8 +70,10 @@ class DecisionAuditStoreTests(unittest.TestCase):
             )
             observation = store.learning_observations_by_ticker()["AAA"][0]
             self.assertAlmostEqual(observation.realized_trade_return, 0.09)
-            self.assertTrue(observation.correct)
-            self.assertAlmostEqual(observation.outcome_return, (113 / 110 - 1) - .001)
+            # The SELL trade closed profitably, but the forward price rose:
+            # realized P/L and forecast correctness are distinct labels.
+            self.assertFalse(observation.correct)
+            self.assertAlmostEqual(observation.outcome_return, -(113 / 110 - 1) - .001)
 
 
     def test_idempotent_for_same_cycle_and_ticker(self):
