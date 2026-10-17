@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+import math
+from numbers import Real
 from typing import Dict, Optional
 
 
@@ -15,7 +17,34 @@ class LearningObservation:
     outcome_target_date: Optional[str] = None
 
     def __post_init__(self) -> None:
-        for name, mapping in (("level_scores", self.level_scores), ("analyzer_scores", self.analyzer_scores)):
+        if (
+            isinstance(self.outcome_return, bool)
+            or not isinstance(self.outcome_return, Real)
+            or not math.isfinite(self.outcome_return)
+        ):
+            raise ValueError("outcome_return must be a finite number")
+
+        if not isinstance(self.correct, bool):
+            raise ValueError("correct must be a bool")
+
+        for name, mapping in (
+            ("level_scores", self.level_scores),
+            ("analyzer_scores", self.analyzer_scores),
+        ):
+            if not isinstance(mapping, dict):
+                raise ValueError(f"{name} must be a dictionary")
             for key, value in mapping.items():
-                if not 0.0 <= value <= 1.0:
-                    raise ValueError(f"{name}[{key}] must be between 0 and 1")
+                if not isinstance(key, str) or not key.strip():
+                    raise ValueError(f"{name} keys must be non-empty strings")
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, Real)
+                    or not math.isfinite(value)
+                    or not 0.0 <= value <= 1.0
+                ):
+                    raise ValueError(f"{name}[{key}] must be a finite number between 0 and 1")
+
+        for name in ("regime", "decision_time", "outcome_target_date"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be None or a non-empty string")
