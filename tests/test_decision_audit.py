@@ -42,6 +42,52 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(summary["observations_with_trades"], 1)
             self.assertAlmostEqual(summary["recorded_trade_commissions"], 1.5)
 
+    def test_closed_virtual_trade_becomes_l11_learning_observation_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            trade = SimpleNamespace(
+                ticker="AAA", side="SELL", quantity=2, commission=1.0,
+                realized_pnl=18.0, entry_price=100.0, price=110.0,
+            )
+            store.record_cycle(
+                "closed-trade",
+                {"AAA": SimpleNamespace(action="SELL", reason="exit signal")},
+                [trade],
+                equity=1018, cash=1018, total_commissions=1.0,
+                current_prices={"AAA": 110},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+
+            first = store.learning_observations_by_ticker()["AAA"]
+            second = store.learning_observations_by_ticker()["AAA"]
+            self.assertEqual(len(first), 1)
+            self.assertEqual(len(second), 1)
+            self.assertTrue(first[0].correct)
+            self.assertAlmostEqual(first[0].outcome_return, 0.09)
+            self.assertEqual(first[0].level_scores["L01"], .05)
+            self.assertEqual(first[0].regime, "bullish")
+
+    def test_losing_closed_virtual_trade_teaches_negative_realized_return(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            trade = SimpleNamespace(
+                ticker="AAA", side="SELL", quantity=2, commission=1.0,
+                realized_pnl=-22.0, entry_price=100.0, price=89.0,
+            )
+            store.record_cycle(
+                "losing-closed-trade",
+                {"AAA": SimpleNamespace(action="SELL", reason="exit signal")},
+                [trade],
+                equity=978, cash=978, total_commissions=1.0,
+                current_prices={"AAA": 89},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+            observation = store.learning_observations_by_ticker()["AAA"][0]
+            self.assertFalse(observation.correct)
+            self.assertAlmostEqual(observation.outcome_return, -0.11)
+
     def test_idempotent_for_same_cycle_and_ticker(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
