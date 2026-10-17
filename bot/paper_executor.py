@@ -35,9 +35,18 @@ class PaperExecutor:
         eligible_buy_tickers: set[str] | None = None,
         eligible_buy_reasons: dict[str, str] | None = None,
     ) -> tuple[list, list]:
+        active_tickers = getattr(scan, "active_trading_tickers", None)
+        active_analyses = {
+            ticker: analysis
+            for ticker, analysis in scan.analyses.items()
+            if active_tickers is None or ticker in active_tickers
+        }
+        if active_tickers is not None and not active_tickers:
+            return [], []
+
         decisions = self.position_manager.evaluate(
             portfolio,
-            scan.analyses,
+            active_analyses,
             scan.current_prices,
         )
         sell_trades = self.position_manager.execute_sales(
@@ -76,6 +85,7 @@ class PaperExecutor:
                 # Position sizing must use actual source values. Missing price or
                 # instrument lot metadata makes this candidate ineligible.
                 and self._has_valid_market_sizing_data(scan, analysis.ticker)
+                and (active_tickers is None or analysis.ticker in active_tickers)
             )
         ]
 
