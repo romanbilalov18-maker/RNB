@@ -374,15 +374,6 @@ class DecisionAuditStore:
                     regime=row["regime"],
                     decision_time=row["recorded_at"],
                     outcome_target_date=row["target_session_date"],
-                    realized_trade_return=(
-                        float(row["realized_pnl"]) /
-                        (float(row["entry_price"]) * int(row["virtual_quantity"]))
-                        if row["virtual_action"] == "SELL"
-                        and int(row["virtual_quantity"] or 0) > 0
-                        and row["entry_price"] is not None
-                        and float(row["entry_price"]) > 0
-                        else None
-                    ),
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 # Ignore malformed legacy/corrupt records rather than breaking a live cycle.
