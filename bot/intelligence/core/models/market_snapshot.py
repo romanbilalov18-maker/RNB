@@ -15,6 +15,8 @@ class MarketSnapshot:
     volatility: Optional[float] = None
     momentum: Optional[float] = None
     liquidity: Optional[float] = None
+    liquidity_source: Optional[str] = None
+    liquidity_spread_ticks: Optional[float] = None
 
     # Latest real candle data when the source provides OHLCV.
     open_price: Optional[float] = None

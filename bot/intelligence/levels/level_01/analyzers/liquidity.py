@@ -15,4 +15,15 @@ def analyze(snapshot: MarketSnapshot) -> AnalyzerResult:
         or not 0.0 <= liquidity <= 1.0
     ):
         return AnalyzerResult("liquidity", 0.0, 0.0, {"liquidity": None}, ("invalid_liquidity",))
-    return AnalyzerResult("liquidity", float(liquidity), 1.0, {"liquidity": liquidity})
+    metrics = {
+        "liquidity": float(liquidity),
+        "source": getattr(snapshot, "liquidity_source", None),
+        "spread_ticks": getattr(snapshot, "liquidity_spread_ticks", None),
+        "metric_semantics": "top_of_book_spread_proxy_not_full_market_depth",
+    }
+    warnings = (
+        ("liquidity_spread_proxy_only",)
+        if getattr(snapshot, "liquidity_source", None) == "t_invest_top_of_book_spread"
+        else ()
+    )
+    return AnalyzerResult("liquidity", float(liquidity), 1.0, metrics, warnings)

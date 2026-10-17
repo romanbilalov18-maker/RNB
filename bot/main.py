@@ -60,6 +60,19 @@ def main() -> None:
                     held_tickers=set(portfolio.positions),
                     tracked_tickers=audit_store.pending_tickers(),
                 )
+                active_tickers = getattr(result, "active_trading_tickers", None)
+                if active_tickers is not None and not active_tickers:
+                    print(
+                        "No active T-Invest trading session. Skipping virtual trades, "
+                        "portfolio writes and L11 decision-audit observations to avoid "
+                        "learning from stale out-of-session quotes."
+                    )
+                    remaining = deadline - time.monotonic()
+                    if not _should_run_another_cycle(remaining, cycle_interval_minutes):
+                        print("Runtime limit reached while market session is inactive.")
+                        break
+                    time.sleep(cycle_interval_minutes * 60)
+                    continue
                 _validate_held_position_prices(portfolio, result.current_prices)
                 learning_observations = audit_store.learning_observations_by_ticker()
                 intelligence_results = analyze_scan(
@@ -67,6 +80,12 @@ def main() -> None:
                     learning_observations_by_ticker=learning_observations,
                     portfolio=portfolio,
                 )
+                if active_tickers is not None:
+                    intelligence_results = {
+                        ticker: intelligence
+                        for ticker, intelligence in intelligence_results.items()
+                        if ticker in active_tickers
+                    }
                 decisions = _evaluate_decisions(intelligence_results, portfolio)
                 # Only explicit BUY recommendations from a valid L1-L15 result may
                 # authorize new virtual entries. Existing PositionManager exits and

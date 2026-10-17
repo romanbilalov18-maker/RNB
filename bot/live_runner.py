@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import time
+import math
 
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 
@@ -16,6 +17,9 @@ class LiveScanResult:
     current_prices: dict[str, float]
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
+    active_trading_tickers: set[str] | None = None
+    liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
+    liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
     candle_history: dict[str, list[object]] = field(default_factory=dict)
     sector_by_ticker: dict[str, str] = field(default_factory=dict)
@@ -72,6 +76,13 @@ class LiveMarketRunner:
 
         last_prices = {
             self._instrument_key(item): self._quotation(item.price)
+            for item in prices_response.last_prices
+            if self._quotation(item.price) > 0
+        }
+        # Keep source timestamps for diagnostics; a positive price alone does not
+        # prove that the quote is fresh or belongs to the current session.
+        last_price_items = {
+            self._instrument_key(item): item
             for item in prices_response.last_prices
             if self._quotation(item.price) > 0
         }
@@ -158,8 +169,123 @@ class LiveMarketRunner:
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
-            if ticker and key in last_prices:
-                lot_sizes[ticker] = int(getattr(share, "lot", 1) or 1)
+            raw_lot = getattr(share, "lot", None)
+            # Do not invent a one-share lot when instrument metadata is missing.
+            # Position sizing must treat unknown lot size as unavailable.
+            if (
+                ticker
+                and key in last_prices
+                and isinstance(raw_lot, int)
+                and not isinstance(raw_lot, bool)
+                and raw_lot > 0
+            ):
+                lot_sizes[ticker] = raw_lot
+
+        liquidity_by_ticker = {}
+        liquidity_spread_ticks_by_ticker = {}
+        active_instrument_ids = set()
+        trading_status_by_id = {}
+        try:
+            status_response = self.client.market_data.get_trading_statuses(
+                instrument_ids=[
+                    str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+                    for share in analysis_shares
+                    if str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+                ],
+            )
+            for item in getattr(status_response, "trading_statuses", ()) or ():
+                raw_status = getattr(item, "trading_status", "")
+                status_name = str(getattr(raw_status, "name", raw_status)).upper()
+                trading_status_by_id[self._instrument_key(item)] = status_name
+                if any(
+                    marker in status_name
+                    for marker in ("NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD")
+                ):
+                    active_instrument_ids.add(self._instrument_key(item))
+        except Exception as exc:
+            print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
+
+        active_trading_tickers = {
+            str(getattr(share, "ticker", "") or "")
+            for share in analysis_shares
+            if str(getattr(share, "ticker", "") or "")
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
+        }
+        print(
+            f"T-Invest active trading instruments: "
+            f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
+        )
+        # Expose broker status and source quote timestamp so a smoke run can
+        # distinguish a fresh active-session quote from an old positive price.
+        # This is diagnostic only and does not change trade decisions.
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            price_item = last_price_items.get(instrument_id)
+            quote_time = getattr(price_item, "time", None) if price_item is not None else None
+            if hasattr(quote_time, "isoformat"):
+                quote_time = quote_time.isoformat()
+            status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
+            quote_price = last_prices.get(instrument_id)
+            print(
+                f"T-Invest provenance: {ticker or instrument_id} "
+                f"trading_status={status_name} "
+                f"last_price_time={quote_time or 'UNAVAILABLE'} "
+                f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'}"
+            )
+
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            tick_size_raw = getattr(share, "min_price_increment", None)
+            try:
+                tick_size = self._quotation(tick_size_raw) if tick_size_raw is not None else None
+            except (TypeError, ValueError, OverflowError):
+                tick_size = None
+            # GetOrderBook has no reliable observation timestamp. Only use it
+            # when T-Invest reports an active trading phase; otherwise a stale
+            # book from a prior session must not be presented as current liquidity.
+            if (
+                not ticker
+                or not instrument_id
+                or instrument_id not in active_instrument_ids
+                or tick_size is None
+                or tick_size <= 0
+            ):
+                continue
+            try:
+                order_book = self.client.market_data.get_order_book(
+                    instrument_id=instrument_id,
+                    depth=10,
+                )
+            except Exception as exc:
+                print(f"GetOrderBook failed for {ticker}; liquidity remains unavailable: {exc}")
+                continue
+            bids = getattr(order_book, "bids", ()) or ()
+            asks = getattr(order_book, "asks", ()) or ()
+            if not bids or not asks:
+                continue
+            try:
+                best_bid = self._quotation(getattr(bids[0], "price", None))
+                best_ask = self._quotation(getattr(asks[0], "price", None))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if (
+                not math.isfinite(best_bid)
+                or not math.isfinite(best_ask)
+                or best_bid <= 0
+                or best_ask <= 0
+                or best_ask < best_bid
+            ):
+                continue
+            spread_ticks = (best_ask - best_bid) / tick_size
+            if not math.isfinite(spread_ticks) or spread_ticks < 0:
+                continue
+            # This is explicitly a top-of-book spread proxy, not a claim about
+            # total market depth. It is derived only from observed T-Invest data.
+            normalized_spread_ticks = max(1.0, float(spread_ticks))
+            liquidity_by_ticker[ticker] = max(0.0, min(1.0, 1.0 / normalized_spread_ticks))
+            liquidity_spread_ticks_by_ticker[ticker] = float(spread_ticks)
 
         previous_closes = {}
         for share in shares:
@@ -221,6 +347,9 @@ class LiveMarketRunner:
             current_prices=current_prices,
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
+            active_trading_tickers=active_trading_tickers,
+            liquidity_by_ticker=liquidity_by_ticker,
+            liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
             latest_candles=latest_candles,
             candle_history=candle_history,
             sector_by_ticker=sector_by_ticker,

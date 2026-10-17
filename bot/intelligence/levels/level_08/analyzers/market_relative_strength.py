@@ -7,12 +7,16 @@ def _finite(value):
 
 
 def analyze(snapshot, level3_result) -> AnalyzerResult:
-    if getattr(snapshot, "relative_market_context_available", False):
-        market_return = getattr(snapshot, "relative_market_return", None)
-        sample_count = getattr(snapshot, "relative_market_sample_count", None)
-    else:
-        market_return = getattr(snapshot, "market_return", None)
-        sample_count = getattr(snapshot, "market_sample_count", None)
+    # Use only the leave-one-out benchmark. snapshot.market_return includes
+    # this instrument, so falling back to it leaks target return into its own
+    # relative-strength signal.
+    if not getattr(snapshot, "relative_market_context_available", False):
+        return AnalyzerResult(
+            "market_relative_strength", 0.0, 0.0, {},
+            ("leave_one_out_market_context_not_available",),
+        )
+    market_return = getattr(snapshot, "relative_market_return", None)
+    sample_count = getattr(snapshot, "relative_market_sample_count", None)
     if not _finite(market_return) or not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 10:
         return AnalyzerResult("market_relative_strength", 0.0, 0.0, {"sample_count": sample_count}, ("market_benchmark_not_available",))
     change = snapshot.price_change()

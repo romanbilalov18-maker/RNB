@@ -49,6 +49,14 @@ jobs:
           restore-keys: |
             virtual-portfolio-main-
 
+      - name: Verify restored state before starting bot
+        run: |
+          mkdir -p data
+          if [ ! -s data/virtual_portfolio.sqlite3 ]; then echo 'ERROR: saved virtual portfolio is missing; refusing a fresh balance'; exit 1; fi
+          if [ ! -s data/decision_audit.sqlite ]; then echo 'ERROR: saved L11 audit history is missing; refusing empty history'; exit 1; fi
+          echo 'PERSISTED_PORTFOLIO_STATE=FOUND'
+          echo 'PERSISTED_L11_AUDIT_HISTORY=FOUND'
+
       - name: Prepare data directory
         run: mkdir -p data
 
@@ -129,6 +137,12 @@ jobs:
             echo "AUDIT_DATABASE_MISSING=1"
           fi
 
+      - name: Verify state is safe to persist
+        run: |
+          test -s data/virtual_portfolio.sqlite3 || { echo "ERROR: virtual portfolio database missing; refusing to save cache"; exit 1; }
+          test -s data/decision_audit.sqlite || { echo "ERROR: L11 audit database missing; refusing to save cache"; exit 1; }
+          echo "STATE_READY_TO_PERSIST=1"
+
       - name: Upload audit database, report, and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -143,7 +157,7 @@ jobs:
           retention-days: 30
 
       - name: Save accumulated state for the next scheduled run
-        if: always()
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: data

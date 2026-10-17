@@ -14,7 +14,6 @@ from bot.intelligence.levels.level_12.historical_anomaly_backtest import evaluat
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
-from bot.virtual_portfolio import VirtualPortfolio
 
 
 def run_real_market_intelligence(token: str, limit: int = 10) -> list:
@@ -30,10 +29,9 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         scan = market_runner.run()
 
     pipeline = IntelligencePipeline()
-    # CI smoke runs do not have access to the bot's persistent local portfolio.
-    # Supply a known-empty diagnostic portfolio rather than letting L9 confuse
-    # missing portfolio context with a real zero-position portfolio.
-    diagnostic_portfolio = VirtualPortfolio(initial_balance=10_000.0)
+    # This read-only smoke runner cannot load the bot's persistent local
+    # SQLite portfolio. Preserve that as unavailable; never invent a balance
+    # or misrepresent missing holdings as a confirmed empty portfolio.
     results = []
     market_regimes = build_market_regime_by_date(getattr(scan, "candle_history", {}))
     for analysis in scan.buy_candidates[:limit]:
@@ -44,7 +42,7 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         # Use the same full-context integration as the bot's main scan path:
         # market breadth/return, sector and peer history, aligned return series,
         # and current portfolio holdings must reach the live Intelligence run.
-        snapshot = build_market_snapshot(scan, analysis, portfolio=diagnostic_portfolio)
+        snapshot = build_market_snapshot(scan, analysis, portfolio=None)
         if snapshot is None:
             continue
         intelligence = pipeline.analyze(snapshot)
@@ -100,7 +98,7 @@ def main() -> None:
 
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
-    print("Portfolio context: empty diagnostic paper portfolio (persistent bot portfolio is not available in CI)")
+    print("Portfolio context: unavailable (persistent bot portfolio is not loaded by this read-only runner)")
     print("Level 4 evaluation: training-only threshold selection; fixed and rolling chronological holdouts")
     print("-" * 72)
 
