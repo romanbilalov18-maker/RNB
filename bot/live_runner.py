@@ -175,6 +175,26 @@ class LiveMarketRunner:
 
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
+        active_instrument_ids = set()
+        try:
+            status_response = self.client.market_data.get_trading_statuses(
+                instrument_ids=[
+                    str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+                    for share in analysis_shares
+                    if str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+                ],
+            )
+            for item in getattr(status_response, "trading_statuses", ()) or ():
+                raw_status = getattr(item, "trading_status", "")
+                status_name = str(getattr(raw_status, "name", raw_status)).upper()
+                if any(
+                    marker in status_name
+                    for marker in ("NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD")
+                ):
+                    active_instrument_ids.add(self._instrument_key(item))
+        except Exception as exc:
+            print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
+
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -183,7 +203,16 @@ class LiveMarketRunner:
                 tick_size = self._quotation(tick_size_raw) if tick_size_raw is not None else None
             except (TypeError, ValueError, OverflowError):
                 tick_size = None
-            if not ticker or not instrument_id or tick_size is None or tick_size <= 0:
+            # GetOrderBook has no reliable observation timestamp. Only use it
+            # when T-Invest reports an active trading phase; otherwise a stale
+            # book from a prior session must not be presented as current liquidity.
+            if (
+                not ticker
+                or not instrument_id
+                or instrument_id not in active_instrument_ids
+                or tick_size is None
+                or tick_size <= 0
+            ):
                 continue
             try:
                 order_book = self.client.market_data.get_order_book(
