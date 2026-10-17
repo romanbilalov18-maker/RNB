@@ -17,6 +17,7 @@ class LiveScanResult:
     current_prices: dict[str, float]
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
+    active_trading_tickers: set[str] | None = None
     liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
     liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
@@ -195,6 +196,17 @@ class LiveMarketRunner:
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
 
+        active_trading_tickers = {
+            str(getattr(share, "ticker", "") or "")
+            for share in analysis_shares
+            if str(getattr(share, "ticker", "") or "")
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
+        }
+        print(
+            f"T-Invest active trading instruments: "
+            f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
+        )
+
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -308,6 +320,7 @@ class LiveMarketRunner:
             current_prices=current_prices,
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
+            active_trading_tickers=active_trading_tickers,
             liquidity_by_ticker=liquidity_by_ticker,
             liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
             latest_candles=latest_candles,
