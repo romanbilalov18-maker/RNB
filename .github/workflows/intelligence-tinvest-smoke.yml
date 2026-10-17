@@ -12,6 +12,17 @@ on:
       - "bot/tinvest_client.py"
       - "requirements.txt"
       - ".github/workflows/intelligence-tinvest-smoke.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "bot/intelligence/tinvest_runner.py"
+      - "bot/intelligence/levels/level_04/historical_backtest.py"
+      - "bot/intelligence/integration.py"
+      - "bot/live_runner.py"
+      - "bot/tinvest_client.py"
+      - "requirements.txt"
+      - ".github/workflows/intelligence-tinvest-smoke.yml"
   workflow_dispatch:
 
 jobs:
