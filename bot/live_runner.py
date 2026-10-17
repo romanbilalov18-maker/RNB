@@ -18,6 +18,7 @@ class LiveScanResult:
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
     active_trading_tickers: set[str] | None = None
+    fresh_quote_tickers: set[str] = field(default_factory=set)
     liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
     liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
@@ -38,6 +39,9 @@ class LiveMarketRunner:
         self.client = client
         self.history_days = history_days
         self.analyzer = StockAnalyzer(min_history=20, momentum_period=10)
+        self.max_quote_age_seconds = self._positive_env_float(
+            "TINVEST_MAX_QUOTE_AGE_SECONDS", 300.0
+        )
 
     def run(
         self,
@@ -185,6 +189,9 @@ class LiveMarketRunner:
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
         trading_status_by_id = {}
+        quote_age_by_id = {}
+        fresh_quote_ids = set()
+        now_utc = datetime.now(timezone.utc)
         try:
             status_response = self.client.market_data.get_trading_statuses(
                 instrument_ids=[
@@ -197,10 +204,16 @@ class LiveMarketRunner:
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
                 trading_status_by_id[self._instrument_key(item)] = status_name
-                if any(
-                    marker in status_name
-                    for marker in ("NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD")
-                ):
+                # Only exchange-session statuses authorize trading. In particular,
+                # DEALER_NORMAL_TRADING is not equivalent to NORMAL_TRADING.
+                if status_name in {
+                    "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+                    "SECURITY_TRADING_STATUS_OPENING_PERIOD",
+                    "SECURITY_TRADING_STATUS_CLOSING_PERIOD",
+                    "NORMAL_TRADING",
+                    "OPENING_PERIOD",
+                    "CLOSING_PERIOD",
+                }:
                     active_instrument_ids.add(self._instrument_key(item))
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
@@ -210,6 +223,13 @@ class LiveMarketRunner:
             for share in analysis_shares
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
+        }
+        fresh_quote_tickers = {
+            str(getattr(share, "ticker", "") or "")
+            for share in analysis_shares
+            if str(getattr(share, "ticker", "") or "")
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
         }
         print(
             f"T-Invest active trading instruments: "
@@ -223,15 +243,38 @@ class LiveMarketRunner:
             instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             price_item = last_price_items.get(instrument_id)
             quote_time = getattr(price_item, "time", None) if price_item is not None else None
-            if hasattr(quote_time, "isoformat"):
-                quote_time = quote_time.isoformat()
+            quote_age = None
+            quote_reason = "fresh"
+            if not isinstance(quote_time, datetime):
+                quote_reason = "missing_quote_timestamp"
+            else:
+                if quote_time.tzinfo is None:
+                    quote_time = quote_time.replace(tzinfo=timezone.utc)
+                quote_age = (now_utc - quote_time.astimezone(timezone.utc)).total_seconds()
+                quote_age_by_id[instrument_id] = quote_age
+                if quote_age < -60:
+                    quote_reason = "quote_timestamp_in_future"
+                elif quote_age > self.max_quote_age_seconds:
+                    quote_reason = "stale_quote"
+                else:
+                    fresh_quote_ids.add(instrument_id)
             status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
             quote_price = last_prices.get(instrument_id)
+            if instrument_id not in active_instrument_ids:
+                quote_reason = "inactive_or_unconfirmed_trading_status"
+            elif instrument_id not in fresh_quote_ids:
+                # Keep the more specific stale/missing/future timestamp reason.
+                if quote_reason == "fresh":
+                    quote_reason = "quote_not_verified_fresh"
             print(
                 f"T-Invest provenance: {ticker or instrument_id} "
                 f"trading_status={status_name} "
-                f"last_price_time={quote_time or 'UNAVAILABLE'} "
-                f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'}"
+                f"last_price_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
+                f"quote_age_seconds={round(quote_age, 1) if quote_age is not None else 'UNAVAILABLE'} "
+                f"max_quote_age_seconds={self.max_quote_age_seconds:g} "
+                f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'} "
+                f"trade_eligible={instrument_id in active_instrument_ids and instrument_id in fresh_quote_ids} "
+                f"quote_rejection={quote_reason}"
             )
 
         for share in analysis_shares:
@@ -298,7 +341,9 @@ class LiveMarketRunner:
         for share in shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
-            if ticker and key in last_prices:
+            # Do not pass stale, timestamp-less, or future-dated quotes to
+            # valuation or execution as if they were current market prices.
+            if ticker and key in last_prices and key in fresh_quote_ids:
                 current_prices[ticker] = last_prices[key]
 
         latest_candles = {}
@@ -348,6 +393,7 @@ class LiveMarketRunner:
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
             active_trading_tickers=active_trading_tickers,
+            fresh_quote_tickers=fresh_quote_tickers,
             liquidity_by_ticker=liquidity_by_ticker,
             liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
             latest_candles=latest_candles,
@@ -413,6 +459,19 @@ class LiveMarketRunner:
         if units is None:
             return float(value)
         return float(units) + float(nano or 0) / 1_000_000_000
+
+    @staticmethod
+    def _positive_env_float(name: str, default: float) -> float:
+        import os
+
+        raw = os.getenv(name, str(default)).strip()
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a positive number") from exc
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a positive finite number")
+        return value
 
     @staticmethod
     def _daily_interval():
