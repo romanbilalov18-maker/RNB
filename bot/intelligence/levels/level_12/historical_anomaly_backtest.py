@@ -374,14 +374,17 @@ def compare_level_combinations(l4_report: dict, l6_report: dict, l12_report: dic
             and (not use_l12 or x.get("l12_score") is None or x["l12_score"] < selected_l12["threshold"])
         ]
         net = [x["forward_return"] - round_trip_cost for x in eligible]
+        compounded = None
+        if net:
+            equity = 1.0
+            for value in net:
+                equity *= max(0.0, 1.0 + value)
+            compounded = equity - 1.0
         return {
             "count": len(subset), "eligible_count": len(eligible),
             "coverage": len(eligible) / len(subset),
             "mean_net_return": fmean(net) if net else None,
-            "compounded_net_return": trading_metrics(
-                [dict(x, selected_alert=True) for x in subset],
-                "selected_alert", round_trip_cost,
-            )["compounded_net_return"] if False else None,
+            "compounded_net_return": compounded,
             "win_rate_after_costs": sum(value > 0 for value in net) / len(net) if net else None,
             "round_trip_cost": round_trip_cost,
         }
