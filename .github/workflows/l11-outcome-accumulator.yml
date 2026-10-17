@@ -137,6 +137,12 @@ jobs:
             echo "AUDIT_DATABASE_MISSING=1"
           fi
 
+      - name: Verify state is safe to persist
+        run: |
+          test -s data/virtual_portfolio.sqlite3 || { echo "ERROR: virtual portfolio database missing; refusing to save cache"; exit 1; }
+          test -s data/decision_audit.sqlite || { echo "ERROR: L11 audit database missing; refusing to save cache"; exit 1; }
+          echo "STATE_READY_TO_PERSIST=1"
+
       - name: Upload audit database, report, and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -151,7 +157,7 @@ jobs:
           retention-days: 30
 
       - name: Save accumulated state for the next scheduled run
-        if: always()
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: data
