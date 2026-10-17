@@ -94,7 +94,15 @@ def main() -> None:
     results = run_real_market_intelligence(token)
 
     if not results:
-        raise RuntimeError("No instruments were successfully analyzed")
+        # The runner is read-only. Outside an exchange session, strict
+        # status/quote guards can correctly exclude every instrument; this is
+        # a valid no-data outcome, not a failed analysis or a reason to use stale
+        # prices as a fallback.
+        print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
+        print("Analyzed instruments: 0")
+        print("No instruments passed strict active-session and fresh-quote checks.")
+        print("No trades were sent; rerun during an active exchange session.")
+        return
 
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
     print(f"Analyzed instruments: {len(results)}")
