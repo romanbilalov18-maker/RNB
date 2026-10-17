@@ -68,12 +68,35 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 candle_history={"AAA": [candle("2026-10-01", 100)] + future},
                 as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
             )
-            observation = store.learning_observations_by_ticker()["AAA"][0]
-            self.assertAlmostEqual(observation.realized_trade_return, 0.09)
+            observations = store.learning_observations_by_ticker()["AAA"]
+            forecast = next(item for item in observations if item.outcome_target_date == "2026-10-07")
+            trade_feedback = next(item for item in observations if item.realized_trade_return is not None)
             # The SELL trade closed profitably, but the forward price rose:
-            # realized P/L and forecast correctness are distinct labels.
-            self.assertFalse(observation.correct)
-            self.assertAlmostEqual(observation.outcome_return, -(113 / 110 - 1) - .001)
+            # forecast and realized trade results must remain independent.
+            self.assertFalse(forecast.correct)
+            self.assertAlmostEqual(forecast.outcome_return, -(113 / 110 - 1) - .001)
+            self.assertAlmostEqual(trade_feedback.realized_trade_return, 0.09)
+            self.assertTrue(trade_feedback.correct)
+
+    def test_realized_trade_feedback_does_not_wait_for_matured_forecast(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            trade = SimpleNamespace(
+                ticker="XYZ", side="SELL", quantity=3, commission=1.0,
+                realized_pnl=-15.0, entry_price=100.0, price=95.0,
+            )
+            store.record_cycle(
+                "exit-with-wait-recommendation",
+                {"XYZ": SimpleNamespace(action="WAIT", reason="stop loss")}, [trade],
+                equity=985, cash=985, total_commissions=1.0,
+                intelligence_results={"XYZ": intelligence_snapshot()},
+                as_of=datetime.fromisoformat("2026-10-02T12:00:00+00:00"),
+            )
+            observations = store.learning_observations_by_ticker()["XYZ"]
+            self.assertEqual(len(observations), 1)
+            self.assertAlmostEqual(observations[0].realized_trade_return, -0.05)
+            self.assertAlmostEqual(observations[0].outcome_return, -0.05)
+            self.assertFalse(observations[0].correct)
 
 
     def test_idempotent_for_same_cycle_and_ticker(self):
