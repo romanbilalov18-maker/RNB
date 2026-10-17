@@ -23,10 +23,8 @@ class Level15Engine:
             learning_quality.analyze(l11),
         )
 
-        # A missing evidence source is not evidence of poor quality. In
-        # particular, L11 has no empirical score until forward outcomes mature.
-        # Exclude unavailable analyzers from aggregation rather than assigning
-        # their placeholder score a fixed share of the master score.
+        # Do not treat a placeholder score as evidence when its source has no
+        # confidence (notably L11 before outcomes mature).
         observed = tuple(
             (result, weight)
             for result, weight in zip(results, self.WEIGHTS)
@@ -39,25 +37,26 @@ class Level15Engine:
             master = master_confidence.analyze(tuple(result for result, _ in observed))
             score = 0.90 * observed_score + 0.10 * master.score
             confidence = 0.90 * observed_confidence + 0.10 * master.confidence
-            consistency_scores = [result.score for result, _ in observed] + [master.score]
-            consistency = 1.0 - (max(consistency_scores) - min(consistency_scores))
+            quality_analyzer_consistency = 1.0 - (
+                max(result.score for result, _ in observed + ((master, 0.0),))
+                - min(result.score for result, _ in observed + ((master, 0.0),))
+            )
         else:
             master = master_confidence.analyze(())
-            score = confidence = consistency = 0.0
+            score = confidence = quality_analyzer_consistency = 0.0
 
         score = max(0.0, min(1.0, score))
         confidence = max(0.0, min(1.0, confidence))
-        quality_analyzer_consistency = max(0.0, min(1.0, consistency))
+        quality_analyzer_consistency = max(0.0, min(1.0, quality_analyzer_consistency))
 
-        # Final consistency is about agreement between trading-analysis levels,
-        # not the spread between L15's quality-analyzer scores.
+        # Consistency describes cross-level agreement only when L10 actually
+        # supplies a confident agreement analyzer; no fallback to generic L10
+        # confidence, which can mask unavailable agreement evidence.
         agreement_result = (getattr(l10, "analyzer_results", {}) or {}).get("cross_level_agreement")
-        agreement_confidence = (
-            agreement_result.confidence if agreement_result is not None
-            else getattr(l10, "confidence", 0.0)
-        )
+        agreement_confidence = agreement_result.confidence if agreement_result is not None else 0.0
+        agreement_value = getattr(l10, "cross_level_agreement", 0.0)
         consistency = (
-            max(0.0, min(1.0, float(l10.cross_level_agreement)))
+            max(0.0, min(1.0, float(agreement_value)))
             if agreement_confidence > 0.0 else 0.0
         )
         confidence = min(confidence, max(0.0, min(1.0, float(agreement_confidence))))
@@ -77,7 +76,7 @@ class Level15Engine:
             analyzer_results=all_results,
             warnings=tuple(dict.fromkeys(w for result in all_results for w in result.warnings)),
             metadata={
-                "version": "1.2",
+                "version": "1.3",
                 "master_synthesis": True,
                 "trade_decision": False,
                 "consistency_source": "L10.cross_level_agreement",
