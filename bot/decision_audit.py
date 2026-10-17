@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -136,7 +137,7 @@ class DecisionAuditStore:
             price = float(units) + float(nano or 0) / 1_000_000_000 if units is not None else float(value)
         except (TypeError, ValueError, OverflowError):
             return None
-        return price if price > 0 else None
+        return price if math.isfinite(price) and price > 0 else None
 
     @staticmethod
     def _learning_snapshot(intelligence: object) -> tuple[str, str, str | None]:
