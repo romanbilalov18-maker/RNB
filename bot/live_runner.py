@@ -79,6 +79,13 @@ class LiveMarketRunner:
             for item in prices_response.last_prices
             if self._quotation(item.price) > 0
         }
+        # Keep source timestamps for diagnostics; a positive price alone does not
+        # prove that the quote is fresh or belongs to the current session.
+        last_price_items = {
+            self._instrument_key(item): item
+            for item in prices_response.last_prices
+            if self._quotation(item.price) > 0
+        }
         close_prices = {
             self._instrument_key(item): self._quotation(item.price)
             for item in close_response.close_prices
@@ -177,6 +184,7 @@ class LiveMarketRunner:
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
+        trading_status_by_id = {}
         try:
             status_response = self.client.market_data.get_trading_statuses(
                 instrument_ids=[
@@ -188,6 +196,7 @@ class LiveMarketRunner:
             for item in getattr(status_response, "trading_statuses", ()) or ():
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
+                trading_status_by_id[self._instrument_key(item)] = status_name
                 if any(
                     marker in status_name
                     for marker in ("NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD")
@@ -206,6 +215,24 @@ class LiveMarketRunner:
             f"T-Invest active trading instruments: "
             f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
         )
+        # Expose broker status and source quote timestamp so a smoke run can
+        # distinguish a fresh active-session quote from an old positive price.
+        # This is diagnostic only and does not change trade decisions.
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            price_item = last_price_items.get(instrument_id)
+            quote_time = getattr(price_item, "time", None) if price_item is not None else None
+            if hasattr(quote_time, "isoformat"):
+                quote_time = quote_time.isoformat()
+            status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
+            quote_price = last_prices.get(instrument_id)
+            print(
+                f"T-Invest provenance: {ticker or instrument_id} "
+                f"trading_status={status_name} "
+                f"last_price_time={quote_time or 'UNAVAILABLE'} "
+                f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'}"
+            )
 
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
