@@ -158,8 +158,17 @@ class LiveMarketRunner:
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
-            if ticker and key in last_prices:
-                lot_sizes[ticker] = int(getattr(share, "lot", 1) or 1)
+            raw_lot = getattr(share, "lot", None)
+            # Do not invent a one-share lot when instrument metadata is missing.
+            # Position sizing must treat unknown lot size as unavailable.
+            if (
+                ticker
+                and key in last_prices
+                and isinstance(raw_lot, int)
+                and not isinstance(raw_lot, bool)
+                and raw_lot > 0
+            ):
+                lot_sizes[ticker] = raw_lot
 
         previous_closes = {}
         for share in shares:
