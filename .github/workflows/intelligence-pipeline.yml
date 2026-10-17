@@ -34,6 +34,9 @@ jobs:
       # These tests use local intelligence modules and synthetic market data.
       # Keep them independent of the T-Bank package index; SDK installation belongs
       # in the separate live T-Invest smoke test.
+      - name: Run Level 10 input validation tests
+        run: python -m unittest bot.intelligence.tests.levels.level_10.test_level_10 -v
+
       - name: Run standalone Pipeline test
         run: python -m unittest bot.intelligence.tests.pipeline.test_intelligence_pipeline -v
 
