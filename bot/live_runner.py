@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import time
+import math
 
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 
@@ -201,10 +202,16 @@ class LiveMarketRunner:
                 best_ask = self._quotation(getattr(asks[0], "price", None))
             except (TypeError, ValueError, OverflowError):
                 continue
-            if best_bid <= 0 or best_ask <= 0 or best_ask < best_bid:
+            if (
+                not math.isfinite(best_bid)
+                or not math.isfinite(best_ask)
+                or best_bid <= 0
+                or best_ask <= 0
+                or best_ask < best_bid
+            ):
                 continue
             spread_ticks = (best_ask - best_bid) / tick_size
-            if not isinstance(spread_ticks, (int, float)) or spread_ticks < 0 or spread_ticks == float("inf"):
+            if not math.isfinite(spread_ticks) or spread_ticks < 0:
                 continue
             # This is explicitly a top-of-book spread proxy, not a claim about
             # total market depth. It is derived only from observed T-Invest data.
