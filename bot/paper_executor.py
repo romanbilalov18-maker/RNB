@@ -42,6 +42,10 @@ class PaperExecutor:
             if active_tickers is None or ticker in active_tickers
         }
         if active_tickers is not None and not active_tickers:
+            print(
+                "EXECUTION DIAGNOSTIC: no entries/exits considered; "
+                "no instrument passed strict active-session + fresh-quote checks."
+            )
             return [], []
 
         decisions = self.position_manager.evaluate(
@@ -74,20 +78,49 @@ class PaperExecutor:
             portfolio,
             scan.analyses,
         )
-        eligible_analyses = [
-            analysis
-            for analysis in scan.buy_candidates
-            if (
-                (eligible_buy_tickers is None or analysis.ticker in eligible_buy_tickers)
-                and analysis.ticker not in recently_sold
-                and analysis.ticker not in sell_decision_tickers
-                and analysis.ticker not in blocked_reentries
-                # Position sizing must use actual source values. Missing price or
-                # instrument lot metadata makes this candidate ineligible.
-                and self._has_valid_market_sizing_data(scan, analysis.ticker)
-                and (active_tickers is None or analysis.ticker in active_tickers)
-            )
-        ]
+        eligible_analyses = []
+        rejection_counts = {}
+        for analysis in scan.buy_candidates:
+            ticker = analysis.ticker
+            reasons = []
+            if eligible_buy_tickers is not None and ticker not in eligible_buy_tickers:
+                reasons.append("DecisionEngine did not authorize BUY")
+            if ticker in recently_sold:
+                reasons.append("sold this cycle")
+            if ticker in sell_decision_tickers:
+                reasons.append("PositionManager marked ticker SELL")
+            if ticker in blocked_reentries:
+                reasons.append("re-entry blocked until weak signal recovers")
+            if not self._has_valid_market_sizing_data(scan, ticker):
+                if ticker not in scan.current_prices:
+                    reasons.append("no verified fresh quote")
+                if ticker not in scan.lot_sizes:
+                    reasons.append("missing/invalid T-Invest lot size")
+                price = scan.current_prices.get(ticker)
+                if price is not None and not (
+                    isinstance(price, (int, float))
+                    and not isinstance(price, bool)
+                    and 0 < price < float("inf")
+                ):
+                    reasons.append("invalid price")
+            if active_tickers is not None and ticker not in active_tickers:
+                reasons.append("instrument not confirmed active with fresh quote")
+            if reasons:
+                for reason in reasons:
+                    rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+                print(f"BUY CANDIDATE REJECTED: {ticker}: {'; '.join(reasons)}")
+                continue
+            eligible_analyses.append(analysis)
+
+        print(
+            f"EXECUTION DIAGNOSTIC: buy_signals={len(eligible_buy_tickers) if eligible_buy_tickers is not None else 'UNFILTERED'} "
+            f"ranked_candidates={len(scan.buy_candidates)} "
+            f"eligible_for_sizing={len(eligible_analyses)} "
+            f"cash={portfolio.cash:.2f} RUB "
+            f"active_fresh_tickers={len(active_tickers) if active_tickers is not None else 'UNVERIFIED'}"
+        )
+        if rejection_counts:
+            print(f"EXECUTION REJECTION COUNTS: {rejection_counts}")
 
         plans = PositionSizer(
             commission_rate=portfolio.commission_rate,
@@ -101,6 +134,36 @@ class PaperExecutor:
             existing_values=existing_values,
             total_equity=total_equity,
         )
+
+        if eligible_analyses and not plans:
+            min_lot_costs = []
+            for analysis in eligible_analyses:
+                price = scan.current_prices[analysis.ticker]
+                lot_size = scan.lot_sizes[analysis.ticker]
+                min_lot_costs.append(
+                    (price * lot_size * (1.0 + portfolio.commission_rate), analysis.ticker, lot_size)
+                )
+            if min_lot_costs:
+                minimum_cost, minimum_ticker, minimum_lot = min(min_lot_costs)
+                if minimum_cost > portfolio.cash:
+                    print(
+                        f"POSITION SIZER REJECTED ALL: cash={portfolio.cash:.2f} RUB; "
+                        f"cheapest eligible lot={minimum_ticker} x {minimum_lot} "
+                        f"costs {minimum_cost:.2f} RUB including commission."
+                    )
+                else:
+                    print(
+                        "POSITION SIZER REJECTED ALL: sufficient cash for at least one lot, "
+                        "but no allocation satisfied cash/position-weight constraints."
+                    )
+        elif plans:
+            print(
+                f"POSITION SIZER PLANS: {len(plans)}; "
+                + ", ".join(
+                    f"{plan.ticker} qty={plan.quantity} cost={plan.total_cost:.2f} RUB"
+                    for plan in plans
+                )
+            )
 
         buy_trades = []
         for plan in plans:
