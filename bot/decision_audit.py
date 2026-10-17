@@ -473,7 +473,7 @@ class DecisionAuditStore:
                                   AND EXISTS (
                                       SELECT 1 FROM decision_outcomes AS o
                                       WHERE o.audit_id = a.id
-                                        AND o.horizon_sessions = ?
+                                        AND o.horizon_sessions IN (1, ?)
                                         AND o.direction_correct IS NOT NULL
                                   )
                              THEN 1 ELSE 0 END) AS matured_scored_before_deduplication
@@ -493,20 +493,28 @@ class DecisionAuditStore:
                 FROM anchored
             """).fetchone()
             dedup_quality = db.execute("""
-                WITH eligible_audit AS (
+                WITH scored_outcomes AS (
+                    SELECT o.audit_id, o.target_session_date, o.raw_return_pct,
+                           o.net_return_pct, o.direction_correct,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY o.audit_id
+                               ORDER BY CASE WHEN o.horizon_sessions = ? THEN 0 ELSE 1 END
+                           ) AS horizon_rank
+                    FROM decision_outcomes AS o
+                    WHERE o.horizon_sessions IN (1, ?)
+                      AND o.direction_correct IS NOT NULL
+                ),
+                eligible_audit AS (
                     SELECT a.id, a.ticker, a.recommendation, a.anchor_session_date,
                            ROW_NUMBER() OVER (
                                PARTITION BY a.ticker, a.anchor_session_date
-                               ORDER BY CASE WHEN o.horizon_sessions = ? THEN 0 ELSE 1 END,
-                                        a.recorded_at DESC, a.id DESC
+                               ORDER BY a.recorded_at DESC, a.id DESC
                            ) AS session_rank
                     FROM decision_audit AS a
-                    JOIN decision_outcomes AS o ON o.audit_id = a.id
+                    JOIN scored_outcomes AS o ON o.audit_id = a.id AND o.horizon_rank = 1
                     JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
                     WHERE a.anchor_price IS NOT NULL AND a.anchor_session_date IS NOT NULL
                       AND a.recommendation IN ('BUY', 'SELL')
-                      AND o.horizon_sessions IN (1, ?)
-                      AND o.direction_correct IS NOT NULL
                 )
                 SELECT
                     SUM(CASE WHEN session_rank = 1 THEN 1 ELSE 0 END) AS scored_learning_observations,
