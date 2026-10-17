@@ -327,6 +327,7 @@ class DecisionAuditStore:
                 WITH eligible_audit AS (
                     SELECT a.id, a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
                            o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
+                           a.virtual_action, a.virtual_quantity, a.realized_pnl, a.entry_price,
                            s.level_scores_json, s.analyzer_scores_json, s.regime,
                            ROW_NUMBER() OVER (
                                PARTITION BY a.ticker, a.anchor_session_date
@@ -346,6 +347,7 @@ class DecisionAuditStore:
                 )
                 SELECT ticker, recommendation, recorded_at, anchor_session_date,
                        target_session_date, raw_return_pct, net_return_pct, direction_correct,
+                       virtual_action, virtual_quantity, realized_pnl, entry_price,
                        level_scores_json, analyzer_scores_json, regime
                 FROM eligible_audit
                 WHERE session_rank = 1
@@ -372,49 +374,18 @@ class DecisionAuditStore:
                     regime=row["regime"],
                     decision_time=row["recorded_at"],
                     outcome_target_date=row["target_session_date"],
+                    realized_trade_return=(
+                        float(row["realized_pnl"]) /
+                        (float(row["entry_price"]) * int(row["virtual_quantity"]))
+                        if row["virtual_action"] == "SELL"
+                        and int(row["virtual_quantity"] or 0) > 0
+                        and row["entry_price"] is not None
+                        and float(row["entry_price"]) > 0
+                        else None
+                    ),
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 # Ignore malformed legacy/corrupt records rather than breaking a live cycle.
-                continue
-            grouped.setdefault(str(row["ticker"]), []).append(observation)
-
-        # A matured market-price outcome measures forecast quality; a closed
-        # virtual trade measures realized execution quality. Keep both signals,
-        # but derive trade examples only from persisted SELL records and their
-        # matching L1-L15 snapshot. The query is read-only and naturally
-        # idempotent: each audit row can contribute at most one trade example.
-        with self._connect() as db:
-            closed_trades = db.execute("""
-                SELECT a.id, a.ticker, a.recorded_at, a.virtual_quantity,
-                       a.realized_pnl, a.entry_price,
-                       s.level_scores_json, s.analyzer_scores_json, s.regime
-                FROM decision_audit AS a
-                JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
-                WHERE a.virtual_action = 'SELL'
-                  AND a.virtual_quantity > 0
-                  AND a.entry_price IS NOT NULL AND a.entry_price > 0
-                  AND a.realized_pnl IS NOT NULL
-                ORDER BY a.recorded_at ASC, a.id ASC
-            """).fetchall()
-        for row in closed_trades:
-            try:
-                quantity = int(row["virtual_quantity"])
-                cost_basis = float(row["entry_price"]) * quantity
-                if quantity <= 0 or not math.isfinite(cost_basis) or cost_basis <= 0:
-                    continue
-                trade_return = float(row["realized_pnl"]) / cost_basis
-                if not math.isfinite(trade_return):
-                    continue
-                observation = LearningObservation(
-                    outcome_return=trade_return,
-                    correct=trade_return > 0,
-                    level_scores=json.loads(row["level_scores_json"]),
-                    analyzer_scores=json.loads(row["analyzer_scores_json"]),
-                    regime=row["regime"],
-                    decision_time=row["recorded_at"],
-                    outcome_target_date=row["recorded_at"],
-                )
-            except (TypeError, ValueError, ZeroDivisionError, json.JSONDecodeError):
                 continue
             grouped.setdefault(str(row["ticker"]), []).append(observation)
 
