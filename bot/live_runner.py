@@ -42,6 +42,11 @@ class LiveMarketRunner:
         self.max_quote_age_seconds = self._positive_env_float(
             "TINVEST_MAX_QUOTE_AGE_SECONDS", 300.0
         )
+        # Analyze a wider real-market shortlist by default. Keep configurable
+        # because historical-candle requests are rate-limited by the broker.
+        self.max_analysis_instruments = self._positive_env_int(
+            "TINVEST_MAX_ANALYSIS_INSTRUMENTS", 50
+        )
 
     def run(
         self,
@@ -110,7 +115,7 @@ class LiveMarketRunner:
             ))
 
         candidates.sort(key=lambda item: (-item[0], item[1]))
-        selected_10 = [item[2] for item in candidates[:10]]
+        selected_10 = [item[2] for item in candidates[:self.max_analysis_instruments]]
 
         selected_ids = {
             str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -211,23 +216,6 @@ class LiveMarketRunner:
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
 
-        active_trading_tickers = {
-            str(getattr(share, "ticker", "") or "")
-            for share in analysis_shares
-            if str(getattr(share, "ticker", "") or "")
-            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
-            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
-        }
-        fresh_quote_tickers = {
-            str(getattr(share, "ticker", "") or "")
-            for share in analysis_shares
-            if str(getattr(share, "ticker", "") or "")
-            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
-        }
-        print(
-            f"T-Invest active trading instruments: "
-            f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
-        )
         # Expose broker status and source quote timestamp so a smoke run can
         # distinguish a fresh active-session quote from an old positive price.
         # This is diagnostic only and does not change trade decisions.
@@ -265,6 +253,26 @@ class LiveMarketRunner:
                 f"trade_eligible={instrument_id in active_instrument_ids and instrument_id in fresh_quote_ids} "
                 f"quote_rejection={quote_reason}"
             )
+
+        # Build eligibility sets only after every quote timestamp has been
+        # checked and fresh_quote_ids is complete.
+        active_trading_tickers = {
+            str(getattr(share, "ticker", "") or "")
+            for share in analysis_shares
+            if str(getattr(share, "ticker", "") or "")
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
+        }
+        fresh_quote_tickers = {
+            str(getattr(share, "ticker", "") or "")
+            for share in analysis_shares
+            if str(getattr(share, "ticker", "") or "")
+            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
+        }
+        print(
+            f"T-Invest active trading instruments: "
+            f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
+        )
 
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
@@ -490,6 +498,19 @@ class LiveMarketRunner:
             raise ValueError(f"{name} must be a positive number") from exc
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a positive finite number")
+        return value
+
+    @staticmethod
+    def _positive_env_int(name: str, default: int) -> int:
+        import os
+
+        raw = os.getenv(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a positive integer") from exc
+        if value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
         return value
 
     @staticmethod
