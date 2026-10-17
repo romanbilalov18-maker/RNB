@@ -11,6 +11,19 @@ from bot.virtual_portfolio import VirtualPortfolio
 class PaperExecutor:
     """Execute virtual sells first, then size new virtual buys."""
 
+    @staticmethod
+    def _has_valid_market_sizing_data(scan: LiveScanResult, ticker: str) -> bool:
+        price = scan.current_prices.get(ticker)
+        lot_size = scan.lot_sizes.get(ticker)
+        return (
+            isinstance(price, (int, float))
+            and not isinstance(price, bool)
+            and 0 < price < float("inf")
+            and isinstance(lot_size, int)
+            and not isinstance(lot_size, bool)
+            and lot_size > 0
+        )
+
     def __init__(self, max_position_weight: float = 0.35, take_profit: float = 0.0015):
         self.position_manager = PositionManager(take_profit=take_profit)
         self.max_position_weight = max_position_weight
@@ -60,6 +73,9 @@ class PaperExecutor:
                 and analysis.ticker not in recently_sold
                 and analysis.ticker not in sell_decision_tickers
                 and analysis.ticker not in blocked_reentries
+                # Position sizing must use actual source values. Missing price or
+                # instrument lot metadata makes this candidate ineligible.
+                and self._has_valid_market_sizing_data(scan, analysis.ticker)
             )
         ]
 
