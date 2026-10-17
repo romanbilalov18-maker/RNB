@@ -330,13 +330,17 @@ class DecisionAuditStore:
                            s.level_scores_json, s.analyzer_scores_json, s.regime,
                            ROW_NUMBER() OVER (
                                PARTITION BY a.ticker, a.anchor_session_date
-                               ORDER BY a.recorded_at DESC, a.id DESC
+                               ORDER BY CASE WHEN o.horizon_sessions = ? THEN 0 ELSE 1 END,
+                                        a.recorded_at DESC, a.id DESC
                            ) AS session_rank
                     FROM decision_audit AS a
                     JOIN decision_outcomes AS o ON o.audit_id = a.id
                     JOIN decision_learning_snapshots AS s ON s.audit_id = a.id
                     WHERE a.anchor_session_date IS NOT NULL
-                      AND o.horizon_sessions = ?
+                      -- Prefer the intended 3-session label. When it has not
+                      -- matured yet, use the already-matured 1-session label
+                      -- for the same ticker/session so L11 can begin learning.
+                      AND o.horizon_sessions IN (1, ?)
                       AND o.direction_correct IS NOT NULL
                       AND a.recommendation IN ('BUY', 'SELL')
                 )
@@ -346,7 +350,7 @@ class DecisionAuditStore:
                 FROM eligible_audit
                 WHERE session_rank = 1
                 ORDER BY recorded_at ASC, id ASC
-            """, (self.LEARNING_HORIZON,)).fetchall()
+            """, (self.LEARNING_HORIZON, self.LEARNING_HORIZON)).fetchall()
         for row in rows:
             try:
                 level_scores = json.loads(row["level_scores_json"])
