@@ -1,5 +1,7 @@
 import unittest
+from dataclasses import replace
 
+from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import analyze as analyze_level_01, aggregate
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
@@ -16,7 +18,9 @@ from bot.intelligence.levels.level_12.level_12_engine import Level12Engine
 from bot.intelligence.levels.level_13.level_13_engine import Level13Engine
 from bot.intelligence.levels.level_14.level_14_engine import Level14Engine
 from bot.intelligence.levels.level_11.level_11_engine import Level11Engine
+from bot.intelligence.levels.level_15.analyzers.learning_quality import analyze as analyze_learning_quality
 from bot.intelligence.levels.level_15.level_15_engine import Level15Engine
+from bot.intelligence.levels.level_15.models.level_15_result import Level15Result
 
 
 class TestLevel15(unittest.TestCase):
@@ -44,6 +48,38 @@ class TestLevel15(unittest.TestCase):
         self.assertEqual(len(result.analyzer_results), 7)
         self.assertTrue(0.0 <= result.score <= 1.0)
         self.assertTrue(0.0 <= result.master_confidence <= 1.0)
+
+    def test_learning_quality_is_unavailable_without_matured_observations(self):
+        no_observations = self.inputs[2]
+        result = analyze_learning_quality(no_observations)
+        self.assertEqual(result.score, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("learning_evidence_unavailable", result.warnings)
+
+    def test_learning_quality_uses_observed_sample_count(self):
+        observed = replace(self.inputs[2], sample_count=12, confidence=0.7,
+                           outcome_quality=0.8, level_effectiveness=0.6,
+                           analyzer_effectiveness=0.5, learning_confidence=0.9)
+        result = analyze_learning_quality(observed)
+        self.assertAlmostEqual(result.score, 0.7)
+        self.assertEqual(result.confidence, 0.7)
+        self.assertEqual(result.metrics["sample_count"], 12)
+
+    def test_result_rejects_nonfinite_and_boolean_metrics(self):
+        base = dict(symbol="TEST", score=0.5, confidence=0.5, consistency=0.5,
+                    signal_quality=0.5, risk_quality=0.5, scenario_quality=0.5,
+                    anomaly_quality=0.5, adversarial_resilience=0.5,
+                    learning_quality=0.5, master_confidence=0.5)
+        for bad in (float("nan"), float("inf"), True):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                Level15Result(**{**base, "score": bad})
+
+    def test_consistency_is_zero_when_cross_level_agreement_is_unavailable(self):
+        l6, l10, l11, l12, l13, l14 = self.inputs
+        no_agreement = replace(l10, analyzer_results={})
+        result = Level15Engine().analyze(l6, no_agreement, l11, l12, l13, l14)
+        self.assertEqual(result.consistency, 0.0)
+        self.assertEqual(result.confidence, 0.0)
 
     def test_does_not_create_trade_decision(self):
         result = Level15Engine().analyze(*self.inputs)
