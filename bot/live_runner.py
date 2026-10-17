@@ -16,6 +16,8 @@ class LiveScanResult:
     current_prices: dict[str, float]
     previous_closes: dict[str, float]
     lot_sizes: dict[str, int]
+    liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
+    liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
     candle_history: dict[str, list[object]] = field(default_factory=dict)
     sector_by_ticker: dict[str, str] = field(default_factory=dict)
@@ -170,6 +172,46 @@ class LiveMarketRunner:
             ):
                 lot_sizes[ticker] = raw_lot
 
+        liquidity_by_ticker = {}
+        liquidity_spread_ticks_by_ticker = {}
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            tick_size_raw = getattr(share, "min_price_increment", None)
+            try:
+                tick_size = self._quotation(tick_size_raw) if tick_size_raw is not None else None
+            except (TypeError, ValueError, OverflowError):
+                tick_size = None
+            if not ticker or not instrument_id or tick_size is None or tick_size <= 0:
+                continue
+            try:
+                order_book = self.client.market_data.get_order_book(
+                    instrument_id=instrument_id,
+                    depth=10,
+                )
+            except Exception as exc:
+                print(f"GetOrderBook failed for {ticker}; liquidity remains unavailable: {exc}")
+                continue
+            bids = getattr(order_book, "bids", ()) or ()
+            asks = getattr(order_book, "asks", ()) or ()
+            if not bids or not asks:
+                continue
+            try:
+                best_bid = self._quotation(getattr(bids[0], "price", None))
+                best_ask = self._quotation(getattr(asks[0], "price", None))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if best_bid <= 0 or best_ask <= 0 or best_ask < best_bid:
+                continue
+            spread_ticks = (best_ask - best_bid) / tick_size
+            if not isinstance(spread_ticks, (int, float)) or spread_ticks < 0 or spread_ticks == float("inf"):
+                continue
+            # This is explicitly a top-of-book spread proxy, not a claim about
+            # total market depth. It is derived only from observed T-Invest data.
+            normalized_spread_ticks = max(1.0, float(spread_ticks))
+            liquidity_by_ticker[ticker] = max(0.0, min(1.0, 1.0 / normalized_spread_ticks))
+            liquidity_spread_ticks_by_ticker[ticker] = float(spread_ticks)
+
         previous_closes = {}
         for share in shares:
             ticker = str(getattr(share, "ticker", "") or "")
@@ -230,6 +272,8 @@ class LiveMarketRunner:
             current_prices=current_prices,
             previous_closes=previous_closes,
             lot_sizes=lot_sizes,
+            liquidity_by_ticker=liquidity_by_ticker,
+            liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
             latest_candles=latest_candles,
             candle_history=candle_history,
             sector_by_ticker=sector_by_ticker,
