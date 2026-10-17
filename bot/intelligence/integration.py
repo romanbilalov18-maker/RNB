@@ -191,7 +191,9 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         momentum=float(analysis.momentum),
         # Volume ratio is not a liquidity measurement. Keep liquidity unknown
         # until the source supplies a real metric (e.g. spread/depth).
-        liquidity=None,
+        liquidity=getattr(scan, "liquidity_by_ticker", {}).get(ticker),
+        liquidity_source="t_invest_top_of_book_spread" if ticker in getattr(scan, "liquidity_by_ticker", {}) else None,
+        liquidity_spread_ticks=getattr(scan, "liquidity_spread_ticks_by_ticker", {}).get(ticker),
         open_price=open_price,
         high_price=high_price,
         low_price=low_price,
