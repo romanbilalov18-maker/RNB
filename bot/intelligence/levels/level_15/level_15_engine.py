@@ -45,7 +45,7 @@ class Level15Engine:
         # cross_level_agreement and overall confidence but no analyzer map.
         agreement_confidence = (
             agreement_result.confidence if agreement_result is not None
-            else getattr(l10, "confidence", 0.0)
+            else (0.0 if hasattr(l10, "analyzer_results") else getattr(l10, "confidence", 0.0))
         )
         consistency = (
             max(0.0, min(1.0, float(l10.cross_level_agreement)))
