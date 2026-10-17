@@ -116,6 +116,9 @@ class HistoricalLevel12AnomalyBacktestTests(unittest.TestCase):
         self.assertIn("compounded_net_return", trading)
         self.assertEqual(trading["round_trip_cost"], 0.001)
         self.assertTrue(trading["overlapping_horizons_not_independent"])
+        holdout = report["chronological_holdout"]["threshold_selection"]["holdout_selected_thresholds"]
+        self.assertIsNotNone(holdout["l4_baseline"]["compounded_net_return"])
+        self.assertAlmostEqual(holdout["l4_baseline"]["compounded_net_return"], -0.001)
 
 
 if __name__ == "__main__":
