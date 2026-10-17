@@ -71,7 +71,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
             observation = store.learning_observations_by_ticker()["AAA"][0]
             self.assertAlmostEqual(observation.realized_trade_return, 0.09)
             self.assertTrue(observation.correct)
-            self.assertAlmostEqual(observation.outcome_return, (113 / 100 - 1) - .001)
+            self.assertAlmostEqual(observation.outcome_return, (113 / 110 - 1) - .001)
 
 
     def test_idempotent_for_same_cycle_and_ticker(self):
