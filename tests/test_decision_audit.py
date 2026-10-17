@@ -460,5 +460,17 @@ class DecisionAuditStoreTests(unittest.TestCase):
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(date_only_today, now=saturday_morning))
 
 
+    def test_price_rejects_non_finite_and_non_positive_values(self):
+        for value in (float("nan"), float("inf"), float("-inf"), 0, -1):
+            with self.subTest(value=value):
+                self.assertIsNone(DecisionAuditStore._price(value))
+
+        self.assertEqual(DecisionAuditStore._price(100), 100.0)
+        self.assertEqual(
+            DecisionAuditStore._price(SimpleNamespace(units=100, nano=500_000_000)),
+            100.5,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
