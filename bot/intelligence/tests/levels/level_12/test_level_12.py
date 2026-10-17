@@ -43,6 +43,21 @@ class TestLevel12(unittest.TestCase):
         result = Level12Engine().analyze(snapshot, *self.inputs)
         self.assertGreater(result.volume_anomaly, 0.0)
 
+    def test_detects_abnormally_low_volume(self):
+        from bot.intelligence.levels.level_12.analyzers.volume_anomaly import analyze
+
+        snapshot = MarketSnapshot("TEST", 105.0, 100.0, 100.0, 1000.0, 0.02, 0.04, 0.85)
+        result = analyze(snapshot)
+        self.assertAlmostEqual(result.metrics["volume_ratio"], 0.1)
+        self.assertAlmostEqual(result.score, 0.3)
+
+    def test_volume_anomaly_is_symmetric_around_baseline(self):
+        from bot.intelligence.levels.level_12.analyzers.volume_anomaly import analyze
+
+        low = analyze(MarketSnapshot("TEST", 105.0, 100.0, 500.0, 1000.0))
+        high = analyze(MarketSnapshot("TEST", 105.0, 100.0, 1500.0, 1000.0))
+        self.assertAlmostEqual(low.score, high.score)
+
     def test_data_anomaly_flags_non_finite_market_values(self):
         snapshot = MarketSnapshot("TEST", float("nan"), 100.0, float("inf"), 1000.0, 0.02, 0.04, 0.85)
         result = analyze_data_anomaly(snapshot)
