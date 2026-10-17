@@ -49,6 +49,14 @@ jobs:
           restore-keys: |
             virtual-portfolio-main-
 
+      - name: Verify restored state before starting bot
+        run: |
+          mkdir -p data
+          if [ ! -s data/virtual_portfolio.sqlite3 ]; then echo 'ERROR: saved virtual portfolio is missing; refusing a fresh balance'; exit 1; fi
+          if [ ! -s data/decision_audit.sqlite ]; then echo 'ERROR: saved L11 audit history is missing; refusing empty history'; exit 1; fi
+          echo 'PERSISTED_PORTFOLIO_STATE=FOUND'
+          echo 'PERSISTED_L11_AUDIT_HISTORY=FOUND'
+
       - name: Prepare data directory
         run: mkdir -p data
 
