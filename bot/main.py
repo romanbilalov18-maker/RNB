@@ -169,12 +169,13 @@ def main() -> None:
 
 
 def _validate_held_position_prices(portfolio, market_prices) -> None:
-    """Reject an incomplete mark-to-market snapshot before mutating the portfolio."""
+    """Reject stale/missing quote snapshots before mutating the portfolio."""
     missing = sorted(set(portfolio.positions) - set(market_prices))
     if missing:
         raise RuntimeError(
-            "Cycle skipped: missing live prices for open positions: "
+            "Cycle skipped: no verified fresh T-Invest prices for open positions: "
             + ", ".join(missing)
+            + ". Portfolio was not changed; inspect T-Invest provenance diagnostics."
         )
 
 
