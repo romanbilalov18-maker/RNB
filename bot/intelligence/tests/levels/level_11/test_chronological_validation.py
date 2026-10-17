@@ -66,5 +66,27 @@ class TestL11ChronologicalValidation(unittest.TestCase):
         self.assertFalse(report["weights_applied_to_trading"])
 
 
+    def test_purging_uses_moscow_market_date_not_utc_date(self):
+        # 21:30 UTC is already the next calendar date in Moscow.
+        boundary = datetime(2026, 1, 10, 21, 30, tzinfo=timezone.utc)
+        train = (
+            LearningObservation(
+                0.01, True, {"L01": 0.8}, {"signal": 0.7}, "trend",
+                (boundary - timedelta(days=1)).isoformat(), "2026-01-10",
+            ),
+        )
+        test = (
+            LearningObservation(
+                0.01, True, {"L01": 0.8}, {"signal": 0.7}, "trend",
+                boundary.isoformat(), "2026-01-12",
+            ),
+        )
+        from bot.intelligence.levels.level_11.validation import _purge_overlapping_labels
+        kept, purged, error = _purge_overlapping_labels(train, test)
+        self.assertIsNone(error)
+        self.assertEqual(kept, ())
+        self.assertEqual(purged, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

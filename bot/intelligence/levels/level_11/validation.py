@@ -7,12 +7,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
     feature_predictive_metrics,
     proposed_weights,
 )
 from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
+
+MARKET_TIMEZONE = ZoneInfo("Europe/Moscow")
 
 
 @dataclass(frozen=True)
@@ -70,7 +73,7 @@ def _purge_overlapping_labels(
         except (TypeError, ValueError):
             purged += 1
             continue
-        boundary_date = boundary.date()
+        boundary_date = boundary.astimezone(MARKET_TIMEZONE).date()
         if target_date >= boundary_date:
             purged += 1
         else:
