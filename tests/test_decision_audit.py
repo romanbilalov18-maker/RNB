@@ -42,6 +42,63 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(summary["observations_with_trades"], 1)
             self.assertAlmostEqual(summary["recorded_trade_commissions"], 1.5)
 
+    def test_closed_virtual_trade_is_attached_separately_from_forecast_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            trade = SimpleNamespace(
+                ticker="AAA", side="SELL", quantity=2, commission=1.0,
+                realized_pnl=18.0, entry_price=100.0, price=110.0,
+            )
+            store.record_cycle(
+                "closed-trade",
+                {"AAA": SimpleNamespace(action="SELL", reason="exit signal")},
+                [trade],
+                equity=1018, cash=1018, total_commissions=1.0,
+                current_prices={"AAA": 110},
+                candle_history={"AAA": [candle("2026-10-01", 100)]},
+                intelligence_results={"AAA": intelligence_snapshot()},
+                as_of=datetime.fromisoformat("2026-10-02T12:00:00+00:00"),
+            )
+            future = [candle("2026-10-05", 111), candle("2026-10-06", 112),
+                      candle("2026-10-07", 113)]
+            store.record_cycle(
+                "maturity",
+                {}, [],
+                equity=1018, cash=1018, total_commissions=1.0,
+                candle_history={"AAA": [candle("2026-10-01", 100)] + future},
+                as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+            )
+            observations = store.learning_observations_by_ticker()["AAA"]
+            forecast = next(item for item in observations if item.outcome_target_date == "2026-10-07")
+            trade_feedback = next(item for item in observations if item.realized_trade_return is not None)
+            # The SELL trade closed profitably, but the forward price rose:
+            # forecast and realized trade results must remain independent.
+            self.assertFalse(forecast.correct)
+            self.assertAlmostEqual(forecast.outcome_return, -(113 / 110 - 1) - .001)
+            self.assertAlmostEqual(trade_feedback.realized_trade_return, 0.09)
+            self.assertTrue(trade_feedback.correct)
+
+    def test_realized_trade_feedback_does_not_wait_for_matured_forecast(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            trade = SimpleNamespace(
+                ticker="XYZ", side="SELL", quantity=3, commission=1.0,
+                realized_pnl=-15.0, entry_price=100.0, price=95.0,
+            )
+            store.record_cycle(
+                "exit-with-wait-recommendation",
+                {"XYZ": SimpleNamespace(action="WAIT", reason="stop loss")}, [trade],
+                equity=985, cash=985, total_commissions=1.0,
+                intelligence_results={"XYZ": intelligence_snapshot()},
+                as_of=datetime.fromisoformat("2026-10-02T12:00:00+00:00"),
+            )
+            observations = store.learning_observations_by_ticker()["XYZ"]
+            self.assertEqual(len(observations), 1)
+            self.assertAlmostEqual(observations[0].realized_trade_return, -0.05)
+            self.assertAlmostEqual(observations[0].outcome_return, -0.05)
+            self.assertFalse(observations[0].correct)
+
+
     def test_idempotent_for_same_cycle_and_ticker(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
