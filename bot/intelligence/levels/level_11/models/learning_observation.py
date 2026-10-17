@@ -15,6 +15,7 @@ class LearningObservation:
     regime: Optional[str] = None
     decision_time: Optional[str] = None
     outcome_target_date: Optional[str] = None
+    realized_trade_return: Optional[float] = None
 
     def __post_init__(self) -> None:
         if (
@@ -43,6 +44,13 @@ class LearningObservation:
                     or not 0.0 <= value <= 1.0
                 ):
                     raise ValueError(f"{name}[{key}] must be a finite number between 0 and 1")
+
+        if self.realized_trade_return is not None and (
+            isinstance(self.realized_trade_return, bool)
+            or not isinstance(self.realized_trade_return, Real)
+            or not math.isfinite(self.realized_trade_return)
+        ):
+            raise ValueError("realized_trade_return must be None or a finite number")
 
         for name in ("regime", "decision_time", "outcome_target_date"):
             value = getattr(self, name)
