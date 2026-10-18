@@ -17,6 +17,7 @@ TRADABLE_PHASES = frozenset({
     "evening_opening_auction",
     "evening",
     "scheduled_trading",
+    "weekend",
 })
 
 
@@ -209,6 +210,17 @@ def resolve_exchange_session(
         return ExchangeSession(exchange_name, True, date_text, is_trading_day, "dealer", "dealer", True, next_transition)
 
     field_phase = _field_phase(day, now_utc)
+    # Some T-Invest exchange sections support a separate weekend session.
+    # Label it explicitly instead of presenting it as an ordinary weekday main
+    # session; eligibility still requires this official schedule and live status.
+    exchange_key = normalize_exchange(exchange_name)
+    if (
+        is_trading_day
+        and target_date.weekday() >= 5
+        and ("WEEKEND" in exchange_key or "WKND" in exchange_key)
+        and field_phase == "main"
+    ):
+        field_phase = "weekend"
     if is_trading_day:
         if field_phase is not None:
             is_open = field_phase in TRADABLE_PHASES

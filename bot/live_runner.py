@@ -74,6 +74,11 @@ class LiveMarketRunner:
         cycle_utc, cycle_moscow = current_times()
         initial_context = build_market_context(cycle_utc)
         print(
+            f"Trading decision clock: date_moscow={cycle_moscow.date().isoformat()} "
+            f"weekday={initial_context.weekday} time_moscow={cycle_moscow.strftime('%H:%M:%S %Z')} "
+            f"utc={cycle_utc.isoformat()} timezone=Europe/Moscow"
+        )
+        print(
             f"Market context: utc={cycle_utc.isoformat()} "
             f"moscow={cycle_moscow.isoformat()} weekday={initial_context.weekday} "
             f"calendar={initial_context.calendar_status} session=awaiting_t_invest_status"
@@ -287,6 +292,7 @@ class LiveMarketRunner:
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
         trading_status_by_id = {}
+        trading_api_available_by_id = {}
         quote_age_by_id = {}
         fresh_quote_ids = set()
         now_utc = datetime.now(timezone.utc)
@@ -301,7 +307,11 @@ class LiveMarketRunner:
             for item in getattr(status_response, "trading_statuses", ()) or ():
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
-                trading_status_by_id[self._instrument_key(item)] = status_name
+                instrument_key = self._instrument_key(item)
+                trading_status_by_id[instrument_key] = status_name
+                trading_api_available_by_id[instrument_key] = bool(
+                    getattr(item, "api_trade_available_flag", False)
+                )
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
 
@@ -362,13 +372,21 @@ class LiveMarketRunner:
                 if quote_reason == "fresh":
                     fresh_quote_ids.add(instrument_id)
             status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
+            api_trade_available = trading_api_available_by_id.get(instrument_id, False)
             quote_price = last_prices.get(instrument_id)
             quote_fresh = instrument_id in fresh_quote_ids
             status_compatible = instrument_id in active_instrument_ids
             ticker_context = session_by_ticker.get(ticker, {})
+            ticker_context["api_trade_available_flag"] = api_trade_available
             ticker_context["quote_fresh"] = quote_fresh
-            ticker_context["trade_eligible"] = status_compatible and quote_fresh
-            if not status_compatible:
+            ticker_context["trade_eligible"] = self._instrument_trade_eligible(
+                api_trade_available, status_name,
+                exchange_sessions.get(normalize_exchange(getattr(share, "exchange", ""))),
+                quote_fresh,
+            )
+            if not api_trade_available:
+                quote_reason = "api_trade_unavailable"
+            elif not status_compatible:
                 quote_reason = "schedule_closed_or_status_incompatible"
             elif not quote_fresh:
                 # Keep the more specific stale/missing/future timestamp reason.
@@ -383,11 +401,13 @@ class LiveMarketRunner:
                 f"session_phase={ticker_context.get('phase', 'unknown')} "
                 f"schedule_verified={ticker_context.get('verified', False)} "
                 f"trading_status={status_name} "
+                f"api_trade_available={api_trade_available} "
+                f"broker_status_allows_session={status_compatible} "
                 f"last_price_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
                 f"quote_age_seconds={round(quote_age, 1) if quote_age is not None else 'UNAVAILABLE'} "
                 f"max_quote_age_seconds={self.max_quote_age_seconds:g} "
                 f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'} "
-                f"trade_eligible={status_compatible and quote_fresh} "
+                f"trade_eligible={ticker_context['trade_eligible']} "
                 f"quote_rejection={quote_reason}"
             )
 
@@ -415,8 +435,18 @@ class LiveMarketRunner:
             for share in analysis_shares
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
-            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
-            and bool(session_by_ticker.get(str(getattr(share, "ticker", "") or ""), {}).get("verified", False))
+            and self._instrument_trade_eligible(
+                trading_api_available_by_id.get(
+                    str(getattr(share, "uid", "") or getattr(share, "figi", "")),
+                    False,
+                ),
+                trading_status_by_id.get(
+                    str(getattr(share, "uid", "") or getattr(share, "figi", "")),
+                    "UNAVAILABLE",
+                ),
+                exchange_sessions.get(normalize_exchange(getattr(share, "exchange", ""))),
+                str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids,
+            )
         }
         fresh_quote_tickers = {
             str(getattr(share, "ticker", "") or "")
@@ -428,6 +458,42 @@ class LiveMarketRunner:
             f"T-Invest active trading instruments: "
             f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
         )
+        verified_sessions = [
+            item for item in exchange_sessions.values() if item.verified
+        ]
+        open_sessions = [item for item in verified_sessions if item.is_open]
+        closed_sessions = [item for item in verified_sessions if not item.is_open]
+        unknown_sessions = len(exchange_sessions) - len(verified_sessions)
+        phases = sorted({item.phase for item in open_sessions})
+        print(
+            "Trading readiness summary: "
+            f"moscow_date={cycle_moscow.date().isoformat()} "
+            f"moscow_weekday={cycle_moscow.strftime('%A')} "
+            f"moscow_time={cycle_moscow.strftime('%H:%M:%S')} "
+            f"exchange_sessions_open={len(open_sessions)} "
+            f"exchange_sessions_closed={len(closed_sessions)} "
+            f"exchange_sessions_unknown={unknown_sessions} "
+            f"open_phases={','.join(phases) if phases else 'none'} "
+            f"trade_eligible_instruments={len(active_trading_tickers)} "
+            f"fresh_quotes={len(fresh_quote_tickers)} "
+            f"policy=live_api_flag+exchange_schedule+broker_status+fresh_quote"
+        )
+        if unknown_sessions:
+            print(
+                "Trading readiness interpretation: some exchange schedules are "
+                "unknown; unknown schedules never authorize a new virtual trade."
+            )
+        elif open_sessions:
+            print(
+                "Trading readiness interpretation: at least one specific exchange "
+                "session is open. This does not mean all instruments are tradable; "
+                "use per-instrument trade_eligible and quote provenance."
+            )
+        else:
+            print(
+                "Trading readiness interpretation: no verified exchange session "
+                "is open; no instrument is eligible for a new virtual trade."
+            )
 
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
@@ -638,6 +704,21 @@ class LiveMarketRunner:
             # instrument's declared exchange schedule explicitly reports open.
             return True
         return cls._is_active_trading_status(normalized)
+
+    @classmethod
+    def _instrument_trade_eligible(
+        cls,
+        api_trade_available_flag: object,
+        status_name: str,
+        exchange_session: ExchangeSession | None,
+        quote_fresh: bool,
+    ) -> bool:
+        """Require every independent broker/session/quote gate for trading."""
+        return bool(
+            api_trade_available_flag
+            and quote_fresh
+            and cls._status_allows_scheduled_session(status_name, exchange_session)
+        )
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:

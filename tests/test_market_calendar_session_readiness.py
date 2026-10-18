@@ -71,6 +71,16 @@ class MarketCalendarSessionReadinessTests(unittest.TestCase):
         self.assertFalse(session.is_open)
         self.assertEqual(session.phase, "calendar_closed")
 
+    def test_explicit_tinvest_weekend_exchange_is_labeled_as_weekend_session(self):
+        session = resolve_exchange_session(
+            "moex_mrng_evng_e_wknd_dlr",
+            schedule(make_day(18, trading=True), exchange="moex_mrng_evng_e_wknd_dlr"),
+            ts(18, 10),
+        )
+        self.assertTrue(session.verified)
+        self.assertTrue(session.is_open)
+        self.assertEqual(session.phase, "weekend")
+
     def test_outside_session_window_resolves_to_closed(self):
         session = resolve_exchange_session("MOEX", schedule(make_day(19)), ts(19, 18))
         self.assertTrue(session.verified)
