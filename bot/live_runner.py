@@ -92,6 +92,24 @@ class LiveMarketRunner:
             for share in shares
             if str(getattr(share, "ticker", "") or "")
         }
+
+        # Positions are persisted by ticker, so report the exact broker metadata
+        # resolution rather than guessing a UID/FIGI for an unresolved holding.
+        for held_ticker in sorted(held_tickers):
+            held_share = shares_by_ticker.get(held_ticker)
+            if held_share is None:
+                print(
+                    f"Held-position instrument mapping: ticker={held_ticker} "
+                    "instrument_uid=UNRESOLVED figi=UNRESOLVED exchange=UNRESOLVED "
+                    "reason=not_in_tradable_RUB_share_universe"
+                )
+                continue
+            print(
+                f"Held-position instrument mapping: ticker={held_ticker} "
+                f"instrument_uid={getattr(held_share, 'uid', '') or 'UNAVAILABLE'} "
+                f"figi={getattr(held_share, 'figi', '') or 'UNAVAILABLE'} "
+                f"exchange={getattr(held_share, 'exchange', '') or 'UNAVAILABLE'}"
+            )
         schedule_map, schedule_fetch_succeeded = self._load_trading_schedules(cycle_utc)
         if schedule_fetch_succeeded:
             print(
