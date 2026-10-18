@@ -288,6 +288,15 @@ class LiveMarketRunner:
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
         }
+        if not market_context.weekday_candidate:
+            # Fail closed even if the broker returns stale/contradictory active
+            # statuses on a weekend; main.py skips portfolio mutation on empty.
+            if active_trading_tickers:
+                print(
+                    "Calendar guard: weekend detected; overriding "
+                    f"{len(active_trading_tickers)} broker-active tickers to inactive."
+                )
+            active_trading_tickers = set()
         fresh_quote_tickers = {
             str(getattr(share, "ticker", "") or "")
             for share in analysis_shares
