@@ -12,7 +12,11 @@ def build_market_context(now: datetime | None = None, trading_statuses: dict[str
     statuses = trading_statuses or {}
     active_count = sum(str(getattr(s, "name", s) or "").upper() in _ACTIVE for s in statuses.values())
     reported = len(statuses)
-    if not status_check_succeeded:
+    # MOEX RUB shares do not trade on weekends. If broker status contradicts
+    # the calendar, choose the conservative result and block trade eligibility.
+    if not weekday_candidate(moscow):
+        session, phase = "closed_by_weekend_calendar", "weekend_guard"
+    elif not status_check_succeeded:
         session, phase = "unknown", "unverified"
     elif active_count == 0:
         session, phase = "closed_or_unavailable", "no_active_instruments"
