@@ -242,23 +242,17 @@ class LiveMarketRunner:
                 refresh_response = self.client.market_data.get_last_prices(
                     instrument_id=sorted(held_instrument_ids),
                 )
-                refreshed_count = 0
-                for item in getattr(refresh_response, "last_prices", ()) or ():
-                    instrument_id = self._instrument_key(item)
-                    refreshed_price = self._quotation(getattr(item, "price", None))
-                    refreshed_time = getattr(item, "time", None)
-                    if not instrument_id or refreshed_price <= 0 or not isinstance(refreshed_time, datetime):
-                        continue
-                    previous_item = last_price_items.get(instrument_id)
-                    previous_time = getattr(previous_item, "time", None) if previous_item is not None else None
-                    if isinstance(previous_time, datetime):
-                        old_time = previous_time if previous_time.tzinfo else previous_time.replace(tzinfo=timezone.utc)
-                        new_time = refreshed_time if refreshed_time.tzinfo else refreshed_time.replace(tzinfo=timezone.utc)
-                        if new_time.astimezone(timezone.utc) <= old_time.astimezone(timezone.utc):
-                            continue
-                    last_prices[instrument_id] = refreshed_price
-                    last_price_items[instrument_id] = item
-                    refreshed_count += 1
+                refresh_now = datetime.now(timezone.utc)
+                refreshed_count = sum(
+                    self._merge_fresh_newer_quote(
+                        item,
+                        last_prices=last_prices,
+                        last_price_items=last_price_items,
+                        now=refresh_now,
+                        max_age_seconds=self.max_quote_age_seconds,
+                    )
+                    for item in (getattr(refresh_response, "last_prices", ()) or ())
+                )
                 print(
                     f"Held-position quote refresh: requested={len(held_instrument_ids)} "
                     f"accepted_newer_quotes={refreshed_count}"
@@ -640,6 +634,51 @@ class LiveMarketRunner:
             or getattr(item, "figi", "")
             or ""
         )
+
+    @classmethod
+    def _merge_fresh_newer_quote(
+        cls,
+        item: object,
+        *,
+        last_prices: dict[str, float],
+        last_price_items: dict[str, object],
+        now: datetime,
+        max_age_seconds: float,
+    ) -> bool:
+        """Replace a cached quote only with a newer, positive, fresh broker quote."""
+        instrument_id = cls._instrument_key(item)
+        if not instrument_id:
+            return False
+        try:
+            price = cls._quotation(getattr(item, "price", None))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        quote_time = getattr(item, "time", None)
+        if (
+            not math.isfinite(price)
+            or price <= 0
+            or not isinstance(quote_time, datetime)
+            or cls._quote_freshness(quote_time, now, max_age_seconds)[1] != "fresh"
+        ):
+            return False
+
+        previous_item = last_price_items.get(instrument_id)
+        previous_time = getattr(previous_item, "time", None) if previous_item is not None else None
+        if isinstance(previous_time, datetime):
+            old_time = previous_time if previous_time.tzinfo else previous_time.replace(tzinfo=timezone.utc)
+            new_time = quote_time if quote_time.tzinfo else quote_time.replace(tzinfo=timezone.utc)
+            _, previous_reason = cls._quote_freshness(previous_time, now, max_age_seconds)
+            # A valid fresh timestamp may replace an older fresh/stale timestamp.
+            # An invalid future-dated cached timestamp must not block a valid quote.
+            if (
+                previous_reason != "quote_timestamp_in_future"
+                and new_time.astimezone(timezone.utc) <= old_time.astimezone(timezone.utc)
+            ):
+                return False
+
+        last_prices[instrument_id] = price
+        last_price_items[instrument_id] = item
+        return True
 
     @staticmethod
     def _quotation(value: object) -> float:
