@@ -82,12 +82,10 @@ def main() -> None:
                     learning_observations_by_ticker=learning_observations,
                     portfolio=portfolio,
                 )
-                if active_tickers is not None:
-                    intelligence_results = {
-                        ticker: intelligence
-                        for ticker, intelligence in intelligence_results.items()
-                        if ticker in active_tickers
-                    }
+                intelligence_results = _filter_intelligence_to_active_tickers(
+                    intelligence_results,
+                    active_tickers,
+                )
                 decisions = _evaluate_decisions(intelligence_results, portfolio)
                 # Only explicit BUY recommendations from a valid L1-L15 result may
                 # authorize new virtual entries. Existing PositionManager exits and
@@ -207,6 +205,22 @@ def _env_positive_float(name: str, default: float) -> float:
         raise ValueError(f"{name} must be a positive number")
     return value
 
+
+
+def _filter_intelligence_to_active_tickers(intelligence_results, active_tickers):
+    """Keep DecisionEngine inputs limited to schedule/status/fresh-quote eligible tickers.
+
+    A None allowlist preserves legacy/test behavior; an empty set intentionally
+    excludes every ticker and produces no DecisionEngine recommendations.
+    """
+    if active_tickers is None:
+        return dict(intelligence_results)
+    allowed = set(active_tickers)
+    return {
+        ticker: intelligence
+        for ticker, intelligence in intelligence_results.items()
+        if ticker in allowed
+    }
 
 def _evaluate_decisions(intelligence_results, portfolio):
     """Convert L1-L15 aggregate results into cycle recommendations."""

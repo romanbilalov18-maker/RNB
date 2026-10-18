@@ -2,10 +2,9 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from bot.intelligence.decision_engine import DecisionEngine
 from bot.intelligence.integration import build_market_snapshot
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
-from bot.main import _evaluate_decisions
+from bot.main import _evaluate_decisions, _filter_intelligence_to_active_tickers
 
 
 class MarketContextDecisionFlowTests(unittest.TestCase):
@@ -95,12 +94,24 @@ class MarketContextDecisionFlowTests(unittest.TestCase):
         self.assertTrue(0.0 <= intelligence.overall_confidence <= 1.0)
         self.assertTrue(0.0 <= intelligence.overall_consistency <= 1.0)
 
-        decisions = _evaluate_decisions(
-            {"AAA": intelligence},
-            SimpleNamespace(positions={}),
+        # The official-session eligibility allowlist gates results before
+        # DecisionEngine. A stale/inactive ticker is excluded, while an empty
+        # allowlist blocks all recommendations.
+        decision_inputs = _filter_intelligence_to_active_tickers(
+            {"AAA": intelligence, "STALE": intelligence},
+            {"AAA"},
         )
+        self.assertEqual(set(decision_inputs), {"AAA"})
+        decisions = _evaluate_decisions(decision_inputs, SimpleNamespace(positions={}))
         self.assertEqual(set(decisions), {"AAA"})
         self.assertIn(decisions["AAA"].action, {"BUY", "SELL", "HOLD", "WAIT"})
+        self.assertEqual(
+            _filter_intelligence_to_active_tickers({"AAA": intelligence}, set()), {}
+        )
+        self.assertEqual(
+            set(_filter_intelligence_to_active_tickers({"AAA": intelligence}, None)),
+            {"AAA"},
+        )
 
     def test_unknown_schedule_context_is_preserved_as_unknown(self):
         context = {
