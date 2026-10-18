@@ -29,7 +29,10 @@ class MarketContextTests(unittest.TestCase):
         sunday = datetime(2026, 10, 18, 9, 0, tzinfo=timezone.utc)
         self.assertFalse(weekday_candidate(sunday.astimezone(ZoneInfo("Europe/Moscow"))))
         context = build_market_context(sunday, {"id": "NORMAL_TRADING"}, status_check_succeeded=True)
-        self.assertEqual(context.session, "broker_reported_open")
+        self.assertEqual(context.session, "closed_by_weekend_calendar")
+        self.assertEqual(context.session_phase, "weekend_guard")
+        self.assertEqual(context.broker_active_instruments, 1)
+        self.assertTrue(context.broker_status_verified)
 
     def test_only_exact_active_statuses_count(self):
         self.assertTrue(is_instrument_active("NORMAL_TRADING"))
