@@ -368,7 +368,9 @@ class LiveMarketRunner:
             ticker_context = session_by_ticker.get(ticker, {})
             ticker_context["quote_fresh"] = quote_fresh
             ticker_context["trade_eligible"] = status_compatible and quote_fresh
-            if not status_compatible:
+            if not api_trade_available:
+                quote_reason = "api_trade_unavailable"
+            elif not status_compatible:
                 quote_reason = "schedule_closed_or_status_incompatible"
             elif not quote_fresh:
                 # Keep the more specific stale/missing/future timestamp reason.
@@ -416,6 +418,7 @@ class LiveMarketRunner:
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
+            and bool(getattr(share, "api_trade_available_flag", False))
             and bool(session_by_ticker.get(str(getattr(share, "ticker", "") or ""), {}).get("verified", False))
         }
         fresh_quote_tickers = {
