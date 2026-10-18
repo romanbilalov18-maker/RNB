@@ -417,9 +417,15 @@ class LiveMarketRunner:
             for share in analysis_shares
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
-            and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
-            and bool(getattr(share, "api_trade_available_flag", False))
-            and bool(session_by_ticker.get(str(getattr(share, "ticker", "") or ""), {}).get("verified", False))
+            and self._instrument_trade_eligible(
+                getattr(share, "api_trade_available_flag", False),
+                trading_status_by_id.get(
+                    str(getattr(share, "uid", "") or getattr(share, "figi", "")),
+                    "UNAVAILABLE",
+                ),
+                exchange_sessions.get(normalize_exchange(getattr(share, "exchange", ""))),
+                str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids,
+            )
         }
         fresh_quote_tickers = {
             str(getattr(share, "ticker", "") or "")
@@ -641,6 +647,21 @@ class LiveMarketRunner:
             # instrument's declared exchange schedule explicitly reports open.
             return True
         return cls._is_active_trading_status(normalized)
+
+    @classmethod
+    def _instrument_trade_eligible(
+        cls,
+        api_trade_available_flag: object,
+        status_name: str,
+        exchange_session: ExchangeSession | None,
+        quote_fresh: bool,
+    ) -> bool:
+        """Require every independent broker/session/quote gate for trading."""
+        return bool(
+            api_trade_available_flag
+            and quote_fresh
+            and cls._status_allows_scheduled_session(status_name, exchange_session)
+        )
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
