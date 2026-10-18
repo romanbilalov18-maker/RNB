@@ -87,6 +87,11 @@ class LiveMarketRunner:
         if not shares:
             raise RuntimeError("T-Invest returned no tradable RUB shares")
 
+        shares_by_ticker = {
+            str(getattr(share, "ticker", "") or ""): share
+            for share in shares
+            if str(getattr(share, "ticker", "") or "")
+        }
         schedule_map, schedule_fetch_succeeded = self._load_trading_schedules(cycle_utc)
         if schedule_fetch_succeeded:
             print(
@@ -222,6 +227,50 @@ class LiveMarketRunner:
             ):
                 lot_sizes[ticker] = raw_lot
 
+        # Candle requests can take long enough that an initially fresh held
+        # quote expires before the portfolio guard runs. Refresh held positions
+        # after the history scan, and only replace cached values with a valid,
+        # positively priced response carrying a newer source timestamp.
+        held_instrument_ids = {
+            str(getattr(shares_by_ticker[ticker], "uid", "") or getattr(shares_by_ticker[ticker], "figi", ""))
+            for ticker in sorted(held_tickers)
+            if ticker in shares_by_ticker
+        }
+        held_instrument_ids.discard("")
+        if held_instrument_ids:
+            try:
+                refresh_response = self.client.market_data.get_last_prices(
+                    instrument_id=sorted(held_instrument_ids),
+                )
+                refreshed_count = 0
+                for item in getattr(refresh_response, "last_prices", ()) or ():
+                    instrument_id = self._instrument_key(item)
+                    refreshed_price = self._quotation(getattr(item, "price", None))
+                    refreshed_time = getattr(item, "time", None)
+                    if not instrument_id or refreshed_price <= 0 or not isinstance(refreshed_time, datetime):
+                        continue
+                    previous_item = last_price_items.get(instrument_id)
+                    previous_time = getattr(previous_item, "time", None) if previous_item is not None else None
+                    if isinstance(previous_time, datetime):
+                        old_time = previous_time if previous_time.tzinfo else previous_time.replace(tzinfo=timezone.utc)
+                        new_time = refreshed_time if refreshed_time.tzinfo else refreshed_time.replace(tzinfo=timezone.utc)
+                        if new_time.astimezone(timezone.utc) <= old_time.astimezone(timezone.utc):
+                            continue
+                    last_prices[instrument_id] = refreshed_price
+                    last_price_items[instrument_id] = item
+                    refreshed_count += 1
+                print(
+                    f"Held-position quote refresh: requested={len(held_instrument_ids)} "
+                    f"accepted_newer_quotes={refreshed_count}"
+                )
+            except Exception as exc:
+                # Refresh is a best-effort data read. Existing freshness checks
+                # still fail closed; no stale value is promoted to a fresh quote.
+                print(
+                    "Held-position quote refresh failed; retaining original quote "
+                    f"provenance: {type(exc).__name__}: {exc}"
+                )
+
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
@@ -272,6 +321,8 @@ class LiveMarketRunner:
             session_by_ticker[ticker] = {
                 **(exchange_session.to_dict() if exchange_session is not None else {}),
                 "instrument_exchange": exchange,
+                "instrument_uid": str(getattr(share, "uid", "") or ""),
+                "figi": str(getattr(share, "figi", "") or ""),
                 "weekend_flag": bool(getattr(share, "weekend_flag", False)),
                 "trading_status": status_name,
                 "broker_status_allows_session": status_compatible,
@@ -313,6 +364,8 @@ class LiveMarketRunner:
                     quote_reason = "quote_not_verified_fresh"
             print(
                 f"T-Invest provenance: {ticker or instrument_id} "
+                f"instrument_uid={ticker_context.get('instrument_uid', 'UNAVAILABLE')} "
+                f"figi={ticker_context.get('figi', 'UNAVAILABLE')} "
                 f"exchange={ticker_context.get('instrument_exchange', 'UNAVAILABLE')} "
                 f"session={ticker_context.get('session', 'unknown')} "
                 f"session_phase={ticker_context.get('phase', 'unknown')} "
@@ -457,9 +510,7 @@ class LiveMarketRunner:
             if "." in sector:
                 sector = sector.rsplit(".", 1)[-1]
             if ticker and sector and sector.lower() not in {"none", "unknown", "instrument_sector_unspecified"}:
-                sector_by_ticker[ticker] = sector
-                if ticker in ticker_changes:
-                    sector_groups.setdefault(sector, []).append(ticker_changes[ticker])
+                sector_by_ticker.setdefault(sector, []).append(ticker)
         sector_returns = {
             sector: sum(changes) / len(changes)
             for sector, changes in sector_groups.items() if changes
