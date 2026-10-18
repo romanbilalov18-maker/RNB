@@ -287,6 +287,7 @@ class LiveMarketRunner:
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
         trading_status_by_id = {}
+        trading_api_available_by_id = {}
         quote_age_by_id = {}
         fresh_quote_ids = set()
         now_utc = datetime.now(timezone.utc)
@@ -301,7 +302,11 @@ class LiveMarketRunner:
             for item in getattr(status_response, "trading_statuses", ()) or ():
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
-                trading_status_by_id[self._instrument_key(item)] = status_name
+                instrument_key = self._instrument_key(item)
+                trading_status_by_id[instrument_key] = status_name
+                trading_api_available_by_id[instrument_key] = bool(
+                    getattr(item, "api_trade_available_flag", False)
+                )
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
 
@@ -418,7 +423,10 @@ class LiveMarketRunner:
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
             and self._instrument_trade_eligible(
-                getattr(share, "api_trade_available_flag", False),
+                trading_api_available_by_id.get(
+                    str(getattr(share, "uid", "") or getattr(share, "figi", "")),
+                    False,
+                ),
                 trading_status_by_id.get(
                     str(getattr(share, "uid", "") or getattr(share, "figi", "")),
                     "UNAVAILABLE",
