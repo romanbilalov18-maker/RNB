@@ -41,6 +41,8 @@ def main() -> None:
     from t_tech.invest import Client
 
     with Client(config.invest_token) as client:
+        # Reuse the runner so its official exchange-schedule cache survives cycles.
+        market_runner = LiveMarketRunner(client)
         while True:
             if cycle and not _should_run_another_cycle(
                 deadline - time.monotonic(), cycle_interval_minutes
@@ -56,7 +58,7 @@ def main() -> None:
             print(f"Take Profit: {config.take_profit_percent:g} %")
 
             try:
-                result = LiveMarketRunner(client).run(
+                result = market_runner.run(
                     held_tickers=set(portfolio.positions),
                     tracked_tickers=audit_store.pending_tickers(),
                 )

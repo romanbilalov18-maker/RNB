@@ -225,7 +225,13 @@ def build_market_snapshot(scan, analysis, portfolio=None) -> MarketSnapshot | No
         historical_volume_ratios=volume_ratios,
         portfolio_positions=tuple(positions),
         portfolio_context_available=portfolio is not None,
-        market_context=(scan.market_context.to_dict() if getattr(scan, "market_context", None) is not None else None),
+        market_context=(
+            {
+                **scan.market_context.to_dict(),
+                "instrument_session": getattr(scan, "session_by_ticker", {}).get(ticker, {}),
+            }
+            if getattr(scan, "market_context", None) is not None else None
+        ),
     )
 
 

@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 from bot.market_context import build_market_context
 from bot.market_context.clock import current_times
@@ -29,10 +30,30 @@ class MarketContextTests(unittest.TestCase):
         sunday = datetime(2026, 10, 18, 9, 0, tzinfo=timezone.utc)
         self.assertFalse(weekday_candidate(sunday.astimezone(ZoneInfo("Europe/Moscow"))))
         context = build_market_context(sunday, {"id": "NORMAL_TRADING"}, status_check_succeeded=True)
-        self.assertEqual(context.session, "closed_by_weekend_calendar")
-        self.assertEqual(context.session_phase, "weekend_guard")
+        self.assertEqual(context.session, "unknown")
+        self.assertEqual(context.session_phase, "schedule_unavailable")
         self.assertEqual(context.broker_active_instruments, 1)
         self.assertTrue(context.broker_status_verified)
+        self.assertFalse(context.schedule_verified)
+
+    def test_weekend_session_can_open_only_when_official_schedule_confirms_it(self):
+        sunday = datetime(2026, 10, 18, 9, 0, tzinfo=timezone.utc)
+        scheduled = SimpleNamespace(
+            verified=True, is_open=True, session="dealer", phase="dealer",
+            next_transition=datetime(2026, 10, 18, 18, 0, tzinfo=timezone.utc),
+            to_dict=lambda: {"exchange": "MOEX_WEEKEND", "session": "dealer", "phase": "dealer", "verified": True, "is_open": True},
+        )
+        context = build_market_context(
+            sunday,
+            {"id": "DEALER_NORMAL_TRADING"},
+            status_check_succeeded=True,
+            exchange_sessions={"MOEX_WEEKEND": scheduled},
+            schedule_check_succeeded=True,
+        )
+        self.assertFalse(context.weekday_candidate)
+        self.assertEqual(context.session, "scheduled_open")
+        self.assertEqual(context.session_phase, "dealer")
+        self.assertTrue(context.schedule_verified)
 
     def test_only_exact_active_statuses_count(self):
         self.assertTrue(is_instrument_active("NORMAL_TRADING"))
