@@ -74,6 +74,11 @@ class LiveMarketRunner:
         cycle_utc, cycle_moscow = current_times()
         initial_context = build_market_context(cycle_utc)
         print(
+            f"Trading decision clock: date_moscow={cycle_moscow.date().isoformat()} "
+            f"weekday={initial_context.weekday} time_moscow={cycle_moscow.strftime('%H:%M:%S %Z')} "
+            f"utc={cycle_utc.isoformat()} timezone=Europe/Moscow"
+        )
+        print(
             f"Market context: utc={cycle_utc.isoformat()} "
             f"moscow={cycle_moscow.isoformat()} weekday={initial_context.weekday} "
             f"calendar={initial_context.calendar_status} session=awaiting_t_invest_status"
@@ -453,6 +458,42 @@ class LiveMarketRunner:
             f"T-Invest active trading instruments: "
             f"{len(active_trading_tickers)}/{len(analysis_shares)} analyzed instruments"
         )
+        verified_sessions = [
+            item for item in exchange_sessions.values() if item.verified
+        ]
+        open_sessions = [item for item in verified_sessions if item.is_open]
+        closed_sessions = [item for item in verified_sessions if not item.is_open]
+        unknown_sessions = len(exchange_sessions) - len(verified_sessions)
+        phases = sorted({item.phase for item in open_sessions})
+        print(
+            "Trading readiness summary: "
+            f"moscow_date={cycle_moscow.date().isoformat()} "
+            f"moscow_weekday={cycle_moscow.strftime('%A')} "
+            f"moscow_time={cycle_moscow.strftime('%H:%M:%S')} "
+            f"exchange_sessions_open={len(open_sessions)} "
+            f"exchange_sessions_closed={len(closed_sessions)} "
+            f"exchange_sessions_unknown={unknown_sessions} "
+            f"open_phases={','.join(phases) if phases else 'none'} "
+            f"trade_eligible_instruments={len(active_trading_tickers)} "
+            f"fresh_quotes={len(fresh_quote_tickers)} "
+            f"policy=live_api_flag+exchange_schedule+broker_status+fresh_quote"
+        )
+        if unknown_sessions:
+            print(
+                "Trading readiness interpretation: some exchange schedules are "
+                "unknown; unknown schedules never authorize a new virtual trade."
+            )
+        elif open_sessions:
+            print(
+                "Trading readiness interpretation: at least one specific exchange "
+                "session is open. This does not mean all instruments are tradable; "
+                "use per-instrument trade_eligible and quote provenance."
+            )
+        else:
+            print(
+                "Trading readiness interpretation: no verified exchange session "
+                "is open; no instrument is eligible for a new virtual trade."
+            )
 
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
