@@ -55,11 +55,19 @@ class MarketContextTests(unittest.TestCase):
         self.assertEqual(context.session_phase, "dealer")
         self.assertTrue(context.schedule_verified)
 
-    def test_only_exact_active_statuses_count(self):
+    def test_exact_active_tinvest_statuses_count_without_replacing_schedule_gate(self):
         self.assertTrue(is_instrument_active("NORMAL_TRADING"))
-        self.assertFalse(is_instrument_active("DEALER_NORMAL_TRADING"))
-        context = build_market_context(datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc), {"a": "NORMAL_TRADING", "b": "DEALER_NORMAL_TRADING"}, status_check_succeeded=True)
-        self.assertEqual(context.broker_active_instruments, 1)
+        self.assertTrue(is_instrument_active("SESSION_OPEN"))
+        self.assertTrue(is_instrument_active("DEALER_NORMAL_TRADING"))
+        self.assertFalse(is_instrument_active("BREAK_IN_TRADING"))
+        context = build_market_context(
+            datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc),
+            {"a": "NORMAL_TRADING", "b": "DEALER_NORMAL_TRADING", "c": "SESSION_OPEN"},
+            status_check_succeeded=True,
+        )
+        # This is a broker-status count only; trade eligibility still requires
+        # a verified open exchange schedule and a fresh quote in LiveMarketRunner.
+        self.assertEqual(context.broker_active_instruments, 3)
 
     def test_quote_freshness_requires_timestamp(self):
         now = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
