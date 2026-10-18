@@ -2,17 +2,27 @@ ACTIVE_STATUSES = frozenset({
     "NORMAL_TRADING",
     "OPENING_PERIOD",
     "CLOSING_PERIOD",
+    "CLOSING_AUCTION",
+    "DARK_POOL_AUCTION",
+    "DISCRETE_AUCTION",
+    "OPENING_AUCTION_PERIOD",
+    "TRADING_AT_CLOSING_AUCTION_PRICE",
     "SESSION_OPEN",
     "DEALER_NORMAL_TRADING",
     "SECURITY_TRADING_STATUS_NORMAL_TRADING",
     "SECURITY_TRADING_STATUS_OPENING_PERIOD",
     "SECURITY_TRADING_STATUS_CLOSING_PERIOD",
+    "SECURITY_TRADING_STATUS_CLOSING_AUCTION",
+    "SECURITY_TRADING_STATUS_DARK_POOL_AUCTION",
+    "SECURITY_TRADING_STATUS_DISCRETE_AUCTION",
+    "SECURITY_TRADING_STATUS_OPENING_AUCTION_PERIOD",
+    "SECURITY_TRADING_STATUS_TRADING_AT_CLOSING_AUCTION_PRICE",
     "SECURITY_TRADING_STATUS_SESSION_OPEN",
     "SECURITY_TRADING_STATUS_DEALER_NORMAL_TRADING",
 })
 
 
 def is_instrument_active(status: object) -> bool:
-    """Recognize explicit active T-Invest statuses; schedule remains a separate gate."""
+    """Recognize explicit T-Invest statuses that permit at least one order type."""
     name = str(getattr(status, "name", status) or "").upper()
     return name in ACTIVE_STATUSES
