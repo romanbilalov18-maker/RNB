@@ -56,10 +56,19 @@ class MarketContextTests(unittest.TestCase):
         self.assertTrue(context.schedule_verified)
 
     def test_exact_active_tinvest_statuses_count_without_replacing_schedule_gate(self):
-        self.assertTrue(is_instrument_active("NORMAL_TRADING"))
-        self.assertTrue(is_instrument_active("SESSION_OPEN"))
-        self.assertTrue(is_instrument_active("DEALER_NORMAL_TRADING"))
-        self.assertFalse(is_instrument_active("BREAK_IN_TRADING"))
+        for status in (
+            "NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD",
+            "CLOSING_AUCTION", "DARK_POOL_AUCTION", "DISCRETE_AUCTION",
+            "OPENING_AUCTION_PERIOD", "TRADING_AT_CLOSING_AUCTION_PRICE",
+            "SESSION_OPEN", "DEALER_NORMAL_TRADING",
+        ):
+            self.assertTrue(is_instrument_active(status), status)
+        for status in (
+            "UNSPECIFIED", "NOT_AVAILABLE_FOR_TRADING", "BREAK_IN_TRADING",
+            "SESSION_CLOSE", "DEALER_BREAK_IN_TRADING",
+            "DEALER_NOT_AVAILABLE_FOR_TRADING",
+        ):
+            self.assertFalse(is_instrument_active(status), status)
         context = build_market_context(
             datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc),
             {"a": "NORMAL_TRADING", "b": "DEALER_NORMAL_TRADING", "c": "SESSION_OPEN"},
