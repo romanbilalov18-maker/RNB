@@ -60,11 +60,12 @@ class MarketContextTests(unittest.TestCase):
             "NORMAL_TRADING", "OPENING_PERIOD", "CLOSING_PERIOD",
             "CLOSING_AUCTION", "DARK_POOL_AUCTION", "DISCRETE_AUCTION",
             "OPENING_AUCTION_PERIOD", "TRADING_AT_CLOSING_AUCTION_PRICE",
-            "SESSION_OPEN", "DEALER_NORMAL_TRADING",
+            "SESSION_OPEN",
         ):
             self.assertTrue(is_instrument_active(status), status)
         for status in (
             "UNSPECIFIED", "NOT_AVAILABLE_FOR_TRADING", "BREAK_IN_TRADING",
+            "DEALER_NORMAL_TRADING", "SECURITY_TRADING_STATUS_DEALER_NORMAL_TRADING",
             "SESSION_CLOSE", "DEALER_BREAK_IN_TRADING",
             "DEALER_NOT_AVAILABLE_FOR_TRADING",
         ):
@@ -76,7 +77,7 @@ class MarketContextTests(unittest.TestCase):
         )
         # This is a broker-status count only; trade eligibility still requires
         # a verified open exchange schedule and a fresh quote in LiveMarketRunner.
-        self.assertEqual(context.broker_active_instruments, 3)
+        self.assertEqual(context.broker_active_instruments, 2)
 
     def test_quote_freshness_requires_timestamp(self):
         now = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
