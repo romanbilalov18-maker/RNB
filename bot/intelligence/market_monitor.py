@@ -122,7 +122,7 @@ def main() -> None:
     )
     print(f"Monitor finished: {records} records")
     print("Trade execution: DISABLED")
-    print("Decision Engine: NOT CONNECTED")
+    print("Decision Engine: NOT RUN BY THIS READ-ONLY MONITOR; the main virtual-trading cycle evaluates it separately.")
 
 
 if __name__ == "__main__":
