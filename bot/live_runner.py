@@ -367,12 +367,18 @@ class LiveMarketRunner:
                 if quote_reason == "fresh":
                     fresh_quote_ids.add(instrument_id)
             status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
+            api_trade_available = trading_api_available_by_id.get(instrument_id, False)
             quote_price = last_prices.get(instrument_id)
             quote_fresh = instrument_id in fresh_quote_ids
             status_compatible = instrument_id in active_instrument_ids
             ticker_context = session_by_ticker.get(ticker, {})
+            ticker_context["api_trade_available_flag"] = api_trade_available
             ticker_context["quote_fresh"] = quote_fresh
-            ticker_context["trade_eligible"] = status_compatible and quote_fresh
+            ticker_context["trade_eligible"] = self._instrument_trade_eligible(
+                api_trade_available, status_name,
+                exchange_sessions.get(normalize_exchange(getattr(share, "exchange", ""))),
+                quote_fresh,
+            )
             if not api_trade_available:
                 quote_reason = "api_trade_unavailable"
             elif not status_compatible:
@@ -390,11 +396,13 @@ class LiveMarketRunner:
                 f"session_phase={ticker_context.get('phase', 'unknown')} "
                 f"schedule_verified={ticker_context.get('verified', False)} "
                 f"trading_status={status_name} "
+                f"api_trade_available={api_trade_available} "
+                f"broker_status_allows_session={status_compatible} "
                 f"last_price_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
                 f"quote_age_seconds={round(quote_age, 1) if quote_age is not None else 'UNAVAILABLE'} "
                 f"max_quote_age_seconds={self.max_quote_age_seconds:g} "
                 f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'} "
-                f"trade_eligible={status_compatible and quote_fresh} "
+                f"trade_eligible={ticker_context['trade_eligible']} "
                 f"quote_rejection={quote_reason}"
             )
 
