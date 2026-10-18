@@ -812,7 +812,6 @@ class LiveMarketRunner:
             "DISCRETE_AUCTION",
             "OPENING_AUCTION_PERIOD",
             "TRADING_AT_CLOSING_AUCTION_PRICE",
-            "DEALER_NORMAL_TRADING",
         }
 
     @staticmethod
