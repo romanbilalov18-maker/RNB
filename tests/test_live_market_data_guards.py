@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from bot.live_runner import LiveMarketRunner
+from bot.market_context.trading_schedule import ExchangeSession
 
 
 class LiveMarketDataGuardTests(unittest.TestCase):
@@ -28,6 +29,25 @@ class LiveMarketDataGuardTests(unittest.TestCase):
         ):
             with self.subTest(status=status):
                 self.assertFalse(LiveMarketRunner._is_active_trading_status(status))
+
+    def test_status_requires_a_verified_open_exchange_schedule(self):
+        open_session = ExchangeSession(
+            exchange="MOEX", verified=True, schedule_date="2026-10-19",
+            is_trading_day=True, session="main", phase="main", is_open=True,
+        )
+        closed_session = ExchangeSession(
+            exchange="MOEX", verified=True, schedule_date="2026-10-19",
+            is_trading_day=True, session="closed", phase="outside_scheduled_window", is_open=False,
+        )
+        unknown_session = ExchangeSession(
+            exchange="MOEX", verified=False, schedule_date=None,
+            is_trading_day=None, session="unknown", phase="schedule_missing", is_open=False,
+        )
+        self.assertTrue(LiveMarketRunner._status_allows_scheduled_session("NORMAL_TRADING", open_session))
+        self.assertTrue(LiveMarketRunner._status_allows_scheduled_session("DEALER_NORMAL_TRADING", open_session))
+        self.assertFalse(LiveMarketRunner._status_allows_scheduled_session("NORMAL_TRADING", closed_session))
+        self.assertFalse(LiveMarketRunner._status_allows_scheduled_session("DEALER_NORMAL_TRADING", unknown_session))
+        self.assertFalse(LiveMarketRunner._status_allows_scheduled_session("NOT_AVAILABLE_FOR_TRADING", open_session))
 
     def test_status_check_is_case_insensitive_but_not_substring_based(self):
         self.assertTrue(

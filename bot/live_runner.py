@@ -8,6 +8,11 @@ import math
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 from bot.market_context import build_market_context
 from bot.market_context.clock import current_times
+from bot.market_context.trading_schedule import (
+    ExchangeSession,
+    normalize_exchange,
+    resolve_exchange_session,
+)
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,7 @@ class LiveScanResult:
     market_breadth: float | None = None
     market_sample_count: int = 0
     market_context: object | None = None
+    session_by_ticker: dict[str, dict] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
@@ -50,6 +56,11 @@ class LiveMarketRunner:
         self.max_analysis_instruments = self._positive_env_int(
             "TINVEST_MAX_ANALYSIS_INSTRUMENTS", 50
         )
+        self.schedule_cache_ttl_seconds = self._positive_env_float(
+            "TINVEST_SCHEDULE_CACHE_SECONDS", 300.0
+        )
+        self._schedule_cache_at: datetime | None = None
+        self._schedule_cache: dict[str, object] = {}
 
     def run(
         self,
@@ -75,6 +86,15 @@ class LiveMarketRunner:
         ]
         if not shares:
             raise RuntimeError("T-Invest returned no tradable RUB shares")
+
+        schedule_map, schedule_fetch_succeeded = self._load_trading_schedules(cycle_utc)
+        if schedule_fetch_succeeded:
+            print(
+                f"T-Invest schedule loaded: {len(schedule_map)} exchanges; "
+                f"cache_ttl={self.schedule_cache_ttl_seconds:g}s"
+            )
+        else:
+            print("T-Invest schedule unavailable; all instruments without verified schedules stay ineligible.")
 
         instrument_ids = [
             str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -221,12 +241,43 @@ class LiveMarketRunner:
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
                 trading_status_by_id[self._instrument_key(item)] = status_name
-                # Only exchange-session statuses authorize trading. In particular,
-                # DEALER_NORMAL_TRADING is not equivalent to NORMAL_TRADING.
-                if self._is_active_trading_status(status_name):
-                    active_instrument_ids.add(self._instrument_key(item))
         except Exception as exc:
             print(f"GetTradingStatuses failed; order-book liquidity remains unavailable: {exc}")
+
+        # Resolve the returned official schedule against Moscow's current date
+        # and UTC clock. Individual instruments inherit only their own exchange.
+        exchange_sessions = {}
+        for share in shares:
+            exchange = str(getattr(share, "exchange", "") or "")
+            exchange_key = normalize_exchange(exchange)
+            if exchange_key not in exchange_sessions:
+                exchange_sessions[exchange_key] = resolve_exchange_session(
+                    exchange,
+                    schedule_map.get(exchange_key),
+                    now_utc,
+                )
+
+        session_by_ticker = {}
+        for share in analysis_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            exchange = str(getattr(share, "exchange", "") or "")
+            exchange_session = exchange_sessions.get(normalize_exchange(exchange))
+            status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
+            status_compatible = self._status_allows_scheduled_session(
+                status_name, exchange_session
+            )
+            if instrument_id and status_compatible:
+                active_instrument_ids.add(instrument_id)
+            session_by_ticker[ticker] = {
+                **(exchange_session.to_dict() if exchange_session is not None else {}),
+                "instrument_exchange": exchange,
+                "weekend_flag": bool(getattr(share, "weekend_flag", False)),
+                "trading_status": status_name,
+                "broker_status_allows_session": status_compatible,
+                "quote_fresh": False,
+                "trade_eligible": False,
+            }
 
         # Expose broker status and source quote timestamp so a smoke run can
         # distinguish a fresh active-session quote from an old positive price.
@@ -249,20 +300,29 @@ class LiveMarketRunner:
                     fresh_quote_ids.add(instrument_id)
             status_name = trading_status_by_id.get(instrument_id, "UNAVAILABLE")
             quote_price = last_prices.get(instrument_id)
-            if instrument_id not in active_instrument_ids:
-                quote_reason = "inactive_or_unconfirmed_trading_status"
-            elif instrument_id not in fresh_quote_ids:
+            quote_fresh = instrument_id in fresh_quote_ids
+            status_compatible = instrument_id in active_instrument_ids
+            ticker_context = session_by_ticker.get(ticker, {})
+            ticker_context["quote_fresh"] = quote_fresh
+            ticker_context["trade_eligible"] = status_compatible and quote_fresh
+            if not status_compatible:
+                quote_reason = "schedule_closed_or_status_incompatible"
+            elif not quote_fresh:
                 # Keep the more specific stale/missing/future timestamp reason.
                 if quote_reason == "fresh":
                     quote_reason = "quote_not_verified_fresh"
             print(
                 f"T-Invest provenance: {ticker or instrument_id} "
+                f"exchange={ticker_context.get('instrument_exchange', 'UNAVAILABLE')} "
+                f"session={ticker_context.get('session', 'unknown')} "
+                f"session_phase={ticker_context.get('phase', 'unknown')} "
+                f"schedule_verified={ticker_context.get('verified', False)} "
                 f"trading_status={status_name} "
                 f"last_price_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
                 f"quote_age_seconds={round(quote_age, 1) if quote_age is not None else 'UNAVAILABLE'} "
                 f"max_quote_age_seconds={self.max_quote_age_seconds:g} "
                 f"last_price={quote_price if quote_price is not None else 'UNAVAILABLE'} "
-                f"trade_eligible={instrument_id in active_instrument_ids and instrument_id in fresh_quote_ids} "
+                f"trade_eligible={status_compatible and quote_fresh} "
                 f"quote_rejection={quote_reason}"
             )
 
@@ -271,14 +331,18 @@ class LiveMarketRunner:
         market_context = build_market_context(
             cycle_utc,
             trading_status_by_id,
-            status_check_succeeded=bool(trading_status_by_id) and len(trading_status_by_id) > 0,
+            status_check_succeeded=bool(trading_status_by_id),
+            exchange_sessions=exchange_sessions,
+            schedule_check_succeeded=schedule_fetch_succeeded,
         )
         print(
             f"Verified market context: session={market_context.session} "
             f"phase={market_context.session_phase} "
-            f"active={market_context.broker_active_instruments}/"
+            f"broker_active={market_context.broker_active_instruments}/"
             f"{market_context.broker_reported_instruments} "
-            f"status_verified={market_context.broker_status_verified}"
+            f"broker_status_verified={market_context.broker_status_verified} "
+            f"schedule_verified={market_context.schedule_verified} "
+            f"next_transition={market_context.next_transition or 'UNAVAILABLE'}"
         )
 
         active_trading_tickers = {
@@ -287,16 +351,8 @@ class LiveMarketRunner:
             if str(getattr(share, "ticker", "") or "")
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in active_instrument_ids
             and str(getattr(share, "uid", "") or getattr(share, "figi", "")) in fresh_quote_ids
+            and bool(session_by_ticker.get(str(getattr(share, "ticker", "") or ""), {}).get("verified", False))
         }
-        if not market_context.weekday_candidate:
-            # Fail closed even if the broker returns stale/contradictory active
-            # statuses on a weekend; main.py skips portfolio mutation on empty.
-            if active_trading_tickers:
-                print(
-                    "Calendar guard: weekend detected; overriding "
-                    f"{len(active_trading_tickers)} broker-active tickers to inactive."
-                )
-            active_trading_tickers = set()
         fresh_quote_tickers = {
             str(getattr(share, "ticker", "") or "")
             for share in analysis_shares
@@ -435,6 +491,7 @@ class LiveMarketRunner:
             market_breadth=market_breadth,
             market_sample_count=len(market_changes),
             market_context=market_context,
+            session_by_ticker=session_by_ticker,
         )
 
     def _get_candles_with_retry(
@@ -467,6 +524,55 @@ class LiveMarketRunner:
             f"GetCandles attempts: {last_error}"
         )
         return None
+
+
+    def _load_trading_schedules(self, now_utc: datetime) -> tuple[dict[str, object], bool]:
+        """Fetch all current/future exchange schedules once, with a short cache."""
+        if (
+            self._schedule_cache_at is not None
+            and self._schedule_cache
+            and (now_utc - self._schedule_cache_at).total_seconds() < self.schedule_cache_ttl_seconds
+        ):
+            return self._schedule_cache, True
+        try:
+            response = self.client.instruments.trading_schedules(
+                exchange="",
+                from_=now_utc,
+                to=now_utc + timedelta(days=6, hours=23, minutes=59),
+            )
+            schedules = getattr(response, "exchanges", ()) or ()
+            cache = {
+                normalize_exchange(getattr(item, "exchange", "")): item
+                for item in schedules
+                if normalize_exchange(getattr(item, "exchange", ""))
+            }
+            if not cache:
+                raise RuntimeError("TradingSchedules returned no exchange calendars")
+            self._schedule_cache = cache
+            self._schedule_cache_at = now_utc
+            return cache, True
+        except Exception as exc:
+            print(f"TradingSchedules failed; fail-closed for new virtual trades: {type(exc).__name__}: {exc}")
+            return {}, False
+
+    @classmethod
+    def _status_allows_scheduled_session(
+        cls,
+        status_name: str,
+        exchange_session: ExchangeSession | None,
+    ) -> bool:
+        """Require a verified open session for this instrument's own exchange."""
+        if exchange_session is None or not exchange_session.verified or not exchange_session.is_open:
+            return False
+        normalized = str(status_name or "").upper()
+        if normalized in {
+            "SECURITY_TRADING_STATUS_DEALER_NORMAL_TRADING",
+            "DEALER_NORMAL_TRADING",
+        }:
+            # Dealer weekend/extended sessions are accepted only when the
+            # instrument's declared exchange schedule explicitly reports open.
+            return True
+        return cls._is_active_trading_status(normalized)
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
