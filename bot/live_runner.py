@@ -87,6 +87,29 @@ class LiveMarketRunner:
         if not shares:
             raise RuntimeError("T-Invest returned no tradable RUB shares")
 
+        shares_by_ticker = {
+            str(getattr(share, "ticker", "") or ""): share
+            for share in shares
+            if str(getattr(share, "ticker", "") or "")
+        }
+
+        # Positions are persisted by ticker, so report the exact broker metadata
+        # resolution rather than guessing a UID/FIGI for an unresolved holding.
+        for held_ticker in sorted(held_tickers):
+            held_share = shares_by_ticker.get(held_ticker)
+            if held_share is None:
+                print(
+                    f"Held-position instrument mapping: ticker={held_ticker} "
+                    "instrument_uid=UNRESOLVED figi=UNRESOLVED exchange=UNRESOLVED "
+                    "reason=not_in_tradable_RUB_share_universe"
+                )
+                continue
+            print(
+                f"Held-position instrument mapping: ticker={held_ticker} "
+                f"instrument_uid={getattr(held_share, 'uid', '') or 'UNAVAILABLE'} "
+                f"figi={getattr(held_share, 'figi', '') or 'UNAVAILABLE'} "
+                f"exchange={getattr(held_share, 'exchange', '') or 'UNAVAILABLE'}"
+            )
         schedule_map, schedule_fetch_succeeded = self._load_trading_schedules(cycle_utc)
         if schedule_fetch_succeeded:
             print(
@@ -222,6 +245,44 @@ class LiveMarketRunner:
             ):
                 lot_sizes[ticker] = raw_lot
 
+        # Candle requests can take long enough that an initially fresh held
+        # quote expires before the portfolio guard runs. Refresh held positions
+        # after the history scan, and only replace cached values with a valid,
+        # positively priced response carrying a newer source timestamp.
+        held_instrument_ids = {
+            str(getattr(shares_by_ticker[ticker], "uid", "") or getattr(shares_by_ticker[ticker], "figi", ""))
+            for ticker in sorted(held_tickers)
+            if ticker in shares_by_ticker
+        }
+        held_instrument_ids.discard("")
+        if held_instrument_ids:
+            try:
+                refresh_response = self.client.market_data.get_last_prices(
+                    instrument_id=sorted(held_instrument_ids),
+                )
+                refresh_now = datetime.now(timezone.utc)
+                refreshed_count = sum(
+                    self._merge_fresh_newer_quote(
+                        item,
+                        last_prices=last_prices,
+                        last_price_items=last_price_items,
+                        now=refresh_now,
+                        max_age_seconds=self.max_quote_age_seconds,
+                    )
+                    for item in (getattr(refresh_response, "last_prices", ()) or ())
+                )
+                print(
+                    f"Held-position quote refresh: requested={len(held_instrument_ids)} "
+                    f"accepted_newer_quotes={refreshed_count}"
+                )
+            except Exception as exc:
+                # Refresh is a best-effort data read. Existing freshness checks
+                # still fail closed; no stale value is promoted to a fresh quote.
+                print(
+                    "Held-position quote refresh failed; retaining original quote "
+                    f"provenance: {type(exc).__name__}: {exc}"
+                )
+
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
         active_instrument_ids = set()
@@ -272,6 +333,8 @@ class LiveMarketRunner:
             session_by_ticker[ticker] = {
                 **(exchange_session.to_dict() if exchange_session is not None else {}),
                 "instrument_exchange": exchange,
+                "instrument_uid": str(getattr(share, "uid", "") or ""),
+                "figi": str(getattr(share, "figi", "") or ""),
                 "weekend_flag": bool(getattr(share, "weekend_flag", False)),
                 "trading_status": status_name,
                 "broker_status_allows_session": status_compatible,
@@ -313,6 +376,8 @@ class LiveMarketRunner:
                     quote_reason = "quote_not_verified_fresh"
             print(
                 f"T-Invest provenance: {ticker or instrument_id} "
+                f"instrument_uid={ticker_context.get('instrument_uid', 'UNAVAILABLE')} "
+                f"figi={ticker_context.get('figi', 'UNAVAILABLE')} "
                 f"exchange={ticker_context.get('instrument_exchange', 'UNAVAILABLE')} "
                 f"session={ticker_context.get('session', 'unknown')} "
                 f"session_phase={ticker_context.get('phase', 'unknown')} "
@@ -589,6 +654,51 @@ class LiveMarketRunner:
             or getattr(item, "figi", "")
             or ""
         )
+
+    @classmethod
+    def _merge_fresh_newer_quote(
+        cls,
+        item: object,
+        *,
+        last_prices: dict[str, float],
+        last_price_items: dict[str, object],
+        now: datetime,
+        max_age_seconds: float,
+    ) -> bool:
+        """Replace a cached quote only with a newer, positive, fresh broker quote."""
+        instrument_id = cls._instrument_key(item)
+        if not instrument_id:
+            return False
+        try:
+            price = cls._quotation(getattr(item, "price", None))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        quote_time = getattr(item, "time", None)
+        if (
+            not math.isfinite(price)
+            or price <= 0
+            or not isinstance(quote_time, datetime)
+            or cls._quote_freshness(quote_time, now, max_age_seconds)[1] != "fresh"
+        ):
+            return False
+
+        previous_item = last_price_items.get(instrument_id)
+        previous_time = getattr(previous_item, "time", None) if previous_item is not None else None
+        if isinstance(previous_time, datetime):
+            old_time = previous_time if previous_time.tzinfo else previous_time.replace(tzinfo=timezone.utc)
+            new_time = quote_time if quote_time.tzinfo else quote_time.replace(tzinfo=timezone.utc)
+            _, previous_reason = cls._quote_freshness(previous_time, now, max_age_seconds)
+            # A valid fresh timestamp may replace an older fresh/stale timestamp.
+            # An invalid future-dated cached timestamp must not block a valid quote.
+            if (
+                previous_reason != "quote_timestamp_in_future"
+                and new_time.astimezone(timezone.utc) <= old_time.astimezone(timezone.utc)
+            ):
+                return False
+
+        last_prices[instrument_id] = price
+        last_price_items[instrument_id] = item
+        return True
 
     @staticmethod
     def _quotation(value: object) -> float:
