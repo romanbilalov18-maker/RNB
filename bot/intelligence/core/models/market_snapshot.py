@@ -58,6 +58,8 @@ class MarketSnapshot:
     portfolio_positions: tuple[dict, ...] = ()
     # Distinguishes a known empty portfolio from a missing portfolio input.
     portfolio_context_available: bool = False
+    # Verified cycle time/session context; informational only, not an order signal.
+    market_context: Optional[dict] = None
 
     def price_change(self) -> Optional[float]:
         """Return a finite fractional price change only when both prices are valid."""

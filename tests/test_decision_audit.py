@@ -144,10 +144,17 @@ class DecisionAuditStoreTests(unittest.TestCase):
     def test_uses_decision_time_price_and_excludes_same_day_close(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
-            as_of = datetime.now(timezone.utc)
-            today = as_of.astimezone(DecisionAuditStore.MARKET_TIMEZONE).date().isoformat()
-            yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
-            history = [candle(yesterday, 100), candle(today, 999)]
+            # Pin the decision to a Monday so this test behaves identically on
+            # weekdays and weekends. The previous calendar day is Sunday and is
+            # not an exchange session; Friday is the preceding weekday session.
+            as_of = datetime.fromisoformat("2026-10-19T09:00:00+00:00")
+            today_date = as_of.astimezone(DecisionAuditStore.MARKET_TIMEZONE).date()
+            today = today_date.isoformat()
+            previous_session = today_date - timedelta(days=1)
+            while previous_session.weekday() >= 5:
+                previous_session -= timedelta(days=1)
+            previous_session_text = previous_session.isoformat()
+            history = [candle(previous_session_text, 100), candle(today, 999)]
             store.record_cycle(
                 "cycle-current",
                 {"AAA": SimpleNamespace(action="BUY", reason="test")},
@@ -168,7 +175,10 @@ class DecisionAuditStoreTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(anchor["anchor_price"], 105)
             self.assertEqual(anchor["anchor_session_date"], today)
-            self.assertEqual([(row["session_date"], row["close_price"]) for row in prices], [(yesterday, 100)])
+            self.assertEqual(
+                [(row["session_date"], row["close_price"]) for row in prices],
+                [(previous_session_text, 100)],
+            )
 
     def test_wait_outcomes_are_not_counted_as_directional_predictions(self):
         with tempfile.TemporaryDirectory() as tmp:
