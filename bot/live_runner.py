@@ -504,7 +504,9 @@ class LiveMarketRunner:
             if "." in sector:
                 sector = sector.rsplit(".", 1)[-1]
             if ticker and sector and sector.lower() not in {"none", "unknown", "instrument_sector_unspecified"}:
-                sector_by_ticker.setdefault(sector, []).append(ticker)
+                sector_by_ticker[ticker] = sector
+                if ticker in ticker_changes:
+                    sector_groups.setdefault(sector, []).append(ticker_changes[ticker])
         sector_returns = {
             sector: sum(changes) / len(changes)
             for sector, changes in sector_groups.items() if changes
