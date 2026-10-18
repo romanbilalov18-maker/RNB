@@ -6,6 +6,8 @@ import time
 import math
 
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
+from bot.market_context import build_market_context
+from bot.market_context.clock import current_times
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class LiveScanResult:
     market_return: float | None = None
     market_breadth: float | None = None
     market_sample_count: int = 0
+    market_context: object | None = None
 
 
 class LiveMarketRunner:
@@ -55,6 +58,15 @@ class LiveMarketRunner:
     ) -> LiveScanResult:
         held_tickers = held_tickers or set()
         tracked_tickers = tracked_tickers or set()
+        # Stamp the cycle before any market-data request. Calendar heuristics do
+        # not authorize trades; broker instrument statuses are checked below.
+        cycle_utc, cycle_moscow = current_times()
+        initial_context = build_market_context(cycle_utc)
+        print(
+            f"Market context: utc={cycle_utc.isoformat()} "
+            f"moscow={cycle_moscow.isoformat()} weekday={initial_context.weekday} "
+            f"calendar={initial_context.calendar_status} session=awaiting_t_invest_status"
+        )
 
         shares_response = self.client.instruments.shares()
         shares = [
@@ -256,6 +268,19 @@ class LiveMarketRunner:
 
         # Build eligibility sets only after every quote timestamp has been
         # checked and fresh_quote_ids is complete.
+        market_context = build_market_context(
+            cycle_utc,
+            trading_status_by_id,
+            status_check_succeeded=bool(trading_status_by_id) and len(trading_status_by_id) > 0,
+        )
+        print(
+            f"Verified market context: session={market_context.session} "
+            f"phase={market_context.session_phase} "
+            f"active={market_context.broker_active_instruments}/"
+            f"{market_context.broker_reported_instruments} "
+            f"status_verified={market_context.broker_status_verified}"
+        )
+
         active_trading_tickers = {
             str(getattr(share, "ticker", "") or "")
             for share in analysis_shares
@@ -400,6 +425,7 @@ class LiveMarketRunner:
             market_return=market_return,
             market_breadth=market_breadth,
             market_sample_count=len(market_changes),
+            market_context=market_context,
         )
 
     def _get_candles_with_retry(
