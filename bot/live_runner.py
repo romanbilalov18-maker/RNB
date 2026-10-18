@@ -796,9 +796,11 @@ class LiveMarketRunner:
             "SECURITY_TRADING_STATUS_NORMAL_TRADING",
             "SECURITY_TRADING_STATUS_OPENING_PERIOD",
             "SECURITY_TRADING_STATUS_CLOSING_PERIOD",
+            "SECURITY_TRADING_STATUS_SESSION_OPEN",
             "NORMAL_TRADING",
             "OPENING_PERIOD",
             "CLOSING_PERIOD",
+            "SESSION_OPEN",
         }
 
     @staticmethod
