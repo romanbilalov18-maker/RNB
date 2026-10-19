@@ -44,16 +44,15 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
             self.now - timedelta(seconds=30),
         )
 
-    def test_accepts_quote_older_than_300_seconds(self):
-        # Simulate an even older cached quote; incoming quote is newer but
-        # older than five minutes, which must no longer be rejected by age.
+    def test_rejects_quote_older_than_300_seconds(self):
+        # A newer quote still must be rejected when its source timestamp is stale.
         self.items["uid-held-1"].time = self.now - timedelta(hours=3)
         accepted = self.merge(
             price=51.25,
             quote_time=self.now - timedelta(hours=2),
         )
-        self.assertTrue(accepted)
-        self.assertEqual(self.prices["uid-held-1"], 51.25)
+        self.assertFalse(accepted)
+        self.assertEqual(self.prices["uid-held-1"], 50.0)
 
     def test_rejects_older_quote_even_when_it_is_still_fresh(self):
         accepted = self.merge(
@@ -91,6 +90,37 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
             )
         )
         self.assertEqual(self.prices["uid-held-1"], 50.0)
+
+    def test_post_analysis_refresh_requests_all_analyzed_instruments(self):
+        fresh_time = self.now - timedelta(seconds=20)
+        stale_time = self.now - timedelta(hours=2)
+        response = SimpleNamespace(last_prices=[
+            SimpleNamespace(instrument_uid="uid-held-1", figi="", price=51.0, time=fresh_time),
+            SimpleNamespace(instrument_uid="uid-candidate-2", figi="", price=12.0, time=stale_time),
+        ])
+        class FakeMarketData:
+            requested = None
+            def get_last_prices(self, *, instrument_id):
+                self.requested = list(instrument_id)
+                return response
+        market_data = FakeMarketData()
+        runner = LiveMarketRunner(SimpleNamespace(market_data=market_data))
+        prices = {"uid-held-1": 50.0, "uid-candidate-2": 11.0}
+        items = {
+            "uid-held-1": SimpleNamespace(time=self.now - timedelta(seconds=240)),
+            "uid-candidate-2": SimpleNamespace(time=self.now - timedelta(hours=3)),
+        }
+        accepted, returned = runner._refresh_latest_quotes(
+            ["uid-held-1", "uid-candidate-2"],
+            last_prices=prices,
+            last_price_items=items,
+            now=self.now,
+        )
+        self.assertEqual(market_data.requested, ["uid-candidate-2", "uid-held-1"])
+        self.assertEqual(returned, 2)
+        self.assertEqual(accepted, 1)
+        self.assertEqual(prices["uid-held-1"], 51.0)
+        self.assertEqual(prices["uid-candidate-2"], 11.0)
 
     def test_accepts_figi_key_when_uid_is_unavailable(self):
         item = SimpleNamespace(

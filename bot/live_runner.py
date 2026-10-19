@@ -48,7 +48,7 @@ class LiveMarketRunner:
         self.client = client
         self.history_days = history_days
         self.analyzer = StockAnalyzer(min_history=20, momentum_period=10)
-        # Compatibility setting only; quote age no longer blocks virtual trading.
+        # Quotes older than this limit are diagnostic only and cannot authorize trading.
         self.max_quote_age_seconds = self._positive_env_float(
             "TINVEST_MAX_QUOTE_AGE_SECONDS", 300.0
         )
@@ -251,42 +251,30 @@ class LiveMarketRunner:
             ):
                 lot_sizes[ticker] = raw_lot
 
-        # Candle requests can take long enough that an initially fresh held
-        # quote expires before the portfolio guard runs. Refresh held positions
-        # after the history scan, and only replace cached values with a valid,
-        # positively priced response carrying a newer source timestamp.
-        held_instrument_ids = {
-            str(getattr(shares_by_ticker[ticker], "uid", "") or getattr(shares_by_ticker[ticker], "figi", ""))
-            for ticker in sorted(held_tickers)
-            if ticker in shares_by_ticker
-        }
-        held_instrument_ids.discard("")
-        if held_instrument_ids:
+        # Candle/history requests can age the initial quote snapshot. Refresh
+        # every analyzed instrument (including held/tracked positions) before
+        # final eligibility is computed. Invalid or stale refreshes are rejected.
+        refresh_instrument_ids = sorted({
+            str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            for share in analysis_shares
+            if str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+        })
+        if refresh_instrument_ids:
             try:
-                refresh_response = self.client.market_data.get_last_prices(
-                    instrument_id=sorted(held_instrument_ids),
-                )
-                refresh_now = datetime.now(timezone.utc)
-                refreshed_count = sum(
-                    self._merge_fresh_newer_quote(
-                        item,
-                        last_prices=last_prices,
-                        last_price_items=last_price_items,
-                        now=refresh_now,
-                        max_age_seconds=self.max_quote_age_seconds,
-                    )
-                    for item in (getattr(refresh_response, "last_prices", ()) or ())
+                refreshed_count, returned_count = self._refresh_latest_quotes(
+                    refresh_instrument_ids,
+                    last_prices=last_prices,
+                    last_price_items=last_price_items,
                 )
                 print(
-                    f"Held-position quote refresh: requested={len(held_instrument_ids)} "
-                    f"accepted_newer_quotes={refreshed_count}"
+                    f"Post-analysis quote refresh: requested={len(refresh_instrument_ids)} "
+                    f"returned={returned_count} accepted_newer_fresh_quotes={refreshed_count}"
                 )
             except Exception as exc:
-                # Refresh is a best-effort data read. Existing freshness checks
-                # still fail closed; no stale value is promoted to a fresh quote.
+                # The final freshness check below fails closed if refresh fails.
                 print(
-                    "Held-position quote refresh failed; retaining original quote "
-                    f"provenance: {type(exc).__name__}: {exc}"
+                    "Post-analysis quote refresh failed; validating cached timestamps: "
+                    f"{type(exc).__name__}: {exc}"
                 )
 
         liquidity_by_ticker = {}
@@ -385,14 +373,12 @@ class LiveMarketRunner:
                 exchange_sessions.get(normalize_exchange(getattr(share, "exchange", ""))),
                 quote_fresh,
             )
-            if not api_trade_available:
-                quote_reason = "api_trade_unavailable"
-            elif not status_compatible:
-                quote_reason = "schedule_closed_or_status_incompatible"
-            elif not quote_fresh:
-                # Keep the more specific stale/missing/future timestamp reason.
-                if quote_reason == "fresh":
-                    quote_reason = "quote_not_verified_fresh"
+            # Keep the specific quote-data rejection reason visible in diagnostics.
+            if quote_reason == "fresh":
+                if not api_trade_available:
+                    quote_reason = "api_trade_unavailable"
+                elif not status_compatible:
+                    quote_reason = "schedule_closed_or_status_incompatible"
             print(
                 f"T-Invest provenance: {ticker or instrument_id} "
                 f"instrument_uid={ticker_context.get('instrument_uid', 'UNAVAILABLE')} "
@@ -737,6 +723,56 @@ class LiveMarketRunner:
             or ""
         )
 
+    def _refresh_latest_quotes(
+        self,
+        instrument_ids: list[str],
+        *,
+        last_prices: dict[str, float],
+        last_price_items: dict[str, object],
+        now: datetime | None = None,
+    ) -> tuple[int, int]:
+        """Refresh instruments and merge only newer, positive, fresh quotes."""
+        requested_ids = sorted({str(value) for value in instrument_ids if str(value)})
+        if not requested_ids:
+            return 0, 0
+        response = self.client.market_data.get_last_prices(instrument_id=requested_ids)
+        refresh_now = now or datetime.now(timezone.utc)
+        returned_by_id = {
+            self._instrument_key(item): item
+            for item in (getattr(response, "last_prices", ()) or ())
+            if self._instrument_key(item)
+        }
+        accepted_count = 0
+        for instrument_id in requested_ids:
+            item = returned_by_id.get(instrument_id)
+            if item is None:
+                print(f"Post-analysis quote refresh detail: instrument_id={instrument_id} result=not_returned")
+                continue
+            quote_time = getattr(item, "time", None)
+            try:
+                price = self._quotation(getattr(item, "price", 0))
+            except (TypeError, ValueError, OverflowError):
+                price = "UNAVAILABLE"
+            age = None
+            reason = "missing_quote_timestamp"
+            if isinstance(quote_time, datetime):
+                age, reason = self._quote_freshness(quote_time, refresh_now, self.max_quote_age_seconds)
+            accepted = self._merge_fresh_newer_quote(
+                item,
+                last_prices=last_prices,
+                last_price_items=last_price_items,
+                now=refresh_now,
+                max_age_seconds=self.max_quote_age_seconds,
+            )
+            accepted_count += int(accepted)
+            print(
+                f"Post-analysis quote refresh detail: instrument_id={instrument_id} "
+                f"price={price} quote_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
+                f"quote_age_seconds={round(age, 1) if age is not None else 'UNAVAILABLE'} "
+                f"freshness={reason} accepted_newer_fresh_quote={accepted}"
+            )
+        return accepted_count, len(returned_by_id)
+
     @classmethod
     def _merge_fresh_newer_quote(
         cls,
@@ -816,8 +852,9 @@ class LiveMarketRunner:
         age = (now.astimezone(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds()
         if age < -60:
             return age, "quote_timestamp_in_future"
-        # Quote age does not block the cycle. Keep age for diagnostics only;
-        # missing timestamps and materially future-dated timestamps remain invalid.
+        if age > max_age_seconds:
+            return age, "stale_quote"
+        # Tolerate small clock skew, but never trade on a quote older than the limit.
         return age, "fresh"
 
     @staticmethod
