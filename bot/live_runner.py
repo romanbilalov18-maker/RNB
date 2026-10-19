@@ -267,19 +267,57 @@ class LiveMarketRunner:
                     instrument_id=sorted(held_instrument_ids),
                 )
                 refresh_now = datetime.now(timezone.utc)
-                refreshed_count = sum(
-                    self._merge_fresh_newer_quote(
+                refresh_items = list(getattr(refresh_response, "last_prices", ()) or ())
+                refresh_by_id = {
+                    self._instrument_key(item): item
+                    for item in refresh_items
+                    if self._instrument_key(item)
+                }
+                refreshed_count = 0
+                ticker_by_id = {
+                    str(getattr(shares_by_ticker[ticker], "uid", "") or getattr(shares_by_ticker[ticker], "figi", "")): ticker
+                    for ticker in sorted(held_tickers)
+                    if ticker in shares_by_ticker
+                }
+                for instrument_id in sorted(held_instrument_ids):
+                    item = refresh_by_id.get(instrument_id)
+                    ticker = ticker_by_id.get(instrument_id, instrument_id)
+                    if item is None:
+                        print(
+                            f"Held-position quote refresh detail: ticker={ticker} "
+                            f"instrument_id={instrument_id} result=not_returned"
+                        )
+                        continue
+                    quote_time = getattr(item, "time", None)
+                    price = self._quotation(getattr(item, "price", 0))
+                    age = None
+                    freshness = "missing_quote_timestamp"
+                    if isinstance(quote_time, datetime):
+                        age, freshness = self._quote_freshness(
+                            quote_time, refresh_now, self.max_quote_age_seconds
+                        )
+                    previous_item = last_price_items.get(instrument_id)
+                    previous_time = getattr(previous_item, "time", None) if previous_item is not None else None
+                    accepted = self._merge_fresh_newer_quote(
                         item,
                         last_prices=last_prices,
                         last_price_items=last_price_items,
                         now=refresh_now,
                         max_age_seconds=self.max_quote_age_seconds,
                     )
-                    for item in (getattr(refresh_response, "last_prices", ()) or ())
-                )
+                    refreshed_count += int(accepted)
+                    print(
+                        f"Held-position quote refresh detail: ticker={ticker} "
+                        f"instrument_id={instrument_id} price={price} "
+                        f"quote_time={quote_time.isoformat() if isinstance(quote_time, datetime) else 'UNAVAILABLE'} "
+                        f"quote_age_seconds={round(age, 1) if age is not None else 'UNAVAILABLE'} "
+                        f"freshness={freshness} "
+                        f"previous_quote_time={previous_time.isoformat() if isinstance(previous_time, datetime) else 'UNAVAILABLE'} "
+                        f"accepted_newer_quote={accepted}"
+                    )
                 print(
                     f"Held-position quote refresh: requested={len(held_instrument_ids)} "
-                    f"accepted_newer_quotes={refreshed_count}"
+                    f"returned={len(refresh_by_id)} accepted_newer_quotes={refreshed_count}"
                 )
             except Exception as exc:
                 # Refresh is a best-effort data read. Existing freshness checks
