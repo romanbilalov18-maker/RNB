@@ -163,11 +163,19 @@ class LiveMarketRunner:
         }
 
         candidates = []
+        excluded_unfresh_quotes = 0
         for share in shares:
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             current = last_prices.get(key)
             previous_close = close_prices.get(key)
+            quote_item = last_price_items.get(key)
             if current is None or previous_close is None:
+                excluded_unfresh_quotes += 1
+                continue
+            if not self._quote_item_is_fresh(
+                quote_item, cycle_utc, self.max_quote_age_seconds
+            ):
+                excluded_unfresh_quotes += 1
                 continue
             candidates.append((
                 current / previous_close - 1.0,
@@ -175,6 +183,11 @@ class LiveMarketRunner:
                 share,
             ))
 
+        print(
+            f"Initial quote shortlist: fresh_quotes={len(candidates)} "
+            f"excluded_missing_or_stale={excluded_unfresh_quotes} "
+            f"freshness_limit_seconds={self.max_quote_age_seconds:g}"
+        )
         candidates.sort(key=lambda item: (-item[0], item[1]))
         selected_10 = [item[2] for item in candidates[:self.max_analysis_instruments]]
 
