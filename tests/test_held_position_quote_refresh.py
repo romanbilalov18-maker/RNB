@@ -44,13 +44,13 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
             self.now - timedelta(seconds=30),
         )
 
-    def test_rejects_stale_quote_without_changing_cached_price(self):
+    def test_accepts_quote_older_than_300_seconds(self):
         accepted = self.merge(
             price=51.25,
-            quote_time=self.now - timedelta(seconds=301),
+            quote_time=self.now - timedelta(hours=2),
         )
-        self.assertFalse(accepted)
-        self.assertEqual(self.prices["uid-held-1"], 50.0)
+        self.assertTrue(accepted)
+        self.assertEqual(self.prices["uid-held-1"], 51.25)
 
     def test_rejects_older_quote_even_when_it_is_still_fresh(self):
         accepted = self.merge(

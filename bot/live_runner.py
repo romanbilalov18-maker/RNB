@@ -48,6 +48,7 @@ class LiveMarketRunner:
         self.client = client
         self.history_days = history_days
         self.analyzer = StockAnalyzer(min_history=20, momentum_period=10)
+        # Compatibility setting only; quote age no longer blocks virtual trading.
         self.max_quote_age_seconds = self._positive_env_float(
             "TINVEST_MAX_QUOTE_AGE_SECONDS", 300.0
         )
@@ -815,8 +816,8 @@ class LiveMarketRunner:
         age = (now.astimezone(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds()
         if age < -60:
             return age, "quote_timestamp_in_future"
-        if age > max_age_seconds:
-            return age, "stale_quote"
+        # Quote age does not block the cycle. Keep age for diagnostics only;
+        # missing timestamps and materially future-dated timestamps remain invalid.
         return age, "fresh"
 
     @staticmethod
