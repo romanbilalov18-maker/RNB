@@ -89,6 +89,15 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
     return results
 
 
+def _print_read_only_status() -> None:
+    """Report this diagnostic's scope, not the main bot's wiring."""
+    print("Trade execution: DISABLED (read-only diagnostic; no orders sent)")
+    print(
+        "Decision Engine: NOT RUN (this diagnostic does not call DecisionEngine; "
+        "see bot.main for the trading-cycle wiring)"
+    )
+
+
 def main() -> None:
     token = os.getenv("INVEST_TOKEN", "").strip()
     results = run_real_market_intelligence(token)
@@ -102,6 +111,7 @@ def main() -> None:
         print("Analyzed instruments: 0")
         print("No instruments passed strict active-session and fresh-quote checks.")
         print("No trades were sent; rerun during an active exchange session.")
+        _print_read_only_status()
         return
 
     print("REAL T-INVEST MARKET DATA + INTELLIGENCE (READ-ONLY)")
@@ -463,8 +473,7 @@ def main() -> None:
     print("  Same-date alert comparison is diagnostic only; no weights or trade rules changed.")
     print("  Results are exploratory and do not authorize automatic weight changes.")
     print("-" * 72)
-    print("Trade execution: DISABLED")
-    print("Decision Engine: NOT CONNECTED")
+    _print_read_only_status()
 
 
 if __name__ == "__main__":

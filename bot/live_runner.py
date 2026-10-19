@@ -838,6 +838,20 @@ class LiveMarketRunner:
             "CLOSING_PERIOD",
         }
 
+    @classmethod
+    def _quote_item_is_fresh(
+        cls,
+        item: object | None,
+        now: datetime,
+        max_age_seconds: float,
+    ) -> bool:
+        """Check whether a broker quote timestamp passes the freshness gate."""
+        quote_time = getattr(item, "time", None) if item is not None else None
+        return (
+            isinstance(quote_time, datetime)
+            and cls._quote_freshness(quote_time, now, max_age_seconds)[1] == "fresh"
+        )
+
     @staticmethod
     def _quote_freshness(
         quote_time: datetime,

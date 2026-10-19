@@ -1,10 +1,14 @@
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from bot.intelligence.integration import build_market_snapshot
 from bot.intelligence.pipeline.intelligence_pipeline import IntelligencePipeline
 from bot.main import _evaluate_decisions, _filter_intelligence_to_active_tickers
+from bot.paper_executor import PaperExecutor
+from bot.portfolio_store import SQLitePortfolioStore
 
 
 class MarketContextDecisionFlowTests(unittest.TestCase):
@@ -49,6 +53,7 @@ class MarketContextDecisionFlowTests(unittest.TestCase):
             volume_ratio=1.2,
             volatility=0.02,
             momentum=0.03,
+            trend_strength=0.01,
         )
         candle = SimpleNamespace(
             time=datetime(2026, 10, 19, 9, 55, tzinfo=timezone.utc),
@@ -112,6 +117,37 @@ class MarketContextDecisionFlowTests(unittest.TestCase):
             set(_filter_intelligence_to_active_tickers({"AAA": intelligence}, None)),
             {"AAA"},
         )
+
+        # Exercise the real L1-L15 result through DecisionEngine, virtual
+        # execution, and persistence. This remains paper-only; no broker orders
+        # are submitted and the existing PositionManager exit rules stay intact.
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SQLitePortfolioStore(Path(tmp) / "portfolio.sqlite")
+            portfolio = store.load_or_create(1000.0, 0.001)
+            portfolio.buy(
+                "AAA", 1, 100.0,
+                datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc),
+            )
+            allowed_buys = {
+                ticker for ticker, decision in decisions.items()
+                if decision.action == "BUY"
+            }
+            sells, buys = PaperExecutor().execute(
+                portfolio,
+                scan,
+                eligible_buy_tickers=allowed_buys,
+            )
+            self.assertEqual(len(sells), 1)
+            self.assertEqual(sells[0].side, "SELL")
+            self.assertEqual(buys, [])
+            self.assertNotIn("AAA", portfolio.positions)
+
+            store.save(portfolio, scan.current_prices)
+            restored = store.load_or_create(5000.0, 0.005)
+            self.assertEqual(restored.initial_balance, 1000.0)
+            self.assertEqual(restored.positions, {})
+            self.assertEqual([trade.side for trade in restored.trades], ["BUY", "SELL"])
+            self.assertAlmostEqual(restored.realized_pnl, portfolio.realized_pnl)
 
     def test_unknown_schedule_context_is_preserved_as_unknown(self):
         context = {

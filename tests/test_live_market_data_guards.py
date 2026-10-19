@@ -61,6 +61,19 @@ class LiveMarketDataGuardTests(unittest.TestCase):
             )
         )
 
+    def test_quote_item_freshness_rejects_missing_stale_and_far_future_timestamps(self):
+        now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+        fresh = type("Quote", (), {"time": now - timedelta(seconds=300)})()
+        stale = type("Quote", (), {"time": now - timedelta(seconds=301)})()
+        future = type("Quote", (), {"time": now + timedelta(seconds=61)})()
+        missing = type("Quote", (), {})()
+
+        self.assertTrue(LiveMarketRunner._quote_item_is_fresh(fresh, now, 300))
+        self.assertFalse(LiveMarketRunner._quote_item_is_fresh(stale, now, 300))
+        self.assertFalse(LiveMarketRunner._quote_item_is_fresh(future, now, 300))
+        self.assertFalse(LiveMarketRunner._quote_item_is_fresh(missing, now, 300))
+        self.assertFalse(LiveMarketRunner._quote_item_is_fresh(None, now, 300))
+
     def test_fresh_quote_with_timezone_is_accepted(self):
         now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
         quote = now - timedelta(seconds=120)
