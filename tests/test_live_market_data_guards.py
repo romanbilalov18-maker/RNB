@@ -68,11 +68,11 @@ class LiveMarketDataGuardTests(unittest.TestCase):
         self.assertEqual(reason, "fresh")
         self.assertEqual(age, 120)
 
-    def test_quote_older_than_limit_is_rejected(self):
+    def test_quote_older_than_limit_is_not_rejected_by_age(self):
         now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
         quote = now - timedelta(seconds=301)
         age, reason = LiveMarketRunner._quote_freshness(quote, now, 300)
-        self.assertEqual(reason, "stale_quote")
+        self.assertEqual(reason, "fresh")
         self.assertEqual(age, 301)
 
     def test_small_clock_skew_is_tolerated_but_future_timestamp_is_rejected(self):

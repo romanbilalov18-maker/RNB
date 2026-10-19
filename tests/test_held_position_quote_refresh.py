@@ -45,6 +45,9 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
         )
 
     def test_accepts_quote_older_than_300_seconds(self):
+        # Simulate an even older cached quote; incoming quote is newer but
+        # older than five minutes, which must no longer be rejected by age.
+        self.items["uid-held-1"].time = self.now - timedelta(hours=3)
         accepted = self.merge(
             price=51.25,
             quote_time=self.now - timedelta(hours=2),
