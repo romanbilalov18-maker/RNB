@@ -74,7 +74,7 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertAlmostEqual(stats.max_drawdown, 200.0)
             self.assertAlmostEqual(stats.max_drawdown_pct, 200.0 / 9_999.0 * 100.0)
 
-    def test_missing_market_price_does_not_append_equity_history(self):
+    def test_missing_market_price_saves_portfolio_without_partial_equity_history(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
             portfolio = VirtualPortfolio(10_000)
@@ -82,13 +82,14 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             store.save(portfolio, {"TEST": 100})
             history_before = store.equity_history()
 
-            with self.assertRaisesRegex(ValueError, "missing market price for TEST"):
-                store.save(portfolio, {})
+            portfolio.buy("OTHER", 1, 50, datetime.now(timezone.utc))
+            store.save(portfolio, {})
 
             self.assertEqual(store.equity_history(), history_before)
             restored = store.load_or_create(10_000, 0.0005)
             self.assertEqual(restored.positions["TEST"].quantity, 1)
-            self.assertEqual(len(restored.trades), 1)
+            self.assertEqual(restored.positions["OTHER"].quantity, 1)
+            self.assertEqual(len(restored.trades), 2)
 
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
