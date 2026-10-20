@@ -32,11 +32,13 @@ class DecisionAuditStore:
                     virtual_action TEXT NOT NULL, virtual_quantity INTEGER NOT NULL DEFAULT 0,
                     virtual_commission REAL NOT NULL DEFAULT 0, realized_pnl REAL NOT NULL DEFAULT 0,
                     equity REAL NOT NULL, cash REAL NOT NULL, total_commissions REAL NOT NULL,
+                    equity_complete INTEGER NOT NULL DEFAULT 1,
                     anchor_price REAL, anchor_session_date TEXT,
                     execution_reason TEXT NOT NULL DEFAULT '',
                     entry_price REAL, execution_price REAL,
                     UNIQUE(cycle_id, ticker))
             """)
+            self._ensure_column(db, "decision_audit", "equity_complete", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(db, "decision_audit", "anchor_price", "REAL")
             self._ensure_column(db, "decision_audit", "anchor_session_date", "TEXT")
             self._ensure_column(db, "decision_audit", "execution_reason", "TEXT NOT NULL DEFAULT ''")
@@ -189,6 +191,7 @@ class DecisionAuditStore:
         intelligence_results: Mapping[str, object] | None = None,
         commission_rate: float = 0.0005,
         as_of: datetime | None = None,
+        equity_complete: bool = True,
     ) -> int:
         """Record recommendations, their L1-L15 snapshot, and matured forward outcomes.
 
@@ -224,7 +227,7 @@ class DecisionAuditStore:
                 "+".join(t.side for t in trades) if trades else "NO_TRADE",
                 sum(int(t.quantity) for t in trades), sum(float(t.commission) for t in trades),
                 sum(float(t.realized_pnl) for t in trades), float(equity), float(cash),
-                float(total_commissions), anchor_price, anchor_date,
+                float(total_commissions), int(bool(equity_complete)), anchor_price, anchor_date,
                 " | ".join(str(getattr(t, "reason", "not recorded")) for t in trades),
                 next((float(t.entry_price) for t in trades if getattr(t, "entry_price", None) is not None), None),
                 getattr(trades[-1], "price", None) if trades else None,
@@ -248,10 +251,11 @@ class DecisionAuditStore:
                 INSERT INTO decision_audit (
                     cycle_id, recorded_at, ticker, recommendation, reason, score, confidence,
                     consistency, virtual_action, virtual_quantity, virtual_commission, realized_pnl,
-                    equity, cash, total_commissions, anchor_price, anchor_session_date,
+                    equity, cash, total_commissions, equity_complete, anchor_price, anchor_session_date,
                     execution_reason, entry_price, execution_price)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cycle_id, ticker) DO UPDATE SET
+                    equity_complete=MIN(decision_audit.equity_complete, excluded.equity_complete),
                     anchor_price=COALESCE(decision_audit.anchor_price, excluded.anchor_price),
                     anchor_session_date=COALESCE(decision_audit.anchor_session_date, excluded.anchor_session_date)
             """, rows)
