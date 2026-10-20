@@ -89,7 +89,15 @@ def main() -> None:
                         break
                     time.sleep(cycle_interval_minutes * 60)
                     continue
-                _validate_held_position_prices(portfolio, result.current_prices)
+                _, missing_held_prices = portfolio.equity_with_available_prices(
+                    result.current_prices
+                )
+                if missing_held_prices:
+                    print(
+                        "PORTFOLIO VALUATION INCOMPLETE: positions without verified "
+                        "fresh quotes will be held and excluded from market valuation: "
+                        + ", ".join(missing_held_prices)
+                    )
                 learning_observations = audit_store.learning_observations_by_ticker()
                 intelligence_results = analyze_scan(
                     result,
@@ -122,7 +130,15 @@ def main() -> None:
                     eligible_buy_reasons=eligible_buy_reasons,
                 )
 
-                equity = portfolio.equity(result.current_prices)
+                equity, missing_held_prices = portfolio.equity_with_available_prices(
+                    result.current_prices
+                )
+                equity_complete = not missing_held_prices
+                if not equity_complete:
+                    print(
+                        "PORTFOLIO EQUITY STATUS: PARTIAL (not a complete mark-to-market "
+                        f"value); unpriced_positions={','.join(missing_held_prices)}"
+                    )
                 cycle_id = f"{cycle}:{time.time_ns()}"
                 audit_count = _persist_cycle_safely(
                     store,
@@ -133,6 +149,7 @@ def main() -> None:
                     decisions=decisions,
                     virtual_trades=[*sell_trades, *buy_trades],
                     equity=equity,
+                    equity_complete=equity_complete,
                     cash=portfolio.cash,
                     total_commissions=portfolio.commissions,
                     current_prices=result.current_prices,
@@ -155,6 +172,7 @@ def main() -> None:
                     config.take_profit_percent,
                     intelligence_results,
                     decisions,
+                    equity_complete=equity_complete,
                 )
 
             except Exception as exc:
@@ -283,17 +301,23 @@ def _print_cycle_result(
     take_profit_percent,
     intelligence_results=None,
     decisions=None,
+    equity_complete: bool = True,
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
     print("Virtual cash:", f"{portfolio.cash:.2f} RUB")
     print("Realized P&L:", f"{portfolio.realized_pnl:.2f} RUB")
     print("Total commissions:", f"{portfolio.commissions:.2f} RUB")
-    print("Virtual equity:", f"{equity:.2f} RUB")
-    print("Total P&L:", f"{stats.total_pnl:.2f} RUB")
-    print("Total return:", f"{stats.total_return_pct:.2f} %")
+    if equity_complete:
+        print("Virtual equity:", f"{equity:.2f} RUB")
+        print("Total P&L:", f"{stats.total_pnl:.2f} RUB")
+        print("Total return:", f"{stats.total_return_pct:.2f} %")
+    else:
+        print("Virtual equity: PARTIAL", f"{equity:.2f} RUB (unpriced holdings excluded)")
+        print("Total P&L / return: NOT REPORTED because full portfolio valuation is unavailable")
 
-    print("Portfolio statistics:")
+    print("Portfolio statistics:" if equity_complete else
+          "Portfolio statistics (trade history only; equity/drawdown metrics are not comparable):")
     print(f"- Total trades: {stats.total_trades}")
     print(f"- BUY trades: {stats.buy_trades}")
     print(f"- SELL trades: {stats.sell_trades}")
@@ -362,6 +386,15 @@ def _print_cycle_result(
 
     print("Open positions:")
     performances = portfolio.position_performance(result.current_prices)
+    missing_performance = sorted(
+        set(portfolio.positions) - {item.ticker for item in performances}
+    )
+    if missing_performance:
+        print(
+            "- Current market value unavailable for: "
+            + ", ".join(missing_performance)
+            + " (no verified fresh quote)"
+        )
     if performances:
         for performance in performances:
             print(f"- {performance.ticker}")
