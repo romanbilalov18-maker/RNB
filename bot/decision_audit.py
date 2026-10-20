@@ -287,6 +287,103 @@ class DecisionAuditStore:
             db.commit()
         return len(rows)
 
+    def record_market_session_prices(
+        self,
+        candle_history: Mapping[str, list],
+        *,
+        as_of: datetime | None = None,
+        commission_rate: float = 0.0005,
+    ) -> dict[str, int]:
+        """Store completed broker candles and score matured outcomes without trading."""
+        as_of = as_of or datetime.now(timezone.utc)
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        as_of = as_of.astimezone(timezone.utc)
+        prices_added = 0
+        prices_updated = 0
+        with self._connect() as db:
+            existing_rows = db.execute(
+                "SELECT ticker, session_date FROM market_session_prices"
+            ).fetchall()
+            invalid_rows = [
+                (row["ticker"], row["session_date"])
+                for row in existing_rows
+                if date.fromisoformat(row["session_date"]).weekday() >= 5
+            ]
+            if invalid_rows:
+                db.executemany(
+                    "DELETE FROM market_session_prices WHERE ticker=? AND session_date=?",
+                    invalid_rows,
+                )
+                db.execute("DELETE FROM decision_outcomes")
+
+            for ticker, candles in candle_history.items():
+                ticker = str(ticker or "").strip()
+                if not ticker:
+                    continue
+                for candle in candles or ():
+                    if not self._is_completed_daily_candle(candle, now=as_of):
+                        continue
+                    session = self._session_date(candle)
+                    close = self._price(getattr(candle, "close", None))
+                    if session is None or close is None:
+                        continue
+                    if not self._is_market_session_date(date.fromisoformat(session)):
+                        continue
+                    previous = db.execute(
+                        "SELECT close_price FROM market_session_prices WHERE ticker=? AND session_date=?",
+                        (ticker, session),
+                    ).fetchone()
+                    if previous is None:
+                        prices_added += 1
+                    elif float(previous["close_price"]) != close:
+                        prices_updated += 1
+                    db.execute(
+                        """
+                        INSERT INTO market_session_prices (ticker, session_date, close_price)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(ticker, session_date)
+                        DO UPDATE SET close_price=excluded.close_price
+                        """,
+                        (ticker, session, close),
+                    )
+
+            outcomes_before = db.execute(
+                "SELECT COUNT(*) FROM decision_outcomes"
+            ).fetchone()[0]
+            self._evaluate_due_outcomes(db, commission_rate)
+            outcomes_after = db.execute(
+                "SELECT COUNT(*) FROM decision_outcomes"
+            ).fetchone()[0]
+            db.commit()
+        return {
+            "prices_added": prices_added,
+            "prices_updated": prices_updated,
+            "outcomes_added": int(outcomes_after - outcomes_before),
+        }
+
+    def delete_cycle(self, cycle_id: str) -> int:
+        """Remove audit data for a cycle whose portfolio transaction did not commit."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT id FROM decision_audit WHERE cycle_id=?", (cycle_id,)
+            ).fetchall()
+            audit_ids = [int(row["id"]) for row in rows]
+            if not audit_ids:
+                return 0
+            placeholders = ",".join("?" for _ in audit_ids)
+            db.execute(
+                f"DELETE FROM decision_outcomes WHERE audit_id IN ({placeholders})",
+                audit_ids,
+            )
+            db.execute(
+                f"DELETE FROM decision_learning_snapshots WHERE audit_id IN ({placeholders})",
+                audit_ids,
+            )
+            db.execute("DELETE FROM decision_audit WHERE cycle_id=?", (cycle_id,))
+            db.commit()
+        return len(audit_ids)
+
     def _evaluate_due_outcomes(self, db, commission_rate: float) -> None:
         anchors = db.execute("""
             SELECT id, ticker, recommendation, anchor_price, anchor_session_date
