@@ -70,7 +70,18 @@ class PaperExecutor:
             for ticker, position in portfolio.positions.items()
             if ticker in scan.current_prices
         }
-        total_equity = portfolio.equity(scan.current_prices)
+        # Missing quotes for unrelated holdings must not abort execution for
+        # eligible instruments. The partial valuation excludes unpriced positions,
+        # making position-weight limits conservative rather than inventing prices.
+        total_equity, unpriced_positions = portfolio.equity_with_available_prices(
+            scan.current_prices
+        )
+        if unpriced_positions:
+            print(
+                "EXECUTION DIAGNOSTIC: portfolio valuation incomplete; "
+                f"unpriced_positions={','.join(unpriced_positions)}; "
+                "new orders still require fresh prices for their own tickers."
+            )
         # After selling, immediately reuse the freed cash. The primary
         # strategy remains TOP-3, but if a TOP-3 candidate is unavailable,
         # walk through the full ranked candidate list from this scan.
