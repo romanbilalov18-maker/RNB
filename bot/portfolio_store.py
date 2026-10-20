@@ -190,10 +190,21 @@ class SQLitePortfolioStore:
             )
 
             if market_prices is not None:
-                equity = portfolio.equity(market_prices)
-                db.execute(
-                    "INSERT INTO equity_history (timestamp, equity) VALUES (?, ?)",
-                    (datetime.now().astimezone().isoformat(), equity),
+                equity, unpriced_positions = portfolio.equity_with_available_prices(
+                    market_prices
                 )
+                if unpriced_positions:
+                    # Portfolio cash/positions/trades must still commit. Do not
+                    # append a misleading partial value to equity_history.
+                    print(
+                        "PORTFOLIO STORE: saved portfolio/trades without an equity "
+                        "history point; missing fresh prices for "
+                        + ", ".join(unpriced_positions)
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO equity_history (timestamp, equity) VALUES (?, ?)",
+                        (datetime.now().astimezone().isoformat(), equity),
+                    )
 
             db.commit()
