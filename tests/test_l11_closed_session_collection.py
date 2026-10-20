@@ -109,7 +109,7 @@ class ClosedSessionOutcomeCollectionTests(unittest.TestCase):
         portfolio_store = Mock()
         audit_store = Mock()
         audit_store.record_cycle.side_effect = OSError("audit unavailable")
-        with self.assertRaisesRegex(OSError, "audit unavailable"):
+        with self.assertRaisesRegex(RuntimeError, "failed after 3 attempts"):
             _persist_cycle_safely(
                 portfolio_store, audit_store, object(), {},
                 cycle_id="cycle-1", decisions={}, virtual_trades=[],
