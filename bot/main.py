@@ -65,9 +65,23 @@ def main() -> None:
                 active_tickers = getattr(result, "active_trading_tickers", None)
                 if active_tickers is not None and not active_tickers:
                     print(
-                        "No active T-Invest trading session. Skipping virtual trades, "
-                        "portfolio writes and L11 decision-audit observations to avoid "
-                        "learning from stale out-of-session quotes."
+                        "No active T-Invest trading session. Virtual trades and decision "
+                        "anchors are disabled; collecting completed historical candles only."
+                    )
+                    collection = audit_store.record_market_session_prices(
+                        result.candle_history,
+                        commission_rate=portfolio.commission_rate,
+                    )
+                    learning_count = sum(
+                        len(items)
+                        for items in audit_store.learning_observations_by_ticker().values()
+                    )
+                    print(
+                        "L11 closed-session collection: "
+                        f"prices_added={collection['prices_added']} "
+                        f"prices_updated={collection['prices_updated']} "
+                        f"outcomes_newly_evaluated={collection['outcomes_added']} "
+                        f"learning_observations_ready={learning_count}"
                     )
                     remaining = deadline - time.monotonic()
                     if not _should_run_another_cycle(remaining, cycle_interval_minutes):
@@ -109,10 +123,12 @@ def main() -> None:
                 )
 
                 equity = portfolio.equity(result.current_prices)
-                store.save(portfolio, result.current_prices)
                 cycle_id = f"{cycle}:{time.time_ns()}"
-                audit_count = _record_cycle_with_retries(
+                audit_count = _persist_cycle_safely(
+                    store,
                     audit_store,
+                    portfolio,
+                    result.current_prices,
                     cycle_id=cycle_id,
                     decisions=decisions,
                     virtual_trades=[*sell_trades, *buy_trades],
@@ -177,6 +193,33 @@ def _validate_held_position_prices(portfolio, market_prices) -> None:
             + ", ".join(missing)
             + ". Portfolio was not changed; inspect T-Invest provenance diagnostics."
         )
+
+
+def _persist_cycle_safely(
+    portfolio_store,
+    audit_store,
+    portfolio,
+    market_prices,
+    *,
+    cycle_id: str,
+    **audit_kwargs,
+) -> int:
+    """Write audit first and remove it if portfolio persistence fails."""
+    audit_count = _record_cycle_with_retries(
+        audit_store, cycle_id=cycle_id, **audit_kwargs
+    )
+    try:
+        portfolio_store.save(portfolio, market_prices)
+    except Exception as save_error:
+        try:
+            audit_store.delete_cycle(cycle_id)
+        except Exception as rollback_error:
+            raise RuntimeError(
+                "Portfolio save failed and audit rollback also failed; "
+                f"manual reconciliation is required for cycle {cycle_id}."
+            ) from rollback_error
+        raise save_error
+    return audit_count
 
 
 def _record_cycle_with_retries(audit_store, *, cycle_id: str, **kwargs) -> int:
