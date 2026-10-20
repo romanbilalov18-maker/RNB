@@ -36,6 +36,19 @@ class TestVirtualPortfolio(unittest.TestCase):
         equity = portfolio.equity({"TEST": 120})
         self.assertAlmostEqual(equity, 10_199.5)
 
+    def test_partial_equity_excludes_unpriced_positions_without_fabricating_price(self):
+        portfolio = VirtualPortfolio(10_000)
+        timestamp = datetime.now(timezone.utc)
+        portfolio.buy("PRICED", 2, 100, timestamp)
+        portfolio.buy("UNPRICED", 3, 50, timestamp)
+
+        value, missing = portfolio.equity_with_available_prices({"PRICED": 120})
+
+        self.assertAlmostEqual(value, portfolio.cash + 240)
+        self.assertEqual(missing, ("UNPRICED",))
+        with self.assertRaisesRegex(ValueError, "UNPRICED"):
+            portfolio.equity({"PRICED": 120})
+
     def test_statistics_counts_trades_and_drawdown(self):
         portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
         timestamp = datetime.now(timezone.utc)
