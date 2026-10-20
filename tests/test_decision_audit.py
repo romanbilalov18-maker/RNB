@@ -539,5 +539,26 @@ class DecisionAuditStoreTests(unittest.TestCase):
         )
 
 
+    def test_incomplete_equity_is_explicitly_marked_in_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            store.record_cycle(
+                "partial-valuation",
+                {"AAA": SimpleNamespace(action="WAIT", reason="missing holding quote")},
+                [],
+                equity=5000,
+                cash=4000,
+                total_commissions=0,
+                current_prices={"AAA": 100},
+                equity_complete=False,
+            )
+            with store._connect() as db:
+                row = db.execute(
+                    "SELECT equity_complete FROM decision_audit WHERE cycle_id=?",
+                    ("partial-valuation",),
+                ).fetchone()
+            self.assertEqual(row["equity_complete"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
