@@ -117,13 +117,34 @@ class VirtualPortfolio:
         return trade
 
     def equity(self, market_prices: dict[str, float]) -> float:
-        value = self.cash
+        """Return complete mark-to-market equity; fail closed on missing/invalid quotes."""
+        value, missing = self.equity_with_available_prices(market_prices)
+        if missing:
+            raise ValueError(f"missing or invalid market price for {', '.join(missing)}")
+        return value
+
+    def equity_with_available_prices(
+        self, market_prices: dict[str, float]
+    ) -> tuple[float, tuple[str, ...]]:
+        """Return cash plus positions with valid quotes and list unvalued positions.
+
+        The partial value is diagnostic/conservative only; it must never be
+        presented as complete equity or used to authorize trades at stale prices.
+        """
+        value = float(self.cash)
+        missing = []
         for ticker, position in self.positions.items():
             price = market_prices.get(ticker)
-            if price is None:
-                raise ValueError(f"missing market price for {ticker}")
-            value += position.quantity * price
-        return value
+            if (
+                not isinstance(price, (int, float))
+                or isinstance(price, bool)
+                or not math.isfinite(price)
+                or price <= 0
+            ):
+                missing.append(ticker)
+                continue
+            value += position.quantity * float(price)
+        return value, tuple(sorted(missing))
 
     def position_performance(self, market_prices: dict[str, float]) -> list[PositionPerformance]:
         """Return mark-to-market performance for every open position."""
@@ -131,8 +152,15 @@ class VirtualPortfolio:
 
         for ticker, position in self.positions.items():
             market_price = market_prices.get(ticker)
-            if market_price is None:
-                raise ValueError(f"missing market price for {ticker}")
+            if (
+                not isinstance(market_price, (int, float))
+                or isinstance(market_price, bool)
+                or not math.isfinite(market_price)
+                or market_price <= 0
+            ):
+                # Unpriced holdings are reported separately by the caller; never
+                # invent a mark-to-market value for them.
+                continue
 
             invested = position.quantity * position.average_price
             current = position.quantity * market_price
