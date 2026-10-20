@@ -73,9 +73,15 @@ class PaperExecutor:
         # Missing quotes for unrelated holdings must not abort execution for
         # eligible instruments. The partial valuation excludes unpriced positions,
         # making position-weight limits conservative rather than inventing prices.
-        total_equity, unpriced_positions = portfolio.equity_with_available_prices(
-            scan.current_prices
-        )
+        partial_equity = getattr(portfolio, "equity_with_available_prices", None)
+        if callable(partial_equity):
+            total_equity, unpriced_positions = partial_equity(scan.current_prices)
+        else:
+            # Preserve compatibility with lightweight portfolio doubles used by
+            # integrations/tests; production VirtualPortfolio implements the
+            # quote-aware valuation API above.
+            total_equity = portfolio.equity(scan.current_prices)
+            unpriced_positions = ()
         if unpriced_positions:
             print(
                 "EXECUTION DIAGNOSTIC: portfolio valuation incomplete; "
