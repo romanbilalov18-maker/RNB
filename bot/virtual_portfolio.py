@@ -52,6 +52,8 @@ class VirtualPortfolio:
     trades: list[VirtualTrade] = field(default_factory=list)
     realized_pnl: float = 0.0
     commissions: float = 0.0
+    protected_cash: float = 0.0
+    profit_reserve_rate: float = 0.5
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.initial_balance):
@@ -62,6 +64,10 @@ class VirtualPortfolio:
             raise ValueError("initial_balance must be positive")
         if self.commission_rate < 0:
             raise ValueError("commission_rate must not be negative")
+        if not math.isfinite(self.profit_reserve_rate) or not 0.0 <= self.profit_reserve_rate <= 1.0:
+            raise ValueError("profit_reserve_rate must be between 0 and 1")
+        if not math.isfinite(self.protected_cash) or self.protected_cash < 0:
+            raise ValueError("protected_cash must be finite and non-negative")
         if self.cash is None:
             self.cash = self.initial_balance
 
@@ -103,7 +109,12 @@ class VirtualPortfolio:
         commission = gross * self.commission_rate
         entry_commission = quantity * position.average_price * self.commission_rate
         realized_pnl = quantity * (price - position.average_price) - commission - entry_commission
-        self.cash += gross - commission
+        # Move a fixed share of net realized profit into a protected reserve.
+        # It is removed from spendable cash immediately and never included in
+        # the cash available to PositionSizer.
+        reserve_transfer = max(realized_pnl, 0.0) * self.profit_reserve_rate
+        self.cash += gross - commission - reserve_transfer
+        self.protected_cash += reserve_transfer
         self.realized_pnl += realized_pnl
         self.commissions += commission
         position.quantity -= quantity
@@ -131,7 +142,7 @@ class VirtualPortfolio:
         The partial value is diagnostic/conservative only; it must never be
         presented as complete equity or used to authorize trades at stale prices.
         """
-        value = float(self.cash)
+        value = float(self.cash) + float(self.protected_cash)
         missing = []
         for ticker, position in self.positions.items():
             price = market_prices.get(ticker)
