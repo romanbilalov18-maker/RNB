@@ -31,7 +31,8 @@ class SQLitePortfolioStore:
                     commission_rate REAL NOT NULL,
                     cash REAL NOT NULL,
                     realized_pnl REAL NOT NULL,
-                    commissions REAL NOT NULL
+                    commissions REAL NOT NULL,
+                    protected_cash REAL NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS positions (
@@ -60,6 +61,9 @@ class SQLitePortfolioStore:
                 );
                 """
             )
+            portfolio_columns = {row["name"] for row in db.execute("PRAGMA table_info(portfolio)")}
+            if "protected_cash" not in portfolio_columns:
+                db.execute("ALTER TABLE portfolio ADD COLUMN protected_cash REAL NOT NULL DEFAULT 0")
             trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
             if "reason" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
@@ -90,6 +94,7 @@ class SQLitePortfolioStore:
                 cash=row["cash"],
                 realized_pnl=row["realized_pnl"],
                 commissions=row["commissions"],
+                protected_cash=row["protected_cash"],
             )
 
             for position in db.execute("SELECT * FROM positions"):
@@ -135,14 +140,15 @@ class SQLitePortfolioStore:
                 """
                 INSERT INTO portfolio
                     (id, initial_balance, commission_rate, cash,
-                     realized_pnl, commissions)
-                VALUES (1, ?, ?, ?, ?, ?)
+                     realized_pnl, commissions, protected_cash)
+                VALUES (1, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     initial_balance=excluded.initial_balance,
                     commission_rate=excluded.commission_rate,
                     cash=excluded.cash,
                     realized_pnl=excluded.realized_pnl,
-                    commissions=excluded.commissions
+                    commissions=excluded.commissions,
+                    protected_cash=excluded.protected_cash
                 """,
                 (
                     portfolio.initial_balance,
@@ -150,6 +156,7 @@ class SQLitePortfolioStore:
                     portfolio.cash,
                     portfolio.realized_pnl,
                     portfolio.commissions,
+                    portfolio.protected_cash,
                 ),
             )
 
