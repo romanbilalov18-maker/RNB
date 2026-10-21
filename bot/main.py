@@ -305,7 +305,8 @@ def _print_cycle_result(
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
-    print("Virtual cash:", f"{portfolio.cash:.2f} RUB")
+    print("Virtual cash (available for trading):", f"{portfolio.cash:.2f} RUB")
+    print("Protected profit reserve (not available for trading):", f"{portfolio.protected_cash:.2f} RUB")
     print("Realized P&L:", f"{portfolio.realized_pnl:.2f} RUB")
     print("Total commissions:", f"{portfolio.commissions:.2f} RUB")
     if equity_complete:
@@ -486,7 +487,9 @@ def _print_readable_cycle_summary(
     print("Режим: виртуальная торговля; реальные заявки не отправляются.")
     print(f"Результат цикла: {'есть сделки' if trades else 'анализ выполнен, сделок нет'}.")
     print(f"Сделки: покупок — {len(buy_trades)}, продаж — {len(sell_trades)}, всего — {len(trades)}.")
-    print(f"Свободные деньги: {portfolio.cash:.2f} RUB.")
+    print(f"Свободные деньги для торговли: {portfolio.cash:.2f} RUB.")
+    print(f"Защищённый резерв прибыли (не тратится на покупки): {portfolio.protected_cash:.2f} RUB.")
+    print(f"Доля чистой прибыли в резерв: {portfolio.profit_reserve_rate:.0%}.")
     print(f"Реализованная прибыль за историю: {portfolio.realized_pnl:.2f} RUB.")
     print(f"Комиссии за историю: {portfolio.commissions:.2f} RUB.")
     if equity_complete:
