@@ -18,7 +18,7 @@ class ProtectedProfitReserveTests(unittest.TestCase):
 
         self.assertEqual(trade.realized_pnl, 200.0)
         self.assertEqual(portfolio.protected_cash, 100.0)
-        self.assertEqual(portfolio.cash, cash_after_buy + 100.0)
+        self.assertEqual(portfolio.cash, cash_after_buy + 1_100.0)
         self.assertEqual(portfolio.cash + portfolio.protected_cash, 10_200.0)
         self.assertEqual(portfolio.realized_pnl, 200.0)
 
