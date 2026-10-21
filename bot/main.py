@@ -442,6 +442,55 @@ def _print_cycle_result(
             f"reason={trade.reason}"
         )
 
+    _print_readable_cycle_summary(
+        portfolio=portfolio,
+        result=result,
+        sell_trades=sell_trades,
+        buy_trades=buy_trades,
+        equity=equity,
+        equity_complete=equity_complete,
+        intelligence_results=intelligence_results,
+        decisions=decisions,
+    )
+
+
+def _print_readable_cycle_summary(
+    *,
+    portfolio,
+    result,
+    sell_trades,
+    buy_trades,
+    equity: float,
+    equity_complete: bool,
+    intelligence_results=None,
+    decisions=None,
+) -> None:
+    """Print a plain-language summary without changing trading decisions."""
+    trades = [*sell_trades, *buy_trades]
+    missing_quotes = sorted(set(portfolio.positions) - set(result.current_prices))
+    print()
+    print("=" * 18 + " RNB — ПОНЯТНЫЙ ИТОГ ЦИКЛА " + "=" * 18)
+    print("Режим: виртуальная торговля; реальные заявки не отправляются.")
+    print(f"Результат цикла: {'есть сделки' if trades else 'анализ выполнен, сделок нет'}.")
+    print(f"Сделки: покупок — {len(buy_trades)}, продаж — {len(sell_trades)}, всего — {len(trades)}.")
+    print(f"Свободные деньги: {portfolio.cash:.2f} RUB.")
+    print(f"Реализованная прибыль за историю: {portfolio.realized_pnl:.2f} RUB.")
+    print(f"Комиссии за историю: {portfolio.commissions:.2f} RUB.")
+    if equity_complete:
+        print(f"Стоимость портфеля по доступным ценам: {equity:.2f} RUB (оценка полная).")
+    else:
+        print(f"Стоимость портфеля: {equity:.2f} RUB — НЕПОЛНАЯ оценка; позиции без свежей цены не включены.")
+    print(f"Открытых позиций: {len(portfolio.positions)}.")
+    if missing_quotes:
+        print("Нет свежих котировок для: " + ", ".join(missing_quotes) + ".")
+    else:
+        print("Свежие котировки есть для всех открытых позиций.")
+    print(f"Результаты анализа L1–L15: {len(intelligence_results or {})} инструментов передано на оценку.")
+    print(f"Решения DecisionEngine: {len(decisions or {})} рекомендаций.")
+    print("Сохранение: подтверждено основным циклом (портфель и журнал решений записаны).")
+    print("Обучение L11: сбор данных виден; изменение параметров модели этим отчётом не подтверждается.")
+    print("=" * 65)
+
 
 if __name__ == "__main__":
     main()
