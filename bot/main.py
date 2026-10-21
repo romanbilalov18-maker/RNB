@@ -332,23 +332,33 @@ def _print_cycle_result(
     print(f"- Max drawdown: {stats.max_drawdown:.2f} RUB")
     print(f"- Max drawdown: {stats.max_drawdown_pct:.2f} %")
 
-    print("Intelligence L1-L15:")
+    detail_limit = 10
+    verbose_logs = os.getenv("RNB_VERBOSE_LOGS", "").strip().lower() in {"1", "true", "yes"}
+
+    print(f"Intelligence L1-L15: {len(intelligence_results or {})} инструментов.")
     if intelligence_results:
-        for ticker, intelligence in sorted(
+        ranked_intelligence = sorted(
             intelligence_results.items(),
             key=lambda item: (-item[1].overall_score, item[0]),
-        ):
+        )
+        visible_intelligence = ranked_intelligence if verbose_logs else ranked_intelligence[:detail_limit]
+        for ticker, intelligence in visible_intelligence:
             print(
                 f"- {ticker}: score={intelligence.overall_score:.4f}, "
                 f"confidence={intelligence.overall_confidence:.4f}, "
                 f"consistency={intelligence.overall_consistency:.4f}"
             )
+        if not verbose_logs and len(ranked_intelligence) > detail_limit:
+            print(f"- ... ещё {len(ranked_intelligence) - detail_limit} инструментов скрыто; "
+                  "RNB_VERBOSE_LOGS=1 покажет полный список.")
     else:
-        print("- no valid Intelligence results")
+        print("- нет корректных результатов Intelligence")
 
-    print("Decision Engine recommendations (BUY gates new virtual entries):")
+    print(f"Рекомендации DecisionEngine: {len(decisions or {})}.")
     if decisions:
-        for ticker, decision in sorted(decisions.items()):
+        ranked_decisions = sorted(decisions.items())
+        visible_decisions = ranked_decisions if verbose_logs else ranked_decisions[:detail_limit]
+        for ticker, decision in visible_decisions:
             metrics = ""
             if decision.score is not None:
                 metrics = (
@@ -357,8 +367,11 @@ def _print_cycle_result(
                     f" consistency={decision.consistency:.4f}"
                 )
             print(f"- {ticker}: {decision.action} — {decision.reason}{metrics}")
+        if not verbose_logs and len(ranked_decisions) > detail_limit:
+            print(f"- ... ещё {len(ranked_decisions) - detail_limit} рекомендаций скрыто; "
+                  "RNB_VERBOSE_LOGS=1 покажет полный список.")
     else:
-        print("- no recommendations")
+        print("- рекомендаций нет")
 
     print("Position decisions (existing execution rules):")
     for ticker, position in portfolio.positions.items():
