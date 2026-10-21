@@ -479,33 +479,132 @@ def _print_readable_cycle_summary(
     intelligence_results=None,
     decisions=None,
 ) -> None:
-    """Print a plain-language summary without changing trading decisions."""
+    """Print a reconciled, plain-language financial report for the current cycle."""
     trades = [*sell_trades, *buy_trades]
-    missing_quotes = sorted(set(portfolio.positions) - set(result.current_prices))
+    current_prices = getattr(result, "current_prices", {}) or {}
+    positions = getattr(portfolio, "positions", {}) or {}
+    missing_quotes = sorted(
+        ticker for ticker in positions
+        if not _is_valid_report_price(current_prices.get(ticker))
+    )
+    performances = []
+    unpriced_cost_basis = 0.0
+    commission_rate = float(getattr(portfolio, "commission_rate", 0.0) or 0.0)
+    for ticker, position in sorted(positions.items()):
+        quantity = getattr(position, "quantity", None)
+        average_price = getattr(position, "average_price", None)
+        valid_position = (
+            isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0
+            and isinstance(average_price, (int, float)) and not isinstance(average_price, bool)
+            and average_price > 0
+        )
+        if not valid_position:
+            continue
+        if ticker in missing_quotes:
+            unpriced_cost_basis += quantity * average_price
+            continue
+        price = current_prices[ticker]
+        invested = quantity * average_price
+        market_value = quantity * float(price)
+        gross_unrealized = market_value - invested
+        estimated_exit_commission = market_value * commission_rate
+        net_if_sold = gross_unrealized - estimated_exit_commission - invested * commission_rate
+        performances.append({
+            "ticker": ticker, "quantity": quantity,
+            "average_price": float(average_price), "market_price": float(price),
+            "invested": invested, "market_value": market_value,
+            "unrealized": gross_unrealized,
+            "exit_commission": estimated_exit_commission,
+            "net_if_sold": net_if_sold,
+        })
+
+    known_market_value = sum(item["market_value"] for item in performances)
+    known_invested_value = sum(item["invested"] for item in performances)
+    known_unrealized = sum(item["unrealized"] for item in performances)
+    estimated_exit_commissions = sum(item["exit_commission"] for item in performances)
+    known_net_if_sold = sum(item["net_if_sold"] for item in performances)
+    cash = float(getattr(portfolio, "cash", 0.0) or 0.0)
+    reserve = float(getattr(portfolio, "protected_cash", 0.0) or 0.0)
+    initial_balance = getattr(portfolio, "initial_balance", None)
+    realized_pnl = float(getattr(portfolio, "realized_pnl", 0.0) or 0.0)
+    commissions = float(getattr(portfolio, "commissions", 0.0) or 0.0)
+
     print()
-    print("=" * 18 + " RNB — ПОНЯТНЫЙ ИТОГ ЦИКЛА " + "=" * 18)
-    print("Режим: виртуальная торговля; реальные заявки не отправляются.")
+    print("=" * 18 + " RNB — ФИНАНСОВЫЙ ИТОГ ЦИКЛА " + "=" * 18)
+    print("Режим: виртуальная торговля; реальные заявки на биржу отключены.")
     print(f"Результат цикла: {'есть сделки' if trades else 'анализ выполнен, сделок нет'}.")
-    print(f"Сделки: покупок — {len(buy_trades)}, продаж — {len(sell_trades)}, всего — {len(trades)}.")
-    print(f"Свободные деньги для торговли: {portfolio.cash:.2f} RUB.")
-    print(f"Защищённый резерв прибыли (не тратится на покупки): {portfolio.protected_cash:.2f} RUB.")
-    print(f"Доля чистой прибыли в резерв: {portfolio.profit_reserve_rate:.0%}.")
-    print(f"Реализованная прибыль за историю: {portfolio.realized_pnl:.2f} RUB.")
-    print(f"Комиссии за историю: {portfolio.commissions:.2f} RUB.")
+    print(f"Сделки этого цикла: покупок — {len(buy_trades)}, продаж — {len(sell_trades)}, всего — {len(trades)}.")
+    if initial_balance is not None:
+        print(f"Стартовый капитал: {float(initial_balance):.2f} RUB.")
+    print(f"Свободные деньги для новых покупок: {cash:.2f} RUB.")
+    print(f"Свободные деньги: {cash:.2f} RUB.")
+    print(f"Защищённый резерв прибыли: {reserve:.2f} RUB.")
+    print(f"Все денежные средства вместе с резервом: {cash + reserve:.2f} RUB.")
+    print(f"Реализованный P/L закрытых сделок (включает комиссии сделок): {realized_pnl:+.2f} RUB.")
+    print(f"Комиссии, учтённые в истории операций: {commissions:.2f} RUB.")
+    print(f"Стоимость позиций с подтверждёнными свежими ценами: {known_market_value:.2f} RUB.")
+    print(f"Себестоимость оценённых позиций: {known_invested_value:.2f} RUB.")
+    print(f"Нереализованный P/L по оценённым позициям до комиссии будущей продажи: {known_unrealized:+.2f} RUB.")
+    print(f"Оценка комиссии продажи по оценённым позициям: {estimated_exit_commissions:.2f} RUB.")
+    print(f"Результат оценённых позиций при продаже сейчас (с комиссиями покупки и предполагаемой продажи): {known_net_if_sold:+.2f} RUB.")
     if equity_complete:
+        print(f"Общая стоимость портфеля (деньги + резерв + все позиции): {equity:.2f} RUB.")
         print(f"Стоимость портфеля по доступным ценам: {equity:.2f} RUB (оценка полная).")
+        if initial_balance is not None:
+            total_pnl = equity - float(initial_balance)
+            total_return = total_pnl / float(initial_balance) * 100.0 if initial_balance else 0.0
+            print(f"ОБЩИЙ результат относительно старта: {total_pnl:+.2f} RUB ({total_return:+.2f}%).")
+        print("Полнота оценки: ПОЛНАЯ — свежие котировки есть по всем открытым позициям.")
     else:
-        print(f"Стоимость портфеля: {equity:.2f} RUB — НЕПОЛНАЯ оценка; позиции без свежей цены не включены.")
-    print(f"Открытых позиций: {len(portfolio.positions)}.")
+        print(f"Частичная стоимость портфеля: {equity:.2f} RUB.")
+        print("ОБЩИЙ результат и доходность: НЕ РАССЧИТЫВАЮТСЯ — оценка портфеля неполная.")
+        print("Полнота оценки: НЕПОЛНАЯ; стоимость позиций без свежих цен не включена.")
+        print("Стоимость портфеля: НЕПОЛНАЯ оценка.")
+    print(f"Открытых позиций: {len(positions)}.")
     if missing_quotes:
+        print("Позиции без свежей подтверждённой котировки: " + ", ".join(missing_quotes) + ".")
         print("Нет свежих котировок для: " + ", ".join(missing_quotes) + ".")
+        if unpriced_cost_basis:
+            print(f"Себестоимость позиций без свежей цены (это не текущая стоимость): {unpriced_cost_basis:.2f} RUB.")
     else:
         print("Свежие котировки есть для всех открытых позиций.")
+
+    print("Открытые позиции (суммы в RUB):")
+    if not positions:
+        print("- нет открытых позиций")
+    else:
+        for ticker, position in sorted(positions.items()):
+            quantity = getattr(position, "quantity", None)
+            average_price = getattr(position, "average_price", None)
+            if ticker in missing_quotes:
+                details = []
+                if quantity is not None:
+                    details.append(f"количество={quantity}")
+                if isinstance(average_price, (int, float)) and not isinstance(average_price, bool):
+                    details.append(f"средняя покупка={average_price:.2f}")
+                print(f"- {ticker}: {'; '.join(details) or 'данные позиции доступны частично'}; текущая цена/стоимость/P&L неизвестны.")
+                continue
+            item = next((entry for entry in performances if entry["ticker"] == ticker), None)
+            if item is None:
+                print(f"- {ticker}: свежая цена получена, но количество или средняя цена покупки недоступны.")
+                continue
+            print(
+                f"- {ticker}: количество={item['quantity']}; покупка={item['average_price']:.2f}; "
+                f"цена={item['market_price']:.2f}; стоимость={item['market_value']:.2f}; "
+                f"нереализованный P/L={item['unrealized']:+.2f}; результат при продаже сейчас={item['net_if_sold']:+.2f}."
+            )
     print(f"Результаты анализа L1–L15: {len(intelligence_results or {})} инструментов передано на оценку.")
     print(f"Решения DecisionEngine: {len(decisions or {})} рекомендаций.")
-    print("Сохранение: подтверждено основным циклом (портфель и журнал решений записаны).")
+    print("Сохранение: портфель и журнал решений сохраняются основным циклом; история находится в SQLite.")
+    print("Общий P/L = полная стоимость портфеля минус стартовый капитал; комиссии повторно не вычитаются.")
     print("Обучение L11: сбор данных виден; изменение параметров модели этим отчётом не подтверждается.")
-    print("=" * 65)
+    print("=" * 72)
+
+
+def _is_valid_report_price(price) -> bool:
+    """Return whether a quote is a finite positive numeric value."""
+    import math
+    return isinstance(price, (int, float)) and not isinstance(price, bool) and math.isfinite(price) and price > 0
 
 
 if __name__ == "__main__":
