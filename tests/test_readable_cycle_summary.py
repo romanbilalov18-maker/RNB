@@ -27,7 +27,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             decisions={"AAA": object()},
         )
         self.assertIn("виртуальная торговля", output)
-        self.assertIn("покупок — 2, продаж — 1, всего — 3", output)
+        self.assertIn("покупок=2, продаж=1", output)
         self.assertIn("Свободные деньги для торговли: 3.44 RUB", output)
         self.assertIn("Полнота оценки: НЕПОЛНАЯ", output)
         self.assertIn("НЕТ СВЕЖЕЙ ЦЕНЫ: BBB.", output)
@@ -37,7 +37,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
 
     def test_readable_summary_reports_complete_valuation_and_no_trades(self):
         portfolio = SimpleNamespace(
-            positions={"AAA": object()}, cash=100.0,
+            positions={"AAA": SimpleNamespace(quantity=1, average_price=10.0)}, cash=100.0,
             realized_pnl=0.0, commissions=0.0,
         )
         result = SimpleNamespace(current_prices={"AAA": 10.0})
@@ -45,7 +45,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             portfolio=portfolio, result=result, sell_trades=[], buy_trades=[],
             equity=110.0, equity_complete=True,
         )
-        self.assertIn("анализ выполнен, сделок нет", output)
+        self.assertIn("сделок не было; покупок=0, продаж=0", output)
         self.assertIn("Полная стоимость портфеля (деньги + резерв + все позиции): 110.00 RUB", output)
         self.assertIn("Свежие подтверждённые котировки получены по всем открытым позициям.", output)
 
@@ -65,7 +65,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
         self.assertIn("Всего денежных средств: 910.00 RUB", output)
         self.assertIn("Текущая стоимость оценённых позиций: 24.00 RUB", output)
         self.assertIn("Нереализованный P/L оценённых позиций (до комиссии будущей продажи): +4.00 RUB", output)
-        self.assertIn("ОБЩИЙ результат относительно старта: -66.00 RUB (-6.60%).", output)
+        self.assertIn("ОБЩИЙ результат против старта: -66.00 RUB (-6.60%).", output)
         self.assertIn("повторно комиссии не вычитаются", output)
 
     def test_financial_summary_does_not_claim_total_result_when_quote_is_missing(self):
