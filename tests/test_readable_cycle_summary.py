@@ -47,7 +47,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
         )
         self.assertIn("анализ выполнен, сделок нет", output)
         self.assertIn("Полная стоимость портфеля (деньги + резерв + все позиции): 110.00 RUB", output)
-        self.assertIn("Свежие котировки есть для всех открытых позиций.", output)
+        self.assertIn("Свежие подтверждённые котировки получены по всем открытым позициям.", output)
 
     def test_financial_summary_shows_complete_money_breakdown_without_double_subtracting_fees(self):
         portfolio = SimpleNamespace(
