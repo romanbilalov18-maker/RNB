@@ -62,11 +62,40 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             equity=934.0, equity_complete=True,
         )
         self.assertIn("Стартовый капитал: 1000.00 RUB", output)
-        self.assertIn("Всего денежных средств: 910.00 RUB", output)
+        self.assertIn("Свободные деньги + защищённый резерв: 910.00 RUB", output)
         self.assertIn("Текущая стоимость оценённых позиций: 24.00 RUB", output)
         self.assertIn("Нереализованный P/L оценённых позиций (до комиссии будущей продажи): +4.00 RUB", output)
         self.assertIn("ОБЩИЙ результат против старта: -66.00 RUB (-6.60%).", output)
         self.assertIn("повторно комиссии не вычитаются", output)
+
+    def test_financial_summary_reports_cycle_profit_and_new_reserve_transfer(self):
+        portfolio = SimpleNamespace(
+            initial_balance=1000.0,
+            positions={},
+            cash=1080.0,
+            protected_cash=20.0,
+            realized_pnl=100.0,
+            commissions=5.0,
+            commission_rate=0.01,
+        )
+        result = SimpleNamespace(current_prices={})
+        output = self.render(
+            portfolio=portfolio,
+            result=result,
+            sell_trades=[
+                SimpleNamespace(realized_pnl=40.0),
+                SimpleNamespace(realized_pnl=-10.0),
+            ],
+            buy_trades=[],
+            equity=1100.0,
+            equity_complete=True,
+            reserve_added_this_cycle=20.0,
+        )
+        self.assertIn("Отложено в резерв за этот цикл: 20.00 RUB", output)
+        self.assertIn("Защищённый резерв прибыли на данный момент: 20.00 RUB", output)
+        self.assertIn("Заработано за этот цикл на закрытых сделках (после комиссий): +30.00 RUB", output)
+        self.assertIn("Положительная прибыль закрытых сделок до распределения: 40.00 RUB", output)
+        self.assertIn("Всего реализованная прибыль/убыток за всё время: +100.00 RUB", output)
 
     def test_financial_summary_does_not_claim_total_result_when_quote_is_missing(self):
         portfolio = SimpleNamespace(
