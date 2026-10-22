@@ -66,7 +66,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
         self.assertIn("Текущая стоимость оценённых позиций: 24.00 RUB", output)
         self.assertIn("Нереализованный P/L оценённых позиций (до комиссии будущей продажи): +4.00 RUB", output)
         self.assertIn("ОБЩИЙ результат против старта: -66.00 RUB (-6.60%).", output)
-        self.assertIn("повторно комиссии не вычитаются", output)
+        self.assertIn("комиссии повторно не вычитаются", output)
 
     def test_financial_summary_reports_cycle_profit_and_new_reserve_transfer(self):
         portfolio = SimpleNamespace(
