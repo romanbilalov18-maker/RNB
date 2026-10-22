@@ -121,6 +121,7 @@ def main() -> None:
                     for ticker, decision in decisions.items()
                     if decision.action == "BUY"
                 }
+                reserve_before_cycle = portfolio.protected_cash
                 sell_trades, buy_trades = PaperExecutor(
                     take_profit=config.take_profit_percent / 100.0
                 ).execute(
@@ -173,6 +174,7 @@ def main() -> None:
                     intelligence_results,
                     decisions,
                     equity_complete=equity_complete,
+                    reserve_added_this_cycle=portfolio.protected_cash - reserve_before_cycle,
                 )
 
             except Exception as exc:
@@ -302,6 +304,7 @@ def _print_cycle_result(
     intelligence_results=None,
     decisions=None,
     equity_complete: bool = True,
+    reserve_added_this_cycle: float = 0.0,
 ) -> None:
     print("REAL T-INVEST MARKET SCAN + VIRTUAL EXECUTION")
     print("Virtual initial balance:", f"{portfolio.initial_balance:.2f} RUB")
@@ -465,6 +468,7 @@ def _print_cycle_result(
         equity_complete=equity_complete,
         intelligence_results=intelligence_results,
         decisions=decisions,
+        reserve_added_this_cycle=reserve_added_this_cycle,
     )
 
 
@@ -478,6 +482,7 @@ def _print_readable_cycle_summary(
     equity_complete: bool,
     intelligence_results=None,
     decisions=None,
+    reserve_added_this_cycle: float = 0.0,
 ) -> None:
     """Print a readable portfolio valuation with explicit completeness and cash reconciliation."""
     trades = [*sell_trades, *buy_trades]
@@ -546,8 +551,9 @@ def _print_readable_cycle_summary(
     print()
     print("2. ДЕНЬГИ")
     print(f"   Свободные деньги для торговли: {cash:.2f} RUB.")
-    print(f"   Защищённый резерв прибыли (не доступен для покупок): {reserve:.2f} RUB.")
-    print(f"   Всего денежных средств: {cash + reserve:.2f} RUB.")
+    print(f"   Защищённый резерв прибыли на данный момент: {reserve:.2f} RUB (недоступен для покупок).")
+    print(f"   Отложено в резерв за этот цикл: {max(0.0, reserve_added_this_cycle):.2f} RUB.")
+    print(f"   Свободные деньги + защищённый резерв: {cash + reserve:.2f} RUB.")
     print()
     print("3. ОТКРЫТЫЕ ПОЗИЦИИ")
     print(f"   Всего позиций: {len(positions)}; с подтверждённой свежей ценой: {priced_position_count}; без цены: {missing_position_count}.")
@@ -572,7 +578,11 @@ def _print_readable_cycle_summary(
         print(f"   Полная стоимость портфеля (деньги + резерв + все позиции): {equity:.2f} RUB.")
     print()
     print("5. ФИНАНСОВЫЙ РЕЗУЛЬТАТ")
-    print(f"   Реализованный P/L закрытых сделок: {realized_pnl:+.2f} RUB (по учёту портфеля; повторно комиссии не вычитаются).")
+    cycle_realized_pnl = sum(float(getattr(trade, "realized_pnl", 0.0) or 0.0) for trade in sell_trades)
+    cycle_positive_profit = sum(max(float(getattr(trade, "realized_pnl", 0.0) or 0.0), 0.0) for trade in sell_trades)
+    print(f"   Заработано за этот цикл на закрытых сделках (после комиссий): {cycle_realized_pnl:+.2f} RUB.")
+    print(f"   Положительная прибыль закрытых сделок до распределения: {cycle_positive_profit:.2f} RUB.")
+    print(f"   Всего реализованная прибыль/убыток за всё время: {realized_pnl:+.2f} RUB (комиссии повторно не вычитаются).")
     print(f"   Все комиссии в истории операций: {commissions:.2f} RUB.")
     if equity_complete:
         if initial_balance is not None and float(initial_balance) > 0:
