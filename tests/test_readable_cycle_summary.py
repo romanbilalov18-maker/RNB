@@ -46,7 +46,7 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             equity=110.0, equity_complete=True,
         )
         self.assertIn("анализ выполнен, сделок нет", output)
-        self.assertIn("Стоимость портфеля по доступным ценам: 110.00 RUB (оценка полная)", output)
+        self.assertIn("Полная стоимость портфеля (деньги + резерв + все позиции): 110.00 RUB", output)
         self.assertIn("Свежие котировки есть для всех открытых позиций.", output)
 
     def test_financial_summary_shows_complete_money_breakdown_without_double_subtracting_fees(self):
@@ -62,11 +62,11 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             equity=934.0, equity_complete=True,
         )
         self.assertIn("Стартовый капитал: 1000.00 RUB", output)
-        self.assertIn("Все денежные средства вместе с резервом: 910.00 RUB", output)
-        self.assertIn("Стоимость позиций с подтверждёнными свежими ценами: 24.00 RUB", output)
-        self.assertIn("Нереализованный P/L по оценённым позициям до комиссии будущей продажи: +4.00 RUB", output)
+        self.assertIn("Всего денежных средств: 910.00 RUB", output)
+        self.assertIn("Текущая стоимость оценённых позиций: 24.00 RUB", output)
+        self.assertIn("Нереализованный P/L оценённых позиций (до комиссии будущей продажи): +4.00 RUB", output)
         self.assertIn("ОБЩИЙ результат относительно старта: -66.00 RUB (-6.60%).", output)
-        self.assertIn("комиссии повторно не вычитаются", output)
+        self.assertIn("повторно комиссии не вычитаются", output)
 
     def test_financial_summary_does_not_claim_total_result_when_quote_is_missing(self):
         portfolio = SimpleNamespace(
@@ -83,10 +83,10 @@ class ReadableCycleSummaryTests(unittest.TestCase):
             portfolio=portfolio, result=result, sell_trades=[], buy_trades=[],
             equity=934.0, equity_complete=False,
         )
-        self.assertIn("ОБЩИЙ результат и доходность: НЕ РАССЧИТЫВАЮТСЯ", output)
-        self.assertIn("Позиции без свежей подтверждённой котировки: BBB.", output)
-        self.assertIn("себестоимость позиций без свежей цены", output.lower())
-        self.assertIn("BBB: количество=3; средняя покупка=5.00; текущая цена/стоимость/P&L неизвестны.", output)
+        self.assertIn("ОБЩИЙ P/L и доходность против старта: НЕ РАССЧИТЫВАЮТСЯ", output)
+        self.assertIn("НЕТ СВЕЖЕЙ ЦЕНЫ: BBB.", output)
+        self.assertIn("Их себестоимость по цене покупки", output)
+        self.assertIn("BBB: количество=3; цена покупки=5.00; текущая цена, стоимость и P/L неизвестны.", output)
 
 
 if __name__ == "__main__":
