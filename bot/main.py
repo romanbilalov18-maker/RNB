@@ -574,10 +574,13 @@ def _print_readable_cycle_summary(
     print("5. ФИНАНСОВЫЙ РЕЗУЛЬТАТ")
     print(f"   Реализованный P/L закрытых сделок: {realized_pnl:+.2f} RUB (по учёту портфеля; повторно комиссии не вычитаются).")
     print(f"   Все комиссии в истории операций: {commissions:.2f} RUB.")
-    if equity_complete and initial_balance is not None and float(initial_balance) > 0:
-        total_pnl = float(equity) - float(initial_balance)
-        total_return = total_pnl / float(initial_balance) * 100.0
-        print(f"   ОБЩИЙ результат против старта: {total_pnl:+.2f} RUB ({total_return:+.2f}%).")
+    if equity_complete:
+        if initial_balance is not None and float(initial_balance) > 0:
+            total_pnl = float(equity) - float(initial_balance)
+            total_return = total_pnl / float(initial_balance) * 100.0
+            print(f"   ОБЩИЙ результат против старта: {total_pnl:+.2f} RUB ({total_return:+.2f}%).")
+        else:
+            print("   Общий P/L против старта не рассчитан: стартовый капитал недоступен.")
         print("   Полнота оценки: ПОЛНАЯ.")
     else:
         print("   ОБЩИЙ P/L и доходность против старта: НЕ РАССЧИТЫВАЮТСЯ — оценка портфеля неполная.")
