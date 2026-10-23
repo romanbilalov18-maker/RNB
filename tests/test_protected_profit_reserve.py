@@ -8,7 +8,7 @@ from bot.virtual_portfolio import VirtualPortfolio
 
 
 class ProtectedProfitReserveTests(unittest.TestCase):
-    def test_half_of_positive_realized_profit_is_protected_and_not_spendable(self):
+    def test_seventy_percent_of_positive_realized_profit_is_protected_and_not_spendable(self):
         portfolio = VirtualPortfolio(initial_balance=10_000.0, commission_rate=0.0)
         now = datetime.now(timezone.utc)
         portfolio.buy("TEST", 10, 100.0, now)
@@ -17,8 +17,8 @@ class ProtectedProfitReserveTests(unittest.TestCase):
         trade = portfolio.sell("TEST", 10, 120.0, now, reason="test profit")
 
         self.assertEqual(trade.realized_pnl, 200.0)
-        self.assertEqual(portfolio.protected_cash, 100.0)
-        self.assertEqual(portfolio.cash, cash_after_buy + 1_100.0)
+        self.assertEqual(portfolio.protected_cash, 140.0)
+        self.assertEqual(portfolio.cash, cash_after_buy + 1_060.0)
         self.assertEqual(portfolio.cash + portfolio.protected_cash, 10_200.0)
         self.assertEqual(portfolio.realized_pnl, 200.0)
 
