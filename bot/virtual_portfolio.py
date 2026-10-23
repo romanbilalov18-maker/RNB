@@ -53,7 +53,7 @@ class VirtualPortfolio:
     realized_pnl: float = 0.0
     commissions: float = 0.0
     protected_cash: float = 0.0
-    profit_reserve_rate: float = 0.5
+    profit_reserve_rate: float = 0.7
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.initial_balance):
