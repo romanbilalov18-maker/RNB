@@ -521,8 +521,19 @@ class DecisionAuditStore:
                 continue
             grouped.setdefault(str(row["ticker"]), []).append(observation)
 
+        # Forecast labels and realized-trade feedback are queried separately.
+        # Merge them into decision-time order before applying the per-ticker cap;
+        # otherwise later forecast rows can precede earlier realized-trade rows,
+        # corrupting any chronological walk-forward split built from this history.
         return {
-            ticker: tuple(observations[-self.MAX_LEARNING_OBSERVATIONS_PER_TICKER:])
+            ticker: tuple(sorted(
+                observations,
+                key=lambda item: (
+                    item.decision_time or "",
+                    item.outcome_target_date or "",
+                    item.realized_trade_return is not None,
+                ),
+            )[-self.MAX_LEARNING_OBSERVATIONS_PER_TICKER:])
             for ticker, observations in grouped.items()
         }
 
