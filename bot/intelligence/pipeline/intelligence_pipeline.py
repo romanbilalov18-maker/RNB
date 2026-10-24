@@ -1,3 +1,5 @@
+import math
+
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import aggregate as aggregate_level_01, analyze as analyze_level_01
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
@@ -19,7 +21,14 @@ from bot.intelligence.levels.level_15.level_15_engine import Level15Engine
 from .intelligence_result import IntelligenceResult
 
 def _bounded(value: float) -> float:
-    return max(0.0, min(1.0, value))
+    """Clamp finite scores to [0, 1]; invalid numeric values fail closed to 0."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(numeric):
+        return 0.0
+    return max(0.0, min(1.0, numeric))
 
 
 def _overall_consistency(level10_result) -> float:
