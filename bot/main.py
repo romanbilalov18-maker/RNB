@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections import Counter
 
 from bot.config import Config
 from bot.decision_audit import DecisionAuditStore
@@ -108,7 +109,12 @@ def main() -> None:
                     intelligence_results,
                     active_tickers,
                 )
-                decisions = _evaluate_decisions(intelligence_results, portfolio)
+                decision_engine = DecisionEngine()
+                decisions = decision_engine.evaluate(
+                    intelligence_results,
+                    held_tickers=set(portfolio.positions),
+                )
+                _print_decision_diagnostics(decisions, decision_engine)
                 # Only explicit BUY recommendations from a valid L1-L15 result may
                 # authorize new virtual entries. Existing PositionManager exits and
                 # PositionSizer risk/cash/commission controls remain authoritative.
@@ -284,6 +290,36 @@ def _filter_intelligence_to_active_tickers(intelligence_results, active_tickers)
         for ticker, intelligence in intelligence_results.items()
         if ticker in allowed
     }
+
+
+def _print_decision_diagnostics(decisions, engine: DecisionEngine) -> None:
+    """Print a complete per-cycle decision summary without changing trade rules."""
+    action_counts = Counter(decision.action for decision in decisions.values())
+    reason_counts = Counter(decision.reason for decision in decisions.values())
+    print(
+        "DECISION GATE THRESHOLDS: "
+        f"BUY score>={engine.min_buy_score:.2f}, "
+        f"confidence>={engine.min_confidence:.2f}, "
+        f"consistency>={engine.min_consistency:.2f}; "
+        f"held-position SELL score<={engine.max_sell_score:.2f}, "
+        f"confidence>={engine.min_sell_confidence:.2f}"
+    )
+    print(
+        "DECISION SUMMARY: "
+        f"total={len(decisions)} "
+        f"BUY={action_counts.get('BUY', 0)} "
+        f"WAIT={action_counts.get('WAIT', 0)} "
+        f"HOLD={action_counts.get('HOLD', 0)} "
+        f"SELL={action_counts.get('SELL', 0)}"
+    )
+    if reason_counts:
+        print("DECISION REASONS: " + "; ".join(
+            f"{reason}={count}"
+            for reason, count in sorted(reason_counts.items())
+        ))
+    else:
+        print("DECISION REASONS: no decisions")
+
 
 def _evaluate_decisions(intelligence_results, portfolio):
     """Convert L1-L15 aggregate results into cycle recommendations."""
