@@ -146,7 +146,7 @@ class PaperExecutor:
         sizing_analyses = list(eligible_analyses)
         plans = sizer.plan(
             cash=portfolio.cash,
-            analyses=sizing_analyses,
+            analyses=list(sizing_analyses),
             prices=scan.current_prices,
             lot_sizes=scan.lot_sizes,
             existing_positions=set(portfolio.positions),
