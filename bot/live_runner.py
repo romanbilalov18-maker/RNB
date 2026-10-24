@@ -86,8 +86,9 @@ class LiveMarketRunner:
         )
 
         shares_response = self.client.instruments.shares()
+        all_shares = list(shares_response.instruments)
         shares = [
-            share for share in shares_response.instruments
+            share for share in all_shares
             if self._is_tradable_rub_share(share)
         ]
         if not shares:
@@ -95,9 +96,20 @@ class LiveMarketRunner:
 
         shares_by_ticker = {
             str(getattr(share, "ticker", "") or ""): share
-            for share in shares
+            for share in all_shares
             if str(getattr(share, "ticker", "") or "")
         }
+
+        # Held instruments must remain priceable even when they are not eligible
+        # for new entries (for example, non-RUB or API-trading-disabled shares).
+        required_tickers = held_tickers | tracked_tickers
+        required_shares = [
+            share for share in all_shares
+            if str(getattr(share, "ticker", "") or "") in required_tickers
+        ]
+        valuation_shares = self._valuation_universe(
+            shares, all_shares, required_tickers
+        )
 
         # Positions are persisted by ticker, so report the exact broker metadata
         # resolution rather than guessing a UID/FIGI for an unresolved holding.
@@ -107,7 +119,7 @@ class LiveMarketRunner:
                 print(
                     f"Held-position instrument mapping: ticker={held_ticker} "
                     "instrument_uid=UNRESOLVED figi=UNRESOLVED exchange=UNRESOLVED "
-                    "reason=not_in_tradable_RUB_share_universe"
+                    "reason=not_in_TInvest_share_catalog"
                 )
                 continue
             print(
@@ -127,7 +139,7 @@ class LiveMarketRunner:
 
         instrument_ids = [
             str(getattr(share, "uid", "") or getattr(share, "figi", ""))
-            for share in shares
+            for share in valuation_shares
         ]
         instrument_ids = [value for value in instrument_ids if value]
 
@@ -195,11 +207,6 @@ class LiveMarketRunner:
             str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             for share in selected_10
         }
-        required_tickers = held_tickers | tracked_tickers
-        required_shares = [
-            share for share in shares
-            if str(getattr(share, "ticker", "") or "") in required_tickers
-        ]
         analysis_shares = list(selected_10)
         for share in required_shares:
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -556,7 +563,9 @@ class LiveMarketRunner:
                 previous_closes[ticker] = close_prices[key]
 
         current_prices = {}
-        for share in shares:
+        # All analyzed holdings are eligible for valuation when their quote is
+        # fresh, even if broker status blocks opening a new position.
+        for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             # Do not pass stale, timestamp-less, or future-dated quotes to
@@ -719,6 +728,29 @@ class LiveMarketRunner:
             and quote_fresh
             and cls._status_allows_scheduled_session(status_name, exchange_session)
         )
+
+    @staticmethod
+    def _valuation_universe(
+        tradable_shares: list[object],
+        all_shares: list[object],
+        required_tickers: set[str],
+    ) -> list[object]:
+        """Include tradable candidates and all known held/tracked instruments for valuation."""
+        tradable_ids = {
+            str(getattr(share, "uid", "") or getattr(share, "figi", ""))
+            for share in tradable_shares
+        }
+        by_instrument_id = {}
+        for share in all_shares:
+            ticker = str(getattr(share, "ticker", "") or "")
+            instrument_id = str(
+                getattr(share, "uid", "") or getattr(share, "figi", "")
+            )
+            if instrument_id and (
+                instrument_id in tradable_ids or ticker in required_tickers
+            ):
+                by_instrument_id[instrument_id] = share
+        return list(by_instrument_id.values())
 
     @staticmethod
     def _is_tradable_rub_share(share: object) -> bool:
