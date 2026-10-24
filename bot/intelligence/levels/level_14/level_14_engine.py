@@ -25,13 +25,26 @@ class Level14Engine:
         )
         reliability = data_reliability.analyze(level10_result, level12_result, level13_result)
 
-        score = sum(result.score * weight for result, weight in zip(results, self.CONTRADICTION_WEIGHTS)) / self._WEIGHT_TOTAL
-        source_confidence = sum(result.confidence * weight for result, weight in zip(results, self.CONTRADICTION_WEIGHTS)) / self._WEIGHT_TOTAL
+        # Missing contradiction evidence must not contribute placeholder scores.
+        available = tuple(
+            (result, weight)
+            for result, weight in zip(results, self.CONTRADICTION_WEIGHTS)
+            if result.confidence > 0.0
+        )
+        available_weight = sum(weight for _, weight in available)
+        score = (
+            sum(result.score * weight for result, weight in available) / available_weight
+            if available_weight > 0.0 else 0.0
+        )
+        source_confidence = (
+            sum(result.confidence * weight for result, weight in available) / available_weight
+            if available_weight > 0.0 else 0.0
+        )
         # Reliability limits confidence in the contradiction assessment, but is
         # not itself a contradiction signal.
-        confidence = source_confidence * reliability.score
-        scores = [result.score for result in results]
-        consistency = 1.0 - (max(scores) - min(scores)) if any(result.confidence > 0 for result in results) else 0.0
+        confidence = source_confidence * reliability.score if available else 0.0
+        scores = [result.score for result, _ in available]
+        consistency = 1.0 - (max(scores) - min(scores)) if scores else 0.0
         all_results = results + (reliability,)
 
         return Level14Result(
