@@ -24,9 +24,29 @@ class Level11Engine:
         )
         confidence = learning_confidence.analyze(observations, results)
         all_results = results + (confidence,)
-        score = sum(result.score * weight for result, weight in zip(all_results, self.WEIGHTS)) / sum(self.WEIGHTS)
-        overall_confidence = sum(result.confidence for result in all_results) / len(all_results)
-        consistency = (1.0 - (max(result.score for result in all_results) - min(result.score for result in all_results))) if any(result.confidence > 0 for result in all_results) else 0.0
+
+        # A zero-confidence analyzer has no usable evidence. Exclude it from
+        # aggregate score and consistency rather than treating its default
+        # score (often 0.0) as a negative learning result.
+        available = tuple(
+            (result, weight)
+            for result, weight in zip(all_results, self.WEIGHTS)
+            if result.confidence > 0.0
+        )
+        available_weight = sum(weight for _, weight in available)
+        score = (
+            sum(result.score * weight for result, weight in available) / available_weight
+            if available_weight > 0.0 else 0.0
+        )
+        overall_confidence = (
+            sum(result.confidence for result, _ in available) / len(available)
+            if available else 0.0
+        )
+        available_scores = [result.score for result, _ in available]
+        consistency = (
+            1.0 - (max(available_scores) - min(available_scores))
+            if available_scores else 0.0
+        )
         return Level11Result(
             symbol=symbol,
             score=max(0.0, min(1.0, score)),
@@ -48,5 +68,6 @@ class Level11Engine:
                 "adaptive_weights_are_proposals": True,
                 "weights_applied_to_trading": False,
                 "proposal_status": results[4].metrics.get("proposal_status", "insufficient_history"),
+                "aggregation_excludes_zero_confidence": True,
             },
         )
