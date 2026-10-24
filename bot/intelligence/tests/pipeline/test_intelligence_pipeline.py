@@ -8,6 +8,20 @@ class IntelligencePipelineTests(unittest.TestCase):
         self.pipeline=IntelligencePipeline()
         self.snapshot=MarketSnapshot("TEST",105.0,100.0,1500.0,1000.0,0.02,0.04,0.85)
 
+    def test_bounded_rejects_non_finite_values(self):
+        from bot.intelligence.pipeline.intelligence_pipeline import _bounded
+
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                self.assertEqual(_bounded(value), 0.0)
+
+    def test_bounded_clamps_finite_values(self):
+        from bot.intelligence.pipeline.intelligence_pipeline import _bounded
+
+        self.assertEqual(_bounded(-0.1), 0.0)
+        self.assertEqual(_bounded(0.4), 0.4)
+        self.assertEqual(_bounded(1.1), 1.0)
+
     def test_runs_all_fifteen_levels(self):
         result=self.pipeline.analyze(self.snapshot)
         self.assertIsInstance(result,IntelligenceResult)
