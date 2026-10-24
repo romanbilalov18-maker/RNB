@@ -122,6 +122,35 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
         self.assertEqual(prices["uid-held-1"], 51.0)
         self.assertEqual(prices["uid-candidate-2"], 11.0)
 
+    def test_valuation_universe_includes_nontradable_held_instrument(self):
+        tradable = SimpleNamespace(
+            ticker="AAA", uid="uid-aaa", figi="", currency="RUB",
+            api_trade_available_flag=True,
+        )
+        held_but_not_tradable = SimpleNamespace(
+            ticker="HELD", uid="uid-held", figi="", currency="USD",
+            api_trade_available_flag=False,
+        )
+        unrelated_not_tradable = SimpleNamespace(
+            ticker="OTHER", uid="uid-other", figi="", currency="USD",
+            api_trade_available_flag=False,
+        )
+
+        universe = LiveMarketRunner._valuation_universe(
+            [tradable],
+            [tradable, held_but_not_tradable, unrelated_not_tradable],
+            {"HELD"},
+        )
+
+        self.assertEqual(
+            {share.ticker for share in universe},
+            {"AAA", "HELD"},
+        )
+        self.assertEqual(
+            {share.uid for share in universe},
+            {"uid-aaa", "uid-held"},
+        )
+
     def test_accepts_figi_key_when_uid_is_unavailable(self):
         item = SimpleNamespace(
             instrument_uid="",
