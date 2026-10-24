@@ -59,10 +59,14 @@ class Level11LearningTests(unittest.TestCase):
         )
         engine = Level11Engine()
         result = engine.analyze("AAA", observations)
-        expected = sum(
-            item.score * weight
+        available = [
+            (item, weight)
             for item, weight in zip(result.analyzer_results, engine.WEIGHTS)
-        ) / sum(engine.WEIGHTS)
+            if item.confidence > 0.0
+        ]
+        expected = sum(item.score * weight for item, weight in available) / sum(
+            weight for _, weight in available
+        )
         self.assertAlmostEqual(result.score, expected)
 
     def test_proposals_need_enough_samples_and_are_normalized(self):
@@ -86,6 +90,29 @@ class Level11LearningTests(unittest.TestCase):
         self.assertGreater(result.proposed_analyzer_weights["trend"], result.proposed_analyzer_weights["noise"])
         self.assertEqual(result.metadata["proposal_status"], "shadow_proposal_ready")
         self.assertFalse(result.metadata["weights_applied_to_trading"])
+
+    def test_unavailable_analyzers_do_not_pull_down_aggregate_score(self):
+        observations = (
+            LearningObservation(outcome_return=0.03, correct=True),
+        )
+        result = Level11Engine().analyze("AAA", observations)
+        available = [
+            (item, weight)
+            for item, weight in zip(result.analyzer_results, Level11Engine.WEIGHTS)
+            if item.confidence > 0.0
+        ]
+        expected = sum(item.score * weight for item, weight in available) / sum(
+            weight for _, weight in available
+        )
+        self.assertAlmostEqual(result.score, expected)
+        self.assertTrue(result.metadata["aggregation_excludes_zero_confidence"])
+        self.assertEqual(result.sample_count, 1)
+
+    def test_no_available_learning_evidence_has_zero_aggregate_confidence(self):
+        result = Level11Engine().analyze("AAA")
+        self.assertEqual(result.score, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertEqual(result.consistency, 0.0)
 
     def test_no_predictive_signal_does_not_create_weights(self):
         observations = tuple(
