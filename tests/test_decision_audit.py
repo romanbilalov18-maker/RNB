@@ -77,6 +77,11 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertAlmostEqual(forecast.outcome_return, -(113 / 110 - 1) - .001)
             self.assertAlmostEqual(trade_feedback.realized_trade_return, 0.09)
             self.assertTrue(trade_feedback.correct)
+            self.assertEqual(
+                [item.decision_time for item in observations],
+                sorted(item.decision_time for item in observations),
+                "forecast labels and realized-trade feedback must share chronological order",
+            )
 
     def test_realized_trade_feedback_does_not_wait_for_matured_forecast(self):
         with tempfile.TemporaryDirectory() as tmp:
