@@ -91,6 +91,26 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(restored.positions["OTHER"].quantity, 1)
             self.assertEqual(len(restored.trades), 2)
 
+    def test_round_trip_preserves_protected_profit_reserve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.protected_cash = 350.75
+            portfolio.cash = 8_500.25
+            portfolio.realized_pnl = 1_000.0
+            store.save(portfolio)
+
+            restored = SQLitePortfolioStore(path).load_or_create(
+                initial_balance=20_000,
+                commission_rate=0.002,
+            )
+
+            self.assertEqual(restored.initial_balance, 10_000)
+            self.assertAlmostEqual(restored.protected_cash, 350.75)
+            self.assertAlmostEqual(restored.cash, 8_500.25)
+            self.assertAlmostEqual(restored.realized_pnl, 1_000.0)
+
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
