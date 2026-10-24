@@ -139,12 +139,14 @@ class PaperExecutor:
         if rejection_counts:
             print(f"EXECUTION REJECTION COUNTS: {rejection_counts}")
 
-        plans = PositionSizer(
+        sizer = PositionSizer(
             commission_rate=portfolio.commission_rate,
             max_position_weight=self.max_position_weight,
-        ).plan(
+        )
+        sizing_analyses = list(eligible_analyses)
+        plans = sizer.plan(
             cash=portfolio.cash,
-            analyses=eligible_analyses,
+            analyses=sizing_analyses,
             prices=scan.current_prices,
             lot_sizes=scan.lot_sizes,
             existing_positions=set(portfolio.positions),
@@ -152,9 +154,59 @@ class PaperExecutor:
             total_equity=total_equity,
         )
 
-        if eligible_analyses and not plans:
+        # If the ranked shortlist has no feasible allocation (often because its
+        # cheapest whole lot exceeds remaining cash), retry with other analyzed
+        # instruments only when DecisionEngine explicitly approved BUY and the
+        # broker confirmed both a fresh quote and active trading eligibility.
+        # This preserves every risk/cash/lot constraint and does not lower AI
+        # thresholds or spend the protected profit reserve.
+        if not plans and eligible_buy_tickers is not None:
+            ranked_tickers = {analysis.ticker for analysis in scan.buy_candidates}
+            fresh_tickers = getattr(scan, "fresh_quote_tickers", None)
+            fallback_tickers = getattr(scan, "active_trading_tickers", None)
+            fallback_analyses = [
+                analysis
+                for ticker, analysis in scan.analyses.items()
+                if ticker not in ranked_tickers
+                and ticker in eligible_buy_tickers
+                and ticker not in portfolio.positions
+                and ticker not in recently_sold
+                and ticker not in sell_decision_tickers
+                and ticker not in blocked_reentries
+                and fresh_tickers is not None
+                and ticker in fresh_tickers
+                and fallback_tickers is not None
+                and ticker in fallback_tickers
+                and self._has_valid_market_sizing_data(scan, ticker)
+            ]
+            fallback_analyses.sort(
+                key=lambda item: (
+                    -float(getattr(item, "score", 0.0)),
+                    -float(getattr(item, "momentum", 0.0)),
+                    float(getattr(item, "volatility", float("inf"))),
+                    item.ticker,
+                )
+            )
+            if fallback_analyses:
+                sizing_analyses.extend(fallback_analyses)
+                print(
+                    "POSITION SIZER FALLBACK: ranked shortlist had no feasible "
+                    f"allocation; retrying with {len(fallback_analyses)} additional "
+                    "DecisionEngine-approved instruments with fresh active-session quotes."
+                )
+                plans = sizer.plan(
+                    cash=portfolio.cash,
+                    analyses=sizing_analyses,
+                    prices=scan.current_prices,
+                    lot_sizes=scan.lot_sizes,
+                    existing_positions=set(portfolio.positions),
+                    existing_values=existing_values,
+                    total_equity=total_equity,
+                )
+
+        if sizing_analyses and not plans:
             min_lot_costs = []
-            for analysis in eligible_analyses:
+            for analysis in sizing_analyses:
                 price = scan.current_prices[analysis.ticker]
                 lot_size = scan.lot_sizes[analysis.ticker]
                 min_lot_costs.append(
