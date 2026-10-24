@@ -23,6 +23,22 @@ class TestVirtualPortfolio(unittest.TestCase):
         with self.assertRaises(ValueError):
             portfolio.buy("TEST", 2, 100, datetime.now(timezone.utc))
 
+    def test_buy_cannot_spend_protected_profit_reserve(self):
+        portfolio = VirtualPortfolio(
+            initial_balance=1_000,
+            commission_rate=0.001,
+            cash=100.0,
+            protected_cash=500.0,
+        )
+
+        with self.assertRaisesRegex(ValueError, "insufficient virtual cash"):
+            portfolio.buy("TEST", 2, 50.0, datetime.now(timezone.utc))
+
+        self.assertAlmostEqual(portfolio.cash, 100.0)
+        self.assertAlmostEqual(portfolio.protected_cash, 500.0)
+        self.assertEqual(portfolio.positions, {})
+        self.assertEqual(portfolio.trades, [])
+
     def test_sell_rejects_missing_position(self):
         portfolio = VirtualPortfolio(10_000)
         with self.assertRaises(ValueError):
