@@ -25,14 +25,27 @@ class Level13Engine:
         )
         confidence_result = scenario_confidence.analyze(results)
 
-        # Normalize the weights because the scenario-only weights sum to 0.84.
-        score = sum(result.score * weight for result, weight in zip(results, self.SCENARIO_WEIGHTS)) / self._WEIGHT_TOTAL
-        confidence = sum(result.confidence * weight for result, weight in zip(results, self.SCENARIO_WEIGHTS)) / self._WEIGHT_TOTAL
+        # Only forecasts with evidence contribute. Renormalize their weights so a
+        # missing forecast cannot silently contribute its placeholder score.
+        available = tuple(
+            (result, weight)
+            for result, weight in zip(results, self.SCENARIO_WEIGHTS)
+            if result.confidence > 0.0
+        )
+        available_weight = sum(weight for _, weight in available)
+        score = (
+            sum(result.score * weight for result, weight in available) / available_weight
+            if available_weight > 0.0 else 0.0
+        )
+        confidence = (
+            sum(result.confidence * weight for result, weight in available) / available_weight
+            if available_weight > 0.0 else 0.0
+        )
 
-        # Agreement is calculated across forecasts only; the derived agreement metric
-        # must not widen or narrow its own spread.
-        scores = [result.score for result in results]
-        consistency = 1.0 - (max(scores) - min(scores)) if any(result.confidence > 0 for result in results) else 0.0
+        # Agreement is calculated across available forecasts only; the derived
+        # agreement metric must not widen or narrow its own spread.
+        scores = [result.score for result, _ in available]
+        consistency = 1.0 - (max(scores) - min(scores)) if scores else 0.0
         all_results = results + (confidence_result,)
 
         return Level13Result(
