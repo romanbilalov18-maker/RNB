@@ -34,6 +34,7 @@ def main() -> None:
         initial_balance=config.initial_virtual_balance,
         commission_rate=config.commission_rate,
     )
+    _reconcile_cycle_history(store, audit_store)
 
     deadline = time.monotonic() + run_duration_minutes * 60
     cycle = 0
