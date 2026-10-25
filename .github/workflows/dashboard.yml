@@ -1,0 +1,40 @@
+name: RNB Dashboard
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dashboard:
+    name: Build read-only dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore latest available virtual portfolio snapshot
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: dashboard-readonly-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            virtual-portfolio-${{ github.ref_name }}-
+            dashboard-readonly-${{ github.ref_name }}-
+
+      - name: Generate dashboard HTML
+        run: python -m bot.dashboard
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnb-dashboard-${{ github.run_id }}
+          path: artifacts/dashboard.html
+          if-no-files-found: error
+          retention-days: 14
