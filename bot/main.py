@@ -327,6 +327,36 @@ def _print_decision_diagnostics(decisions, engine: DecisionEngine) -> None:
         print("DECISION REASONS: no decisions")
 
 
+def _format_selected_analysis_line(analysis, current_prices, lot_sizes) -> str:
+    """Format a selected candidate without assuming quote/lot data is present."""
+    ticker = analysis.ticker
+    price = current_prices.get(ticker)
+    valid_price = (
+        isinstance(price, (int, float))
+        and not isinstance(price, bool)
+        and math.isfinite(price)
+        and price > 0
+    )
+    lot_size = lot_sizes.get(ticker)
+    valid_lot_size = (
+        isinstance(lot_size, int)
+        and not isinstance(lot_size, bool)
+        and lot_size > 0
+    )
+    price_label = (
+        f"{price:.2f}" if valid_price
+        else "unavailable (no verified fresh quote)"
+    )
+    lot_label = (
+        str(lot_size) if valid_lot_size
+        else "unavailable (missing/invalid lot size)"
+    )
+    return (
+        f"- {ticker}: price={price_label}, lot={lot_label}, "
+        f"score={analysis.score:.4f}"
+    )
+
+
 def _evaluate_decisions(intelligence_results, portfolio):
     """Convert L1-L15 aggregate results into cycle recommendations."""
     return DecisionEngine().evaluate(
@@ -478,10 +508,10 @@ def _print_cycle_result(
 
     print("Selected 3:")
     for analysis in result.selected_3:
-        ticker = analysis.ticker
         print(
-            f"- {ticker}: price={result.current_prices[ticker]:.2f}, "
-            f"lot={result.lot_sizes[ticker]}, score={analysis.score:.4f}"
+            _format_selected_analysis_line(
+                analysis, result.current_prices, result.lot_sizes
+            )
         )
 
     print("Virtual SELL trades this cycle:")
