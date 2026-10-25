@@ -18,6 +18,22 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(portfolio.realized_pnl, 97.9)
         self.assertEqual(portfolio.positions, {})
 
+    def test_partial_sale_allocates_entry_commission_and_reserve_consistently(self):
+        timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001, profit_reserve_rate=0.7)
+
+        portfolio.buy("TEST", 10, 100.0, timestamp)
+        trade = portfolio.sell("TEST", 4, 110.0, timestamp)
+
+        self.assertEqual(portfolio.positions["TEST"].quantity, 6)
+        self.assertAlmostEqual(portfolio.positions["TEST"].average_price, 100.0)
+        self.assertAlmostEqual(trade.commission, 0.44)
+        self.assertAlmostEqual(trade.realized_pnl, 39.16)
+        self.assertAlmostEqual(portfolio.realized_pnl, 39.16)
+        self.assertAlmostEqual(portfolio.commissions, 1.44)
+        self.assertAlmostEqual(portfolio.protected_cash, 27.412)
+        self.assertAlmostEqual(portfolio.cash, 9411.148)
+        self.assertAlmostEqual(portfolio.equity({"TEST": 110.0}), 10098.56)
     def test_buy_and_sell_reject_non_finite_or_boolean_prices_without_mutating_state(self):
         invalid_prices = (float("nan"), float("inf"), float("-inf"), True, False, 0, -1)
         for price in invalid_prices:
