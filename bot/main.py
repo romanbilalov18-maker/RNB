@@ -249,7 +249,7 @@ def _persist_cycle_safely(
         audit_store, cycle_id=cycle_id, **audit_kwargs
     )
     try:
-        portfolio_store.save(portfolio, market_prices)
+        portfolio_store.save(portfolio, market_prices, cycle_id=cycle_id)
     except Exception as save_error:
         try:
             audit_store.delete_cycle(cycle_id)
