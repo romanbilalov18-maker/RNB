@@ -64,6 +64,13 @@ class SQLitePortfolioStore:
                     cycle_id TEXT PRIMARY KEY,
                     committed_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS cycle_tracking_meta (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    initialized INTEGER NOT NULL CHECK (initialized IN (0, 1))
+                );
+
+                INSERT OR IGNORE INTO cycle_tracking_meta (id, initialized) VALUES (1, 0);
                 """
             )
             portfolio_columns = {row["name"] for row in db.execute("PRAGMA table_info(portfolio)")}
@@ -134,6 +141,13 @@ class SQLitePortfolioStore:
                 for row in db.execute("SELECT cycle_id FROM committed_cycles")
             }
 
+    def cycle_tracking_initialized(self) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT initialized FROM cycle_tracking_meta WHERE id=1"
+            ).fetchone()
+            return bool(row and row["initialized"])
+
     def seed_legacy_committed_cycles(self, cycle_ids: set[str]) -> None:
         """Baseline pre-protocol audit history once during migration."""
         with self._connect() as db:
@@ -144,6 +158,12 @@ class SQLitePortfolioStore:
                 "INSERT OR IGNORE INTO committed_cycles (cycle_id, committed_at) VALUES (?, ?)",
                 [(cycle_id, "legacy-baseline") for cycle_id in sorted(cycle_ids)],
             )
+            db.execute("UPDATE cycle_tracking_meta SET initialized=1 WHERE id=1")
+            db.commit()
+
+    def mark_cycle_tracking_initialized(self) -> None:
+        with self._connect() as db:
+            db.execute("UPDATE cycle_tracking_meta SET initialized=1 WHERE id=1")
             db.commit()
 
     def equity_history(self) -> list[float]:
