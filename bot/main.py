@@ -265,7 +265,25 @@ def _persist_cycle_safely(
     cycle_id: str,
     **audit_kwargs,
 ) -> int:
-    """Write audit first and remove it if portfolio persistence fails."""
+    """Persist a cycle once; reject ambiguous prior writes instead of replaying it."""
+    committed_lookup = getattr(portfolio_store, "committed_cycle_ids", None)
+    audit_lookup = getattr(audit_store, "cycle_ids", None)
+    if callable(committed_lookup) and callable(audit_lookup):
+        committed_ids = committed_lookup()
+        audit_ids = audit_lookup()
+        if cycle_id in committed_ids:
+            if cycle_id not in audit_ids:
+                raise CycleConsistencyError(
+                    f"Cycle {cycle_id} is committed in the portfolio but missing from audit."
+                )
+            count_cycle = getattr(audit_store, "cycle_record_count", None)
+            return count_cycle(cycle_id) if callable(count_cycle) else 0
+        if cycle_id in audit_ids:
+            raise CycleConsistencyError(
+                f"Cycle {cycle_id} already exists in audit but is not committed in the portfolio; "
+                "run startup reconciliation before retrying."
+            )
+
     audit_count = _record_cycle_with_retries(
         audit_store, cycle_id=cycle_id, **audit_kwargs
     )
