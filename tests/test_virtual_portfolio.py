@@ -18,6 +18,49 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(portfolio.realized_pnl, 97.9)
         self.assertEqual(portfolio.positions, {})
 
+    def test_buy_and_sell_reject_non_finite_or_boolean_prices_without_mutating_state(self):
+        invalid_prices = (float("nan"), float("inf"), float("-inf"), True, False, 0, -1)
+        for price in invalid_prices:
+            with self.subTest(price=price):
+                portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+                before = (portfolio.cash, dict(portfolio.positions), list(portfolio.trades), portfolio.commissions)
+                with self.assertRaisesRegex(ValueError, "finite positive number"):
+                    portfolio.buy("TEST", 1, price, datetime.now(timezone.utc))
+                self.assertEqual(
+                    (portfolio.cash, portfolio.positions, portfolio.trades, portfolio.commissions),
+                    before,
+                )
+
+                portfolio.buy("TEST", 1, 100, datetime.now(timezone.utc))
+                before_sell = (
+                    portfolio.cash,
+                    dict(portfolio.positions),
+                    list(portfolio.trades),
+                    portfolio.commissions,
+                    portfolio.realized_pnl,
+                )
+                with self.assertRaisesRegex(ValueError, "finite positive number"):
+                    portfolio.sell("TEST", 1, price, datetime.now(timezone.utc))
+                self.assertEqual(
+                    (
+                        portfolio.cash,
+                        portfolio.positions,
+                        portfolio.trades,
+                        portfolio.commissions,
+                        portfolio.realized_pnl,
+                    ),
+                    before_sell,
+                )
+
+    def test_quantity_must_be_a_positive_integer_and_not_bool(self):
+        for quantity in (True, False, 1.5, 0, -1):
+            with self.subTest(quantity=quantity):
+                portfolio = VirtualPortfolio(10_000)
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    portfolio.buy("TEST", quantity, 100, datetime.now(timezone.utc))
+                self.assertEqual(portfolio.trades, [])
+                self.assertEqual(portfolio.positions, {})
+
     def test_buy_rejects_insufficient_cash(self):
         portfolio = VirtualPortfolio(100)
         with self.assertRaises(ValueError):
