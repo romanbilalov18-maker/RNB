@@ -47,8 +47,15 @@ class PositionManager:
         for ticker, position in portfolio.positions.items():
             price = prices.get(ticker)
 
-            if price is None:
-                decisions.append(PositionDecision(ticker, "HOLD", "нет свежей цены"))
+            if (
+                not isinstance(price, (int, float))
+                or isinstance(price, bool)
+                or not math.isfinite(price)
+                or price <= 0
+            ):
+                decisions.append(
+                    PositionDecision(ticker, "HOLD", "нет свежей или валидной цены")
+                )
                 continue
 
             entry_cost_per_share = position.average_price * (1.0 + portfolio.commission_rate)
@@ -116,7 +123,13 @@ class PositionManager:
 
             position = portfolio.positions.get(decision.ticker)
             price = prices.get(decision.ticker)
-            if position is None or price is None:
+            if (
+                position is None
+                or not isinstance(price, (int, float))
+                or isinstance(price, bool)
+                or not math.isfinite(price)
+                or price <= 0
+            ):
                 continue
 
             trades.append(
