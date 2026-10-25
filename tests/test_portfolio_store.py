@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bot.models import VirtualPosition
 from bot.portfolio_store import SQLitePortfolioStore
 from bot.virtual_portfolio import VirtualPortfolio
 
@@ -137,13 +138,12 @@ class TestSQLitePortfolioStore(unittest.TestCase):
                 )]
 
             portfolio.buy("NEW", 1, 50, timestamp)
-            portfolio.positions["CORRUPT"] = __import__(
-                "bot.models", fromlist=["VirtualPosition"]
-            ).VirtualPosition("CORRUPT", 1, 75.0)
-            # Trigger a constraint failure after portfolio and positions statements
-            # have executed. The connection context must roll the entire write back.
-            with self.assertRaises(Exception):
-                store.save(portfolio, {"KEEP": 100, "NEW": 50, "CORRUPT": 75})
+            # Two mapping entries claim the same persisted ticker. SQLite's
+            # positions primary key must reject the second insert after the
+            # portfolio upsert and position delete have already run.
+            portfolio.positions["ALIAS"] = VirtualPosition("KEEP", 1, 75.0)
+            with self.assertRaisesRegex(Exception, "UNIQUE constraint failed"):
+                store.save(portfolio, {"KEEP": 100, "NEW": 50})
 
             with store._connect() as db:
                 after_portfolio = tuple(db.execute(
