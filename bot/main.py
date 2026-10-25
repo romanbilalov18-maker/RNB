@@ -235,6 +235,26 @@ class CycleConsistencyError(RuntimeError):
     """Raised when audit and portfolio persistence cannot be reconciled safely."""
 
 
+def _reconcile_cycle_history(portfolio_store, audit_store) -> None:
+    """Reconcile audit rows against cycle IDs committed with the portfolio."""
+    audit_ids = audit_store.cycle_ids()
+    if not portfolio_store.cycle_tracking_initialized():
+        # One-time baseline for databases created before cycle markers existed.
+        portfolio_store.seed_legacy_committed_cycles(audit_ids)
+
+    committed_ids = portfolio_store.committed_cycle_ids()
+    missing_audit = committed_ids - audit_ids
+    if missing_audit:
+        raise CycleConsistencyError(
+            "Committed portfolio cycle(s) are missing from decision audit: "
+            + ", ".join(sorted(missing_audit))
+            + "; refusing to start with inconsistent history."
+        )
+
+    for cycle_id in sorted(audit_ids - committed_ids):
+        audit_store.delete_cycle(cycle_id)
+
+
 def _persist_cycle_safely(
     portfolio_store,
     audit_store,
