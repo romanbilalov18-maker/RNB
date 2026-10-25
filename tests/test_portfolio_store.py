@@ -111,6 +111,61 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertAlmostEqual(restored.cash, 8_500.25)
             self.assertAlmostEqual(restored.realized_pnl, 1_000.0)
 
+    def test_failed_trade_batch_rolls_back_every_portfolio_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime.now(timezone.utc)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("KEEP", 1, 100, timestamp)
+            store.save(portfolio, {"KEEP": 100})
+
+            with store._connect() as db:
+                before_portfolio = tuple(db.execute(
+                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, protected_cash "
+                    "FROM portfolio WHERE id=1"
+                ).fetchone())
+                before_positions = [tuple(row) for row in db.execute(
+                    "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
+                )]
+                before_trades = [tuple(row) for row in db.execute(
+                    "SELECT timestamp, ticker, side, quantity, price, commission, realized_pnl, reason, entry_price "
+                    "FROM trades ORDER BY id"
+                )]
+                before_equity = [tuple(row) for row in db.execute(
+                    "SELECT timestamp, equity FROM equity_history ORDER BY id"
+                )]
+
+            portfolio.buy("NEW", 1, 50, timestamp)
+            portfolio.positions["CORRUPT"] = __import__(
+                "bot.models", fromlist=["VirtualPosition"]
+            ).VirtualPosition("CORRUPT", 1, 75.0)
+            # Trigger a constraint failure after portfolio and positions statements
+            # have executed. The connection context must roll the entire write back.
+            with self.assertRaises(Exception):
+                store.save(portfolio, {"KEEP": 100, "NEW": 50, "CORRUPT": 75})
+
+            with store._connect() as db:
+                after_portfolio = tuple(db.execute(
+                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, protected_cash "
+                    "FROM portfolio WHERE id=1"
+                ).fetchone())
+                after_positions = [tuple(row) for row in db.execute(
+                    "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
+                )]
+                after_trades = [tuple(row) for row in db.execute(
+                    "SELECT timestamp, ticker, side, quantity, price, commission, realized_pnl, reason, entry_price "
+                    "FROM trades ORDER BY id"
+                )]
+                after_equity = [tuple(row) for row in db.execute(
+                    "SELECT timestamp, equity FROM equity_history ORDER BY id"
+                )]
+
+            self.assertEqual(after_portfolio, before_portfolio)
+            self.assertEqual(after_positions, before_positions)
+            self.assertEqual(after_trades, before_trades)
+            self.assertEqual(after_equity, before_equity)
+
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
