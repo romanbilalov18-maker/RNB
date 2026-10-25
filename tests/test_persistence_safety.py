@@ -112,6 +112,7 @@ class PersistenceSafetyTests(unittest.TestCase):
             portfolio_store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
             audit_store = DecisionAuditStore(Path(directory) / "audit.sqlite")
             portfolio_store.load_or_create(10_000, 0.001)
+            _reconcile_cycle_history(portfolio_store, audit_store)
             decision = SimpleNamespace(
                 action="WAIT", reason="test fixture", score=0.0,
                 confidence=0.0, consistency=0.0,
