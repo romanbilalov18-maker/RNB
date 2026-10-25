@@ -7,6 +7,42 @@ from bot.virtual_portfolio import VirtualPortfolio
 
 
 class TestPositionManager(unittest.TestCase):
+    def test_holds_position_when_quote_is_missing_or_invalid(self):
+        invalid_quotes = (
+            None,
+            True,
+            False,
+            0,
+            -1,
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+        )
+        negative_analysis = SimpleNamespace(
+            ticker="AAA",
+            momentum=-0.03,
+            trend_strength=-0.01,
+        )
+
+        for price in invalid_quotes:
+            with self.subTest(price=price):
+                portfolio = VirtualPortfolio(10_000)
+                portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+                prices = {} if price is None else {"AAA": price}
+
+                decisions = PositionManager().evaluate(
+                    portfolio,
+                    {"AAA": negative_analysis},
+                    prices,
+                )
+
+                self.assertEqual(decisions[0].action, "HOLD")
+                self.assertIn("валидной цены", decisions[0].reason)
+                trades = PositionManager().execute_sales(portfolio, decisions, prices)
+                self.assertEqual(trades, [])
+                self.assertEqual(portfolio.positions["AAA"].quantity, 10)
+                self.assertEqual(len(portfolio.trades), 1)
+
     def test_holds_profitable_position_without_sell_signal(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
