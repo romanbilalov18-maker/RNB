@@ -59,6 +59,11 @@ class SQLitePortfolioStore:
                     timestamp TEXT NOT NULL,
                     equity REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS committed_cycles (
+                    cycle_id TEXT PRIMARY KEY,
+                    committed_at TEXT NOT NULL
+                );
                 """
             )
             portfolio_columns = {row["name"] for row in db.execute("PRAGMA table_info(portfolio)")}
@@ -121,6 +126,26 @@ class SQLitePortfolioStore:
 
             return portfolio
 
+    def committed_cycle_ids(self) -> set[str]:
+        """Return cycle IDs committed atomically with the durable portfolio."""
+        with self._connect() as db:
+            return {
+                str(row["cycle_id"])
+                for row in db.execute("SELECT cycle_id FROM committed_cycles")
+            }
+
+    def seed_legacy_committed_cycles(self, cycle_ids: set[str]) -> None:
+        """Baseline pre-protocol audit history once during migration."""
+        with self._connect() as db:
+            existing = db.execute("SELECT COUNT(*) FROM committed_cycles").fetchone()[0]
+            if existing:
+                return
+            db.executemany(
+                "INSERT OR IGNORE INTO committed_cycles (cycle_id, committed_at) VALUES (?, ?)",
+                [(cycle_id, "legacy-baseline") for cycle_id in sorted(cycle_ids)],
+            )
+            db.commit()
+
     def equity_history(self) -> list[float]:
         with self._connect() as db:
             return [
@@ -134,6 +159,8 @@ class SQLitePortfolioStore:
         self,
         portfolio: VirtualPortfolio,
         market_prices: dict[str, float] | None = None,
+        *,
+        cycle_id: str | None = None,
     ) -> None:
         with self._connect() as db:
             db.execute(
@@ -195,6 +222,12 @@ class SQLitePortfolioStore:
                     for trade in portfolio.trades
                 ],
             )
+
+            if cycle_id is not None:
+                db.execute(
+                    "INSERT INTO committed_cycles (cycle_id, committed_at) VALUES (?, ?)",
+                    (cycle_id, datetime.now().astimezone().isoformat()),
+                )
 
             if market_prices is not None:
                 equity, unpriced_positions = portfolio.equity_with_available_prices(
