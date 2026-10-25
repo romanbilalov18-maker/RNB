@@ -184,6 +184,15 @@ def main() -> None:
                     reserve_added_this_cycle=portfolio.protected_cash - reserve_before_cycle,
                 )
 
+            except CycleConsistencyError as exc:
+                # Audit rollback failed after portfolio persistence failed. The two
+                # stores may now disagree, so continuing could corrupt learning/audit
+                # history. Stop and require reconciliation rather than auto-retrying.
+                print(
+                    f"FATAL: {type(exc).__name__}: {exc} "
+                    "Stopping bot to prevent further inconsistent cycles."
+                )
+                break
             except Exception as exc:
                 print(f"Cycle {cycle} failed: {type(exc).__name__}: {exc}")
                 # Discard any uncommitted in-memory mutations and resume from
@@ -222,6 +231,10 @@ def _validate_held_position_prices(portfolio, market_prices) -> None:
         )
 
 
+class CycleConsistencyError(RuntimeError):
+    """Raised when audit and portfolio persistence cannot be reconciled safely."""
+
+
 def _persist_cycle_safely(
     portfolio_store,
     audit_store,
@@ -241,7 +254,7 @@ def _persist_cycle_safely(
         try:
             audit_store.delete_cycle(cycle_id)
         except Exception as rollback_error:
-            raise RuntimeError(
+            raise CycleConsistencyError(
                 "Portfolio save failed and audit rollback also failed; "
                 f"manual reconciliation is required for cycle {cycle_id}."
             ) from rollback_error
