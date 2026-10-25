@@ -29,6 +29,27 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.trades[0].ticker, "TEST")
 
+    def test_partial_sale_commissions_and_reserve_survive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("TEST", 10, 100.0, timestamp)
+            portfolio.sell("TEST", 4, 110.0, timestamp)
+            store.save(portfolio, {"TEST": 110.0})
+
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+
+            self.assertEqual(restored.positions["TEST"].quantity, 6)
+            self.assertAlmostEqual(restored.cash, 9411.148)
+            self.assertAlmostEqual(restored.protected_cash, 27.412)
+            self.assertAlmostEqual(restored.commissions, 1.44)
+            self.assertAlmostEqual(restored.realized_pnl, 39.16)
+            self.assertEqual([trade.side for trade in restored.trades], ["BUY", "SELL"])
+            self.assertAlmostEqual(restored.trades[1].commission, 0.44)
+            self.assertAlmostEqual(restored.trades[1].realized_pnl, 39.16)
+            self.assertAlmostEqual(restored.equity({"TEST": 110.0}), 10098.56)
     def test_equity_history_tracks_market_revaluation_across_saves(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
