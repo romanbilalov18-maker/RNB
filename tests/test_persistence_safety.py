@@ -107,6 +107,40 @@ class PersistenceSafetyTests(unittest.TestCase):
             self.assertEqual(summary["observations"], 1)
             self.assertAlmostEqual(summary["recorded_trade_commissions"], 0.1)
 
+    def test_replaying_committed_cycle_does_not_duplicate_trade_or_commission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path = Path(directory) / "portfolio.sqlite3"
+            audit_path = Path(directory) / "audit.sqlite"
+            portfolio_store = SQLitePortfolioStore(portfolio_path)
+            audit_store = DecisionAuditStore(audit_path)
+            portfolio = portfolio_store.load_or_create(10_000, 0.001)
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            trade = portfolio.buy("AAA", 1, 100.0, timestamp)
+            decision = SimpleNamespace(
+                action="BUY", reason="isolated idempotency fixture",
+                score=0.8, confidence=0.8, consistency=0.8,
+            )
+            kwargs = dict(
+                decisions={"AAA": decision}, virtual_trades=[trade],
+                equity=portfolio.equity({"AAA": 100.0}), cash=portfolio.cash,
+                total_commissions=portfolio.commissions,
+                current_prices={"AAA": 100.0}, commission_rate=portfolio.commission_rate,
+            )
+            audit_store.record_cycle(cycle_id="same-cycle", **kwargs)
+            portfolio_store.save(portfolio, {"AAA": 100.0}, cycle_id="same-cycle")
+
+            result = _persist_cycle_safely(
+                portfolio_store, audit_store, portfolio, {"AAA": 100.0},
+                cycle_id="same-cycle", **kwargs,
+            )
+
+            restored = SQLitePortfolioStore(portfolio_path).load_or_create(1.0, 0.0)
+            self.assertEqual(len(restored.trades), 1)
+            self.assertEqual(restored.positions["AAA"].quantity, 1)
+            self.assertAlmostEqual(restored.commissions, 0.1)
+            self.assertAlmostEqual(restored.cash, 9_899.9)
+            self.assertEqual(audit_store.summary()["observations"], 1)
+            self.assertEqual(result, 1)
     def test_startup_reconciliation_removes_audit_only_cycle(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
