@@ -166,6 +166,19 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(after_trades, before_trades)
             self.assertEqual(after_equity, before_equity)
 
+            # The failed transaction must leave a database that can be reopened
+            # and used, not merely rows that look unchanged on this connection.
+            with store._connect() as db:
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            self.assertEqual(
+                [(p.ticker, p.quantity, p.average_price) for p in restored.positions.values()],
+                [(row[0], row[1], row[2]) for row in before_positions],
+            )
+            self.assertEqual(len(restored.trades), len(before_trades))
+            self.assertAlmostEqual(restored.cash, before_portfolio[2])
+
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
