@@ -257,9 +257,14 @@ class VirtualPortfolio:
         )
 
     def _validate_order(self, ticker: str, quantity: int, price: float) -> None:
-        if not ticker.strip():
+        if not isinstance(ticker, str) or not ticker.strip():
             raise ValueError("ticker must not be empty")
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-        if price <= 0:
-            raise ValueError("price must be positive")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError("quantity must be a positive integer")
+        if (
+            not isinstance(price, (int, float))
+            or isinstance(price, bool)
+            or not math.isfinite(price)
+            or price <= 0
+        ):
+            raise ValueError("price must be a finite positive number")
