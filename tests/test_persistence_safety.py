@@ -107,6 +107,45 @@ class PersistenceSafetyTests(unittest.TestCase):
             self.assertEqual(summary["observations"], 1)
             self.assertAlmostEqual(summary["recorded_trade_commissions"], 0.1)
 
+    def test_hard_interruption_after_audit_write_is_reconciled_on_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path = Path(directory) / "portfolio.sqlite3"
+            audit_path = Path(directory) / "audit.sqlite"
+            portfolio_store = SQLitePortfolioStore(portfolio_path)
+            audit_store = DecisionAuditStore(audit_path)
+            portfolio = portfolio_store.load_or_create(10_000, 0.001)
+            _reconcile_cycle_history(portfolio_store, audit_store)
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            trade = portfolio.buy("AAA", 1, 100.0, timestamp)
+            decision = SimpleNamespace(
+                action="BUY", reason="isolated hard-interruption fixture",
+                score=0.8, confidence=0.8, consistency=0.8,
+            )
+            with patch.object(portfolio_store, "save", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    _persist_cycle_safely(
+                        portfolio_store, audit_store, portfolio, {"AAA": 100.0},
+                        cycle_id="interrupted-cycle",
+                        decisions={"AAA": decision}, virtual_trades=[trade],
+                        equity=portfolio.equity({"AAA": 100.0}), cash=portfolio.cash,
+                        total_commissions=portfolio.commissions,
+                        current_prices={"AAA": 100.0},
+                        commission_rate=portfolio.commission_rate,
+                    )
+
+            # A hard interruption bypasses normal rollback; startup must repair it.
+            self.assertIn("interrupted-cycle", audit_store.cycle_ids())
+            restarted_store = SQLitePortfolioStore(portfolio_path)
+            restarted_audit = DecisionAuditStore(audit_path)
+            restarted = restarted_store.load_or_create(10_000, 0.001)
+            _reconcile_cycle_history(restarted_store, restarted_audit)
+            restored = SQLitePortfolioStore(portfolio_path).load_or_create(10_000, 0.001)
+            self.assertNotIn("interrupted-cycle", restarted_audit.cycle_ids())
+            self.assertEqual(restarted_store.committed_cycle_ids(), set())
+            self.assertEqual(restored.trades, [])
+            self.assertEqual(restored.positions, {})
+            self.assertAlmostEqual(restored.cash, 10_000.0)
+            self.assertAlmostEqual(restarted.cash, 10_000.0)
     def test_replaying_committed_cycle_does_not_duplicate_trade_or_commission(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path = Path(directory) / "portfolio.sqlite3"
