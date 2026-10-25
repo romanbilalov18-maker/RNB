@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import time
 from collections import Counter
@@ -265,13 +266,18 @@ def _record_cycle_with_retries(audit_store, *, cycle_id: str, **kwargs) -> int:
     raise RuntimeError("Decision audit write failed after 3 attempts") from last_error
 
 def _env_positive_float(name: str, default: float) -> float:
+    """Read a positive, finite float from the environment.
+
+    NaN and infinities must be rejected explicitly because ordinary
+    comparisons do not reliably reject non-finite values.
+    """
     raw = os.getenv(name, str(default)).strip()
     try:
         value = float(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a positive number") from exc
-    if value <= 0:
-        raise ValueError(f"{name} must be a positive number")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive finite number")
     return value
 
 
