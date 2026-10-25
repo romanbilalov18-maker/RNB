@@ -366,6 +366,14 @@ class DecisionAuditStore:
             "outcomes_added": int(outcomes_after - outcomes_before),
         }
 
+    def cycle_record_count(self, cycle_id: str) -> int:
+        """Count decision rows for a cycle for idempotent persistence."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT COUNT(*) FROM decision_audit WHERE cycle_id = ?",
+                (cycle_id,),
+            ).fetchone()
+            return int(row[0])
     def cycle_ids(self) -> set[str]:
         """Return all distinct cycle IDs currently represented in the audit."""
         with self._connect() as db:
