@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from bot.decision_audit import DecisionAuditStore
-from bot.main import CycleConsistencyError, _persist_cycle_safely
+from bot.main import CycleConsistencyError, _persist_cycle_safely, _reconcile_cycle_history
 from bot.portfolio_store import SQLitePortfolioStore
 
 
@@ -106,6 +106,50 @@ class PersistenceSafetyTests(unittest.TestCase):
             summary = DecisionAuditStore(audit_path).summary()
             self.assertEqual(summary["observations"], 1)
             self.assertAlmostEqual(summary["recorded_trade_commissions"], 0.1)
+
+    def test_startup_reconciliation_removes_audit_only_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            audit_store = DecisionAuditStore(Path(directory) / "audit.sqlite")
+            portfolio_store.load_or_create(10_000, 0.001)
+            decision = SimpleNamespace(
+                action="WAIT", reason="test fixture", score=0.0,
+                confidence=0.0, consistency=0.0,
+            )
+            audit_store.record_cycle(
+                cycle_id="interrupted-before-portfolio-commit",
+                decisions={"AAA": decision},
+                virtual_trades=[],
+                equity=10_000.0,
+                cash=10_000.0,
+                total_commissions=0.0,
+                current_prices={"AAA": 100.0},
+            )
+
+            _reconcile_cycle_history(portfolio_store, audit_store)
+
+            self.assertNotIn(
+                "interrupted-before-portfolio-commit",
+                audit_store.cycle_ids(),
+            )
+            self.assertEqual(portfolio_store.committed_cycle_ids(), set())
+
+    def test_startup_reconciliation_fails_closed_if_committed_cycle_lacks_audit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            audit_store = DecisionAuditStore(Path(directory) / "audit.sqlite")
+            portfolio_store.load_or_create(10_000, 0.001)
+            portfolio_store.seed_legacy_committed_cycles(set())
+            # Simulate a cycle marker committed with portfolio data, but no audit.
+            with portfolio_store._connect() as db:
+                db.execute(
+                    "INSERT INTO committed_cycles (cycle_id, committed_at) VALUES (?, ?)",
+                    ("missing-audit-cycle", "test"),
+                )
+                db.commit()
+
+            with self.assertRaisesRegex(CycleConsistencyError, "missing from decision audit"):
+                _reconcile_cycle_history(portfolio_store, audit_store)
 
     def test_audit_write_failure_does_not_save_portfolio(self):
         audit = Mock()
