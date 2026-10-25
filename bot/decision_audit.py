@@ -366,6 +366,14 @@ class DecisionAuditStore:
             "outcomes_added": int(outcomes_after - outcomes_before),
         }
 
+    def cycle_ids(self) -> set[str]:
+        """Return all distinct cycle IDs currently represented in the audit."""
+        with self._connect() as db:
+            return {
+                str(row["cycle_id"])
+                for row in db.execute("SELECT DISTINCT cycle_id FROM decision_audit")
+            }
+
     def delete_cycle(self, cycle_id: str) -> int:
         """Remove audit data for a cycle whose portfolio transaction did not commit."""
         with self._connect() as db:
