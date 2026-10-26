@@ -525,17 +525,43 @@ def _print_cycle_result(
             reason = "сигнал продажи отсутствует"
         print(f"- {ticker}: {action} — {reason}")
 
-    print("Open positions:")
+    print()
+    print("=" * 72)
+    print("OPEN PORTFOLIO VALUATION — MARK-TO-MARKET")
+    print("=" * 72)
     performances = portfolio.position_performance(result.current_prices)
     missing_performance = sorted(
         set(portfolio.positions) - {item.ticker for item in performances}
     )
+    invested_total = sum(item.invested_value for item in performances)
+    market_value_total = sum(item.current_value for item in performances)
+    unrealized_pnl_total = sum(item.unrealized_pnl for item in performances)
+    estimated_sell_commission_total = sum(
+        item.estimated_sell_commission for item in performances
+    )
+    net_if_sold_total = sum(item.net_if_sold_now for item in performances)
+    valued_return_pct = (
+        unrealized_pnl_total / invested_total * 100.0 if invested_total else 0.0
+    )
+    net_return_pct = (
+        net_if_sold_total / invested_total * 100.0 if invested_total else 0.0
+    )
+    valuation_status = "PARTIAL — NOT FULL PORTFOLIO VALUE" if missing_performance else "COMPLETE"
+    print(f"VALUATION STATUS: {valuation_status}")
+    print(f"Open positions: {len(portfolio.positions)}")
+    print(f"Positions with fresh prices: {len(performances)}")
+    print(f"Invested value (priced positions): {invested_total:.2f} RUB")
+    print(f"Current market value (priced positions): {market_value_total:.2f} RUB")
+    print(f"Unrealized P&L before estimated exit costs: {unrealized_pnl_total:+.2f} RUB ({valued_return_pct:+.2f}%)")
+    print(f"Estimated sell commission: {estimated_sell_commission_total:.2f} RUB")
+    print(f"Estimated net P&L if priced positions sold now: {net_if_sold_total:+.2f} RUB ({net_return_pct:+.2f}%)")
     if missing_performance:
         print(
-            "- Current market value unavailable for: "
-            + ", ".join(missing_performance)
-            + " (no verified fresh quote)"
+            "WARNING: Full open-portfolio valuation is unavailable. No prices were "
+            "invented for these positions: " + ", ".join(missing_performance)
         )
+        print("Totals above cover priced positions only and MUST NOT be read as full-portfolio totals.")
+    print("-" * 72)
     if performances:
         for performance in performances:
             print(f"- {performance.ticker}")
