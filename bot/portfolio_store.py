@@ -38,7 +38,10 @@ class SQLitePortfolioStore:
                 CREATE TABLE IF NOT EXISTS positions (
                     ticker TEXT PRIMARY KEY,
                     quantity INTEGER NOT NULL,
-                    average_price REAL NOT NULL
+                    average_price REAL NOT NULL,
+                    purchase_timestamp TEXT,
+                    purchase_session TEXT,
+                    purchase_exchange TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS trades (
@@ -76,6 +79,13 @@ class SQLitePortfolioStore:
             portfolio_columns = {row["name"] for row in db.execute("PRAGMA table_info(portfolio)")}
             if "protected_cash" not in portfolio_columns:
                 db.execute("ALTER TABLE portfolio ADD COLUMN protected_cash REAL NOT NULL DEFAULT 0")
+            position_columns = {row["name"] for row in db.execute("PRAGMA table_info(positions)")}
+            if "purchase_timestamp" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN purchase_timestamp TEXT")
+            if "purchase_session" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN purchase_session TEXT")
+            if "purchase_exchange" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN purchase_exchange TEXT")
             trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
             if "reason" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
@@ -114,6 +124,9 @@ class SQLitePortfolioStore:
                     ticker=position["ticker"],
                     quantity=position["quantity"],
                     average_price=position["average_price"],
+                    purchase_timestamp=(datetime.fromisoformat(position["purchase_timestamp"]) if position["purchase_timestamp"] else None),
+                    purchase_session=position["purchase_session"],
+                    purchase_exchange=position["purchase_exchange"],
                 )
 
             for trade in db.execute("SELECT * FROM trades ORDER BY id"):
@@ -210,11 +223,13 @@ class SQLitePortfolioStore:
             db.execute("DELETE FROM positions")
             db.executemany(
                 """
-                INSERT INTO positions (ticker, quantity, average_price)
-                VALUES (?, ?, ?)
+                INSERT INTO positions (ticker, quantity, average_price, purchase_timestamp, purchase_session, purchase_exchange)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    (p.ticker, p.quantity, p.average_price)
+                    (p.ticker, p.quantity, p.average_price,
+                     p.purchase_timestamp.isoformat() if p.purchase_timestamp else None,
+                     p.purchase_session, p.purchase_exchange)
                     for p in portfolio.positions.values()
                 ],
             )
