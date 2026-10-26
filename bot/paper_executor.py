@@ -41,6 +41,25 @@ class PaperExecutor:
             for ticker, analysis in scan.analyses.items()
             if active_tickers is None or ticker in active_tickers
         }
+        # Manage a position only during the same named exchange session in which
+        # its first open lot was bought. Legacy positions without metadata remain
+        # eligible (fail-open) so an upgrade cannot strand existing holdings.
+        session_by_ticker = getattr(scan, "session_by_ticker", {}) or {}
+        for ticker, position in portfolio.positions.items():
+            bought_session = getattr(position, "purchase_session", None)
+            if not bought_session:
+                continue
+            session_info = session_by_ticker.get(ticker, {})
+            current_session = session_info.get("session")
+            bought_exchange = getattr(position, "purchase_exchange", None)
+            current_exchange = session_info.get("instrument_exchange")
+            if current_session != bought_session or (bought_exchange and current_exchange != bought_exchange):
+                active_analyses.pop(ticker, None)
+                print(
+                    f"POSITION SESSION GUARD: {ticker} held for session={bought_session} "
+                    f"exchange={bought_exchange or 'unknown'}; current_session={current_session or 'unknown'} "
+                    f"current_exchange={current_exchange or 'unknown'}; exit evaluation skipped."
+                )
         if active_tickers is not None and not active_tickers:
             print(
                 "EXECUTION DIAGNOSTIC: no entries/exits considered; "
@@ -242,17 +261,31 @@ class PaperExecutor:
                 or plan.ticker in sell_decision_tickers
             ):
                 continue
-            buy_trades.append(
-                portfolio.buy(
-                    ticker=plan.ticker,
-                    quantity=plan.quantity,
-                    price=plan.price,
-                    timestamp=datetime.now(timezone.utc),
-                    reason=(eligible_buy_reasons or {}).get(
-                        plan.ticker, "BUY accepted by PositionSizer"
-                    ),
-                )
+            purchase_time = datetime.now(timezone.utc)
+            trade = portfolio.buy(
+                ticker=plan.ticker,
+                quantity=plan.quantity,
+                price=plan.price,
+                timestamp=purchase_time,
+                reason=(eligible_buy_reasons or {}).get(
+                    plan.ticker, "BUY accepted by PositionSizer"
+                ),
             )
+            position = portfolio.positions[plan.ticker]
+            # Preserve the original entry session when averaging into an existing
+            # position; initialize metadata only for a newly opened position.
+            if position.purchase_timestamp is None:
+                position.purchase_timestamp = purchase_time
+                session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(plan.ticker, {})
+                position.purchase_session = session_info.get("session")
+                position.purchase_exchange = session_info.get("instrument_exchange")
+                print(
+                    f"POSITION ENTRY METADATA: {plan.ticker} "
+                    f"purchase_timestamp={purchase_time.isoformat()} "
+                    f"purchase_session={position.purchase_session or 'UNKNOWN'} "
+                    f"purchase_exchange={position.purchase_exchange or 'UNKNOWN'}"
+                )
+            buy_trades.append(trade)
 
         return sell_trades, buy_trades
 
