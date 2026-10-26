@@ -15,6 +15,9 @@ class VirtualPosition:
     ticker: str
     quantity: int
     average_price: float
+    purchase_timestamp: datetime | None = None
+    purchase_session: str | None = None
+    purchase_exchange: str | None = None
 
 
 @dataclass(frozen=True)
