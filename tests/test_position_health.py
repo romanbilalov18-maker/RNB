@@ -48,7 +48,7 @@ class PositionHealthTests(unittest.TestCase):
         )
 
     def test_incomplete_candles_are_ignored(self):
-        data = candles([10, 10, 10, 10, 10, 10])
+        data = candles([10, 10, 10, 10, 10])
         data[-1].is_complete = False
         result = assess_position_health(
             "TEST", data, current_price_available=True,
