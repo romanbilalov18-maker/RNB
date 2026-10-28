@@ -94,6 +94,12 @@ class LiveMarketRunner:
         if not shares:
             raise RuntimeError("T-Invest returned no tradable RUB shares")
 
+        # The broad Shares catalog can omit legacy, suspended, or otherwise
+        # non-standard holdings. Resolve only missing held/tracked tickers via
+        # FindInstrument; exact ticker + share type + unique result are required.
+        required_tickers = held_tickers | tracked_tickers
+        all_shares = self._resolve_missing_held_shares(all_shares, required_tickers)
+
         shares_by_ticker = {
             str(getattr(share, "ticker", "") or ""): share
             for share in all_shares
@@ -728,6 +734,63 @@ class LiveMarketRunner:
             and quote_fresh
             and cls._status_allows_scheduled_session(status_name, exchange_session)
         )
+
+    def _resolve_missing_held_shares(
+        self,
+        catalog_shares: list[object],
+        required_tickers: set[str],
+    ) -> list[object]:
+        """Resolve held tickers omitted from Shares catalog without guessing IDs."""
+        resolved = list(catalog_shares)
+        known_tickers = {
+            str(getattr(item, "ticker", "") or "").strip().upper()
+            for item in catalog_shares
+        }
+        finder = getattr(self.client.instruments, "find_instrument", None)
+        for raw_ticker in sorted(required_tickers):
+            ticker = str(raw_ticker or "").strip().upper()
+            if not ticker or ticker in known_tickers:
+                continue
+            if not callable(finder):
+                print(
+                    f"Held-position instrument mapping: ticker={ticker} "
+                    "instrument_uid=UNRESOLVED figi=UNRESOLVED "
+                    "reason=find_instrument_unavailable"
+                )
+                continue
+            try:
+                response = finder(query=ticker)
+                candidates = [
+                    item for item in (getattr(response, "instruments", ()) or ())
+                    if str(getattr(item, "ticker", "") or "").strip().upper() == ticker
+                    and "SHARE" in str(getattr(item, "instrument_type", "") or "").upper()
+                    and str(getattr(item, "uid", "") or getattr(item, "figi", "") or "")
+                ]
+            except Exception as exc:
+                print(
+                    f"Held-position instrument mapping: ticker={ticker} "
+                    "instrument_uid=UNRESOLVED figi=UNRESOLVED "
+                    f"reason=find_instrument_error:{type(exc).__name__}"
+                )
+                continue
+            if len(candidates) != 1:
+                reason = "not_found" if not candidates else "ambiguous_exact_ticker_matches"
+                print(
+                    f"Held-position instrument mapping: ticker={ticker} "
+                    "instrument_uid=UNRESOLVED figi=UNRESOLVED "
+                    f"reason={reason} matches={len(candidates)}"
+                )
+                continue
+            resolved.append(candidates[0])
+            known_tickers.add(ticker)
+            match = candidates[0]
+            print(
+                f"Held-position instrument mapping: ticker={ticker} "
+                f"instrument_uid={getattr(match, 'uid', '') or 'UNAVAILABLE'} "
+                f"figi={getattr(match, 'figi', '') or 'UNAVAILABLE'} "
+                "resolution=find_instrument_exact_unique"
+            )
+        return resolved
 
     @staticmethod
     def _valuation_universe(
