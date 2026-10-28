@@ -151,6 +151,48 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
             {"uid-aaa", "uid-held"},
         )
 
+    def test_resolves_missing_held_ticker_from_find_instrument(self):
+        held = SimpleNamespace(
+            ticker="ELMT", uid="uid-elmt", figi="", instrument_type="share",
+            currency="RUB", lot=1, exchange="MOEX",
+        )
+        class FakeInstruments:
+            def find_instrument(self, *, query):
+                self.query = query
+                return SimpleNamespace(instruments=[held])
+        runner = LiveMarketRunner(SimpleNamespace(instruments=FakeInstruments()))
+        result = runner._resolve_missing_held_shares([], {"ELMT"})
+        self.assertEqual(result, [held])
+        self.assertEqual(runner.client.instruments.query, "ELMT")
+
+    def test_does_not_guess_when_exact_ticker_is_ambiguous(self):
+        candidates = [
+            SimpleNamespace(ticker="CARM", uid="uid-1", figi="", instrument_type="share"),
+            SimpleNamespace(ticker="CARM", uid="uid-2", figi="", instrument_type="share"),
+        ]
+        class FakeInstruments:
+            def find_instrument(self, *, query):
+                return SimpleNamespace(instruments=candidates)
+        runner = LiveMarketRunner(SimpleNamespace(instruments=FakeInstruments()))
+        self.assertEqual(runner._resolve_missing_held_shares([], {"CARM"}), [])
+
+    def test_reports_missing_instrument_without_adding_unrelated_search_results(self):
+        class FakeInstruments:
+            def find_instrument(self, *, query):
+                return SimpleNamespace(instruments=[
+                    SimpleNamespace(ticker="OTHER", uid="uid-other", instrument_type="share")
+                ])
+        runner = LiveMarketRunner(SimpleNamespace(instruments=FakeInstruments()))
+        self.assertEqual(runner._resolve_missing_held_shares([], {"SLAV"}), [])
+
+    def test_does_not_call_find_instrument_for_ticker_already_in_catalog(self):
+        existing = SimpleNamespace(ticker="AAA", uid="uid-aaa", instrument_type="share")
+        class FakeInstruments:
+            def find_instrument(self, *, query):
+                raise AssertionError("catalog hit must not trigger lookup")
+        runner = LiveMarketRunner(SimpleNamespace(instruments=FakeInstruments()))
+        self.assertEqual(runner._resolve_missing_held_shares([existing], {"AAA"}), [existing])
+
     def test_accepts_figi_key_when_uid_is_unavailable(self):
         item = SimpleNamespace(
             instrument_uid="",
