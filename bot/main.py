@@ -11,6 +11,7 @@ from bot.intelligence.decision_engine import DecisionEngine
 from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
+from bot.position_health import assess_position_health
 from bot.portfolio_store import SQLitePortfolioStore
 
 
@@ -524,6 +525,28 @@ def _print_cycle_result(
             action = "HOLD"
             reason = "сигнал продажи отсутствует"
         print(f"- {ticker}: {action} — {reason}")
+
+    print("Open-position health review (all holdings):")
+    for ticker in sorted(portfolio.positions):
+        analysis = result.analyses.get(ticker)
+        health = assess_position_health(
+            ticker,
+            result.candle_history.get(ticker, ()),
+            current_price_available=ticker in result.current_prices,
+            momentum=getattr(analysis, "momentum", None),
+            trend_strength=getattr(analysis, "trend_strength", None),
+        )
+        range_text = (
+            f"{health.recent_range_pct * 100:.3f}%"
+            if health.recent_range_pct is not None
+            else "not_enough_sessions"
+        )
+        print(
+            f"- {ticker}: status={health.status} "
+            f"candles={health.candles_checked} flat_sessions={health.flat_sessions} "
+            f"10_session_range={range_text} "
+            f"recommendation={health.recommendation}"
+        )
 
     print()
     print("=" * 72)
