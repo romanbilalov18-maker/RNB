@@ -8,6 +8,7 @@ import math
 from bot.stock_analysis import StockAnalysis, StockAnalyzer
 from bot.market_context import build_market_context
 from bot.market_context.clock import current_times
+from bot.position_health import assess_position_health
 from bot.market_context.trading_schedule import (
     ExchangeSession,
     normalize_exchange,
@@ -300,6 +301,74 @@ class LiveMarketRunner:
                 # The final freshness check below fails closed if refresh fails.
                 print(
                     "Post-analysis quote refresh failed; validating cached timestamps: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        # A second, targeted quote check is reserved for every open holding whose
+        # quote is stale/missing or whose completed daily candles show prolonged
+        # stagnation. This is a verification step, never a sell trigger by itself.
+        held_by_ticker = {
+            str(getattr(share, "ticker", "") or "").strip().upper(): share
+            for share in all_shares
+            if str(getattr(share, "ticker", "") or "").strip()
+        }
+        enhanced_quote_checks = {}
+        check_now = datetime.now(timezone.utc)
+        for raw_ticker in sorted(held_tickers):
+            ticker = str(raw_ticker or "").strip().upper()
+            share = held_by_ticker.get(ticker)
+            if share is None:
+                print(
+                    f"Enhanced held-position check: ticker={ticker} "
+                    "result=instrument_unresolved"
+                )
+                continue
+            instrument_id = str(
+                getattr(share, "uid", "") or getattr(share, "figi", "")
+            )
+            if not instrument_id:
+                print(
+                    f"Enhanced held-position check: ticker={ticker} "
+                    "result=instrument_id_unavailable"
+                )
+                continue
+            quote_item = last_price_items.get(instrument_id)
+            quote_fresh = self._quote_item_is_fresh(
+                quote_item, check_now, self.max_quote_age_seconds
+            )
+            health = assess_position_health(
+                ticker,
+                histories.get(instrument_id, ()),
+                current_price_available=quote_fresh,
+            )
+            if not quote_fresh or health.status == "PROLONGED_STAGNATION":
+                reason = (
+                    "stale_or_missing_quote"
+                    if not quote_fresh
+                    else "prolonged_price_stagnation"
+                )
+                enhanced_quote_checks[instrument_id] = (ticker, reason)
+                print(
+                    f"Enhanced held-position check: ticker={ticker} "
+                    f"reason={reason} flat_sessions={health.flat_sessions} "
+                    f"candles_checked={health.candles_checked} "
+                    "action=repeat_last_price_request"
+                )
+        if enhanced_quote_checks:
+            try:
+                checked, returned = self._refresh_latest_quotes(
+                    list(enhanced_quote_checks),
+                    last_prices=last_prices,
+                    last_price_items=last_price_items,
+                )
+                print(
+                    "Enhanced held-position quote verification: "
+                    f"requested={len(enhanced_quote_checks)} returned={returned} "
+                    f"accepted_newer_fresh_quotes={checked}"
+                )
+            except Exception as exc:
+                print(
+                    "Enhanced held-position quote verification failed: "
                     f"{type(exc).__name__}: {exc}"
                 )
 
