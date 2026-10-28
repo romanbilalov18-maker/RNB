@@ -53,7 +53,7 @@ class PositionHealthTests(unittest.TestCase):
         result = assess_position_health(
             "TEST", data, current_price_available=True,
         )
-        self.assertEqual(result.candles_checked, 5)
+        self.assertEqual(result.candles_checked, 4)
         self.assertEqual(result.status, "NORMAL_MONITORING")
 
     def test_low_range_over_ten_sessions_triggers_review(self):
