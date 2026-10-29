@@ -44,35 +44,18 @@ class PaperExecutor:
         # Manage a position only during the same named exchange session in which
         # its first open lot was bought. Legacy positions without metadata remain
         # eligible (fail-open) so an upgrade cannot strand existing holdings.
-        session_by_ticker = getattr(scan, "session_by_ticker", {}) or {}
         exit_eligible_tickers = set()
-        for ticker, position in portfolio.positions.items():
-            # An exit requires an instrument that passed the broker's active-session
-            # and fresh-quote gate. A fresh valuation quote alone is not proof that
-            # an order could be executed now.
+        for ticker in portfolio.positions:
+            # Existing holdings may span multiple sessions. The purchase-session
+            # metadata must never strand a position or suppress a stop-loss/take-profit
+            # exit on a later trading day. Require current broker-confirmed eligibility.
             if active_tickers is not None and ticker not in active_tickers:
                 active_analyses.pop(ticker, None)
                 print(
-                    f"POSITION EXECUTION GUARD: {ticker} has a quote but is not "
-                    "confirmed active/trade-eligible; exit evaluation skipped."
+                    f"POSITION EXECUTION GUARD: {ticker} has no current "
+                    "active-session + fresh-quote eligibility; exit evaluation skipped."
                 )
                 continue
-            bought_session = getattr(position, "purchase_session", None)
-            if bought_session:
-                session_info = session_by_ticker.get(ticker, {})
-                current_session = session_info.get("session")
-                bought_exchange = getattr(position, "purchase_exchange", None)
-                current_exchange = session_info.get("instrument_exchange")
-                if current_session != bought_session or (
-                    bought_exchange and current_exchange != bought_exchange
-                ):
-                    active_analyses.pop(ticker, None)
-                    print(
-                        f"POSITION SESSION GUARD: {ticker} held for session={bought_session} "
-                        f"exchange={bought_exchange or 'unknown'}; current_session={current_session or 'unknown'} "
-                        f"current_exchange={current_exchange or 'unknown'}; exit evaluation skipped."
-                    )
-                    continue
             exit_eligible_tickers.add(ticker)
         execution_prices = {
             ticker: price
