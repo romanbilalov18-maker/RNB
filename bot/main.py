@@ -56,7 +56,18 @@ def main() -> None:
     )
     _reconcile_cycle_history(store, audit_store)
 
-    deadline = time.monotonic() + run_duration_minutes * 60
+    # Snapshot run-level counters so the final report separates this invocation
+    # from the cumulative portfolio history restored from SQLite.
+    run_started_monotonic = time.monotonic()
+    starting_trade_count = len(portfolio.trades)
+    starting_realized_pnl = portfolio.realized_pnl
+    starting_commissions = portfolio.commissions
+    starting_reserve = portfolio.protected_cash
+    last_report_result = None
+    last_intelligence_results = {}
+    last_decisions = {}
+
+    deadline = run_started_monotonic + run_duration_minutes * 60
     cycle = 0
 
     # Import the broker SDK only for an actual live run. Unit tests can import
@@ -86,6 +97,8 @@ def main() -> None:
                     tracked_tickers=audit_store.pending_tickers(),
                 )
                 active_tickers = getattr(result, "active_trading_tickers", None)
+                # Do not label a closed-session snapshot as a current valuation.
+                last_report_result = result if active_tickers is None or bool(active_tickers) else None
                 if active_tickers is not None and not active_tickers:
                     print(
                         "No active T-Invest trading session. Virtual trades and decision "
@@ -136,6 +149,8 @@ def main() -> None:
                     intelligence_results,
                     held_tickers=set(portfolio.positions),
                 )
+                last_intelligence_results = intelligence_results
+                last_decisions = decisions
                 _print_decision_diagnostics(decisions, decision_engine)
                 # Only explicit BUY recommendations from a valid L1-L15 result may
                 # authorize new virtual entries. Existing PositionManager exits and
@@ -233,6 +248,35 @@ def main() -> None:
             print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
             time.sleep(sleep_seconds)
 
+    # Final run summary uses the last verified active-session snapshot only.
+    run_trades = portfolio.trades[starting_trade_count:]
+    run_buys = [trade for trade in run_trades if trade.side == "BUY"]
+    run_sells = [trade for trade in run_trades if trade.side == "SELL"]
+    report_prices = getattr(last_report_result, "current_prices", {}) or {}
+    final_equity, missing_final_prices = portfolio.equity_with_available_prices(report_prices)
+    elapsed_minutes = (time.monotonic() - run_started_monotonic) / 60.0
+    print()
+    print("=" * 20 + " RNB — ИТОГ ВСЕГО ЗАПУСКА " + "=" * 20)
+    print(f"Длительность: {elapsed_minutes:.2f} мин; циклов начато: {cycle}.")
+    print(f"Сделок за этот запуск: {len(run_trades)} (покупок={len(run_buys)}, продаж={len(run_sells)}).")
+    print(f"Реализованный P/L за запуск: {portfolio.realized_pnl - starting_realized_pnl:+.2f} RUB.")
+    print(f"Комиссии за запуск: {portfolio.commissions - starting_commissions:.2f} RUB.")
+    print(f"Изменение защищённого резерва за запуск: {portfolio.protected_cash - starting_reserve:.2f} RUB.")
+    print("Оценка позиций использует последний подтверждённый снимок активной торговой сессии; новый запрос после остановки не выполняется.")
+    if missing_final_prices:
+        print("Итоговая оценка неполная; позиции без свежих цен: " + ", ".join(missing_final_prices))
+    _print_readable_cycle_summary(
+        portfolio=portfolio,
+        result=last_report_result,
+        sell_trades=run_sells,
+        buy_trades=run_buys,
+        equity=final_equity,
+        equity_complete=not missing_final_prices,
+        intelligence_results=last_intelligence_results,
+        decisions=last_decisions,
+        reserve_added_this_cycle=portfolio.protected_cash - starting_reserve,
+        scope_label="Весь запуск",
+    )
 
 
 def _validate_held_position_prices(portfolio, market_prices) -> None:
@@ -669,6 +713,7 @@ def _print_readable_cycle_summary(
     intelligence_results=None,
     decisions=None,
     reserve_added_this_cycle: float = 0.0,
+    scope_label: str = "Цикл",
 ) -> None:
     """Print a readable portfolio valuation with explicit completeness and cash reconciliation."""
     trades = [*sell_trades, *buy_trades]
@@ -731,7 +776,7 @@ def _print_readable_cycle_summary(
     print()
     print("=" * 20 + " RNB — СОСТОЯНИЕ ПОРТФЕЛЯ " + "=" * 20)
     print("Режим: виртуальная торговля; реальные биржевые заявки отключены.")
-    print(f"Цикл: {'совершены сделки' if trades else 'сделок не было'}; покупок={len(buy_trades)}, продаж={len(sell_trades)}.")
+    print(f"{scope_label}: {'совершены сделки' if trades else 'сделок не было'}; покупок={len(buy_trades)}, продаж={len(sell_trades)}.")
     if initial_balance is not None:
         print(f"1. Стартовый капитал: {float(initial_balance):.2f} RUB.")
     print()
