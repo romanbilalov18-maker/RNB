@@ -44,25 +44,29 @@ class PaperExecutor:
         # Manage a position only during the same named exchange session in which
         # its first open lot was bought. Legacy positions without metadata remain
         # eligible (fail-open) so an upgrade cannot strand existing holdings.
+        sellable_quote_tickers = set(getattr(scan, "sellable_quote_tickers", set()) or set())
         exit_eligible_tickers = set()
         for ticker in portfolio.positions:
-            # Existing holdings may span multiple sessions. The purchase-session
-            # metadata must never strand a position or suppress a stop-loss/take-profit
-            # exit on a later trading day. Require current broker-confirmed eligibility.
-            if active_tickers is not None and ticker not in active_tickers:
+            # A fresh, timestamp-verified order-book bid may authorize evaluating
+            # an exit even when the last-trade quote is stale. It never authorizes
+            # a new entry. Without either quote source, do not invent an execution price.
+            if active_tickers is not None and ticker not in active_tickers and ticker not in sellable_quote_tickers:
                 active_analyses.pop(ticker, None)
                 print(
-                    f"POSITION EXECUTION GUARD: {ticker} has no current "
-                    "active-session + fresh-quote eligibility; exit evaluation skipped."
+                    f"POSITION EXECUTION GUARD: {ticker} has no current fresh last-trade quote or verified fresh bid; exit evaluation skipped."
                 )
                 continue
+            if active_tickers is not None and ticker not in active_tickers and ticker in sellable_quote_tickers:
+                print(
+                    f"POSITION EXIT FALLBACK: {ticker} using timestamp-verified fresh order-book bid; BUY eligibility remains disabled."
+                )
             exit_eligible_tickers.add(ticker)
         execution_prices = {
             ticker: price
             for ticker, price in scan.current_prices.items()
             if ticker in exit_eligible_tickers
         }
-        if active_tickers is not None and not active_tickers:
+        if active_tickers is not None and not active_tickers and not sellable_quote_tickers:
             print(
                 "EXECUTION DIAGNOSTIC: no entries/exits considered; "
                 "no instrument passed strict active-session + fresh-quote checks."
