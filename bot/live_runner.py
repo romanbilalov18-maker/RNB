@@ -355,16 +355,49 @@ class LiveMarketRunner:
                     "action=repeat_last_price_request"
                 )
         if enhanced_quote_checks:
+            # A single stale response can be transient. Retry only holdings whose
+            # quote is still missing/stale; never substitute a close or order-book
+            # price, and never relax the freshness threshold.
+            pending_ids = [
+                instrument_id
+                for instrument_id, (_, reason) in enhanced_quote_checks.items()
+                if reason == "stale_or_missing_quote"
+            ]
+            total_accepted = 0
+            total_returned = 0
             try:
-                checked, returned = self._refresh_latest_quotes(
-                    list(enhanced_quote_checks),
-                    last_prices=last_prices,
-                    last_price_items=last_price_items,
-                )
+                for attempt in range(1, 4):
+                    if not pending_ids:
+                        break
+                    accepted, returned = self._refresh_latest_quotes(
+                        pending_ids,
+                        last_prices=last_prices,
+                        last_price_items=last_price_items,
+                    )
+                    total_accepted += accepted
+                    total_returned += returned
+                    check_now = datetime.now(timezone.utc)
+                    pending_ids = [
+                        instrument_id
+                        for instrument_id in pending_ids
+                        if not self._quote_item_is_fresh(
+                            last_price_items.get(instrument_id),
+                            check_now,
+                            self.max_quote_age_seconds,
+                        )
+                    ]
+                    if pending_ids and attempt < 3:
+                        print(
+                            "Held-position quote retry: "
+                            f"attempt={attempt}/3 still_missing_or_stale={len(pending_ids)}"
+                        )
+                        time.sleep(float(attempt))
                 print(
                     "Enhanced held-position quote verification: "
-                    f"requested={len(enhanced_quote_checks)} returned={returned} "
-                    f"accepted_newer_fresh_quotes={checked}"
+                    f"requested={len(enhanced_quote_checks)} "
+                    f"returned={total_returned} "
+                    f"accepted_newer_fresh_quotes={total_accepted} "
+                    f"still_missing_or_stale={len(pending_ids)}"
                 )
             except Exception as exc:
                 print(
