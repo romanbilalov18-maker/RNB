@@ -145,7 +145,7 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(len(sells), 1)
         self.assertEqual(sells[0].ticker, "HELD")
         self.assertEqual(sells[0].price, 94.0)
-        self.assertIn("Stop Loss", sells[0].reason)
+        self.assertIn("лимит убытка -5%", sells[0].reason)
         self.assertEqual(buys, [])
         self.assertNotIn("HELD", portfolio.positions)
 
