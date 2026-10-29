@@ -721,10 +721,46 @@ class LiveMarketRunner:
             if market_changes else None
         )
 
+        # Entry screening is deliberately stricter than analysis ranking. A fresh
+        # last-trade quote alone is not evidence of a liquid, continuously tradable
+        # instrument: reject zero-volume, near-dead recent volume, wide/unverified
+        # top-of-book spread, and prolonged flat-price candidates before BUY decisions.
+        buy_candidates = []
+        liquidity_rejections = {}
+        for analysis in ranked_selected:
+            spread_ticks = liquidity_spread_ticks_by_ticker.get(analysis.ticker)
+            health = assess_position_health(
+                analysis.ticker,
+                candle_history.get(analysis.ticker, ()),
+                current_price_available=analysis.ticker in current_prices,
+                momentum=analysis.momentum,
+                trend_strength=analysis.trend_strength,
+            )
+            rejection = self._buy_candidate_rejection_reason(
+                average_volume=analysis.average_volume,
+                volume_ratio=analysis.volume_ratio,
+                spread_ticks=spread_ticks,
+                position_health_status=health.status,
+            )
+            if rejection:
+                liquidity_rejections[analysis.ticker] = rejection
+                print(
+                    f"BUY CANDIDATE REJECTED BY LIQUIDITY SCREEN: "
+                    f"{analysis.ticker}: {rejection}"
+                )
+                continue
+            buy_candidates.append(analysis)
+        print(
+            f"BUY liquidity screen: ranked={len(ranked_selected)} "
+            f"eligible={len(buy_candidates)} rejected={len(liquidity_rejections)} "
+            "policy=positive_historical_volume+recent_volume_ratio>=0.10+"
+            "verified_spread<=10_ticks+no_prolonged_stagnation"
+        )
+
         return LiveScanResult(
             selected_10=selected_10,
-            selected_3=ranked_selected[:3],
-            buy_candidates=ranked_selected,
+            selected_3=buy_candidates[:3],
+            buy_candidates=buy_candidates,
             analyses=analyses,
             current_prices=current_prices,
             previous_closes=previous_closes,
@@ -743,6 +779,27 @@ class LiveMarketRunner:
             market_context=market_context,
             session_by_ticker=session_by_ticker,
         )
+
+    @staticmethod
+    def _buy_candidate_rejection_reason(
+        *,
+        average_volume: float,
+        volume_ratio: float,
+        spread_ticks: float | None,
+        position_health_status: str,
+    ) -> str | None:
+        """Fail closed on candidates whose recent trading activity is unreliable."""
+        if not math.isfinite(average_volume) or average_volume <= 0:
+            return "zero_or_invalid_historical_volume"
+        if not math.isfinite(volume_ratio) or volume_ratio < 0.10:
+            return "recent_volume_below_10_percent_of_history"
+        if spread_ticks is None or not math.isfinite(spread_ticks) or spread_ticks < 0:
+            return "top_of_book_spread_unverified"
+        if spread_ticks > 10:
+            return f"top_of_book_spread_too_wide:{spread_ticks:.2f}_ticks"
+        if position_health_status == "PROLONGED_STAGNATION":
+            return "prolonged_price_stagnation"
+        return None
 
     def _get_candles_with_retry(
         self,
