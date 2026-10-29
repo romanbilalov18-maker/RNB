@@ -215,13 +215,24 @@ def main() -> None:
                 )
 
             except CycleConsistencyError as exc:
-                # Audit rollback failed after portfolio persistence failed. The two
-                # stores may now disagree, so continuing could corrupt learning/audit
-                # history. Stop and require reconciliation rather than auto-retrying.
+                # The in-memory portfolio may contain mutations that were not durably
+                # committed. Never print those as the final account state.
                 print(
                     f"FATAL: {type(exc).__name__}: {exc} "
                     "Stopping bot to prevent further inconsistent cycles."
                 )
+                try:
+                    portfolio = store.load_or_create(
+                        initial_balance=config.initial_virtual_balance,
+                        commission_rate=config.commission_rate,
+                    )
+                except Exception as restore_error:
+                    print(
+                        "FATAL: unable to restore the last durable virtual portfolio; "
+                        f"{type(restore_error).__name__}: {restore_error}. "
+                        "No final balance report will be produced because state is unverified."
+                    )
+                    return
                 break
             except Exception as exc:
                 print(f"Cycle {cycle} failed: {type(exc).__name__}: {exc}")
