@@ -36,10 +36,18 @@ class PositionSizer:
         commission_rate: float,
         max_position_weight: float = 0.35,
     ):
-        if not math.isfinite(commission_rate):
-            raise ValueError("commission_rate must be finite")
-        if not math.isfinite(max_position_weight):
-            raise ValueError("max_position_weight must be finite")
+        if (
+            isinstance(commission_rate, bool)
+            or not isinstance(commission_rate, (int, float))
+            or not math.isfinite(commission_rate)
+        ):
+            raise ValueError("commission_rate must be a finite number")
+        if (
+            isinstance(max_position_weight, bool)
+            or not isinstance(max_position_weight, (int, float))
+            or not math.isfinite(max_position_weight)
+        ):
+            raise ValueError("max_position_weight must be a finite number")
         if commission_rate < 0:
             raise ValueError("commission_rate must not be negative")
         if not 0 < max_position_weight <= 1:
@@ -58,23 +66,61 @@ class PositionSizer:
         existing_values=None,
         total_equity: float | None = None,
     ) -> list[PositionPlan]:
-        if cash <= 0:
-            raise ValueError("cash must be positive")
+        if (
+            isinstance(cash, bool)
+            or not isinstance(cash, (int, float))
+            or not math.isfinite(cash)
+            or cash <= 0
+        ):
+            raise ValueError("cash must be finite and positive")
         if not analyses:
             return []
 
-        existing_values = {
-            str(ticker): max(float(value), 0.0)
-            for ticker, value in (existing_values or {}).items()
-        }
+        validated_existing_values = {}
+        for ticker, value in (existing_values or {}).items():
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"existing value for {ticker} must be finite and non-negative")
+            validated_existing_values[str(ticker)] = float(value)
+        existing_values = validated_existing_values
         existing_positions = set(existing_positions or existing_values)
         if total_equity is None:
             total_equity = cash + sum(existing_values.values())
-        if total_equity <= 0:
-            raise ValueError("total_equity must be positive")
+        if (
+            isinstance(total_equity, bool)
+            or not isinstance(total_equity, (int, float))
+            or not math.isfinite(total_equity)
+            or total_equity <= 0
+        ):
+            raise ValueError("total_equity must be finite and positive")
+
+        tickers = []
+        seen_tickers = set()
+        for analysis in analyses:
+            ticker = getattr(analysis, "ticker", None)
+            if not isinstance(ticker, str) or not ticker.strip():
+                raise ValueError("each analysis must have a non-empty ticker")
+            if ticker in seen_tickers:
+                raise ValueError(f"duplicate analysis ticker: {ticker}")
+            seen_tickers.add(ticker)
+            price = prices.get(ticker)
+            if (
+                isinstance(price, bool)
+                or not isinstance(price, (int, float))
+                or not math.isfinite(price)
+                or price <= 0
+            ):
+                raise ValueError(f"price for {ticker} must be finite and positive")
+            lot_size = lot_sizes.get(ticker)
+            if isinstance(lot_size, bool) or not isinstance(lot_size, int) or lot_size <= 0:
+                raise ValueError(f"lot size for {ticker} must be a positive integer")
+            tickers.append(ticker)
 
         targets = self._target_weights(analyses)
-        tickers = [analysis.ticker for analysis in analyses]
         unit_costs = {
             analysis.ticker: prices[analysis.ticker]
             * lot_sizes[analysis.ticker]
