@@ -358,11 +358,12 @@ class LiveMarketRunner:
             # A single stale response can be transient. Retry only holdings whose
             # quote is still missing/stale; never substitute a close or order-book
             # price, and never relax the freshness threshold.
-            pending_ids = [
+            pending_ids = list(enhanced_quote_checks)
+            retryable_ids = {
                 instrument_id
                 for instrument_id, (_, reason) in enhanced_quote_checks.items()
                 if reason == "stale_or_missing_quote"
-            ]
+            }
             total_accepted = 0
             total_returned = 0
             try:
@@ -380,7 +381,8 @@ class LiveMarketRunner:
                     pending_ids = [
                         instrument_id
                         for instrument_id in pending_ids
-                        if not self._quote_item_is_fresh(
+                        if instrument_id in retryable_ids
+                        and not self._quote_item_is_fresh(
                             last_price_items.get(instrument_id),
                             check_now,
                             self.max_quote_age_seconds,
