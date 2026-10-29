@@ -50,6 +50,11 @@ class LiveMarketRunner:
         self.client = client
         self.history_days = history_days
         self.analyzer = StockAnalyzer(min_history=20, momentum_period=10)
+        # Held positions need an exit analysis even when the normal 20-candle
+        # screening window is temporarily unavailable (holidays, new listings,
+        # or partial history responses). This fallback is exit-only and requires
+        # 15 valid candles; it never adds a ticker to the BUY candidate universe.
+        self.held_position_analyzer = StockAnalyzer(min_history=15, momentum_period=5)
         # Quotes older than this limit are diagnostic only and cannot authorize trading.
         self.max_quote_age_seconds = self._positive_env_float(
             "TINVEST_MAX_QUOTE_AGE_SECONDS", 300.0
@@ -244,11 +249,34 @@ class LiveMarketRunner:
                 getattr(share, "uid", "") or getattr(share, "figi", "")
             )
             ticker = str(getattr(share, "ticker", "") or "")
+            candles = histories.get(instrument_id, ())
             try:
                 analyses[ticker] = self.analyzer.analyze(
-                    instrument_id, ticker, histories[instrument_id]
+                    instrument_id, ticker, candles
                 )
-            except ValueError:
+            except ValueError as primary_error:
+                # Do not leave an existing holding without momentum/trend
+                # analysis just because the standard BUY-screening history
+                # threshold was missed. A shorter, still meaningful history
+                # is permitted for held/tracked positions only.
+                if ticker in held_tickers or ticker in tracked_tickers:
+                    try:
+                        analyses[ticker] = self.held_position_analyzer.analyze(
+                            instrument_id, ticker, candles
+                        )
+                        print(
+                            f"HELD POSITION ANALYSIS FALLBACK: ticker={ticker} "
+                            f"candles={len(candles)} min_required=15 "
+                            "purpose=EXIT_ONLY buy_eligibility=UNCHANGED"
+                        )
+                        continue
+                    except ValueError:
+                        pass
+                print(
+                    f"ANALYSIS UNAVAILABLE: ticker={ticker} "
+                    f"candles={len(candles)} "
+                    f"reason={str(primary_error)}"
+                )
                 continue
 
         ranked_selected = [
