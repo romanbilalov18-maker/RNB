@@ -66,6 +66,7 @@ def main() -> None:
     last_report_result = None
     last_intelligence_results = {}
     last_decisions = {}
+    starting_run_equity = None
 
     deadline = run_started_monotonic + run_duration_minutes * 60
     cycle = 0
@@ -99,6 +100,18 @@ def main() -> None:
                 active_tickers = getattr(result, "active_trading_tickers", None)
                 # Do not label a closed-session snapshot as a current valuation.
                 last_report_result = result if active_tickers is None or bool(active_tickers) else None
+                if (
+                    starting_run_equity is None
+                    and (active_tickers is None or bool(active_tickers))
+                ):
+                    baseline_equity, baseline_missing = portfolio.equity_with_available_prices(
+                        result.current_prices
+                    )
+                    if not baseline_missing:
+                        # Capture pre-trade equity against the first complete fresh
+                        # market snapshot, so run P/L includes both realized and
+                        # unrealized changes without substituting stale prices.
+                        starting_run_equity = baseline_equity
                 if active_tickers is not None and not active_tickers:
                     print(
                         "No active T-Invest trading session. Virtual trades and decision "
@@ -270,6 +283,7 @@ def main() -> None:
         last_result=last_report_result,
         intelligence_results=last_intelligence_results,
         decisions=last_decisions,
+        starting_run_equity=starting_run_equity,
     )
 
 
@@ -285,6 +299,7 @@ def _print_end_of_run_report(
     last_result,
     intelligence_results=None,
     decisions=None,
+    starting_run_equity: float | None = None,
 ) -> None:
     """Print run-scoped trade totals and portfolio value without inventing prices."""
     run_trades = portfolio.trades[starting_trade_count:]
@@ -299,6 +314,12 @@ def _print_end_of_run_report(
     print(f"Реализованный P/L за запуск: {portfolio.realized_pnl - starting_realized_pnl:+.2f} RUB.")
     print(f"Комиссии за запуск: {portfolio.commissions - starting_commissions:.2f} RUB.")
     print(f"Изменение защищённого резерва за запуск: {portfolio.protected_cash - starting_reserve:.2f} RUB.")
+    if starting_run_equity is not None and not missing_final_prices:
+        run_total_pnl = final_equity - starting_run_equity
+        run_return = run_total_pnl / starting_run_equity * 100.0 if starting_run_equity > 0 else 0.0
+        print(f"Общий P/L за запуск (изменение стоимости портфеля от первого полного снимка): {run_total_pnl:+.2f} RUB ({run_return:+.2f}%).")
+    else:
+        print("Общий P/L за запуск не рассчитан: нет полного начального или конечного снимка портфеля.")
     print("Оценка позиций использует последний подтверждённый снимок активной торговой сессии; новый запрос после остановки не выполняется.")
     if missing_final_prices:
         print("Итоговая оценка неполная; позиции без свежих цен: " + ", ".join(missing_final_prices))
