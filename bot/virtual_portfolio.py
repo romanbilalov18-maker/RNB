@@ -56,20 +56,29 @@ class VirtualPortfolio:
     profit_reserve_rate: float = 0.7
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.initial_balance):
-            raise ValueError("initial_balance must be finite")
-        if not math.isfinite(self.commission_rate):
-            raise ValueError("commission_rate must be finite")
+        for name, value in (
+            ("initial_balance", self.initial_balance),
+            ("commission_rate", self.commission_rate),
+            ("profit_reserve_rate", self.profit_reserve_rate),
+            ("protected_cash", self.protected_cash),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"{name} must be a finite number")
         if self.initial_balance <= 0:
             raise ValueError("initial_balance must be positive")
         if self.commission_rate < 0:
             raise ValueError("commission_rate must not be negative")
-        if not math.isfinite(self.profit_reserve_rate) or not 0.0 <= self.profit_reserve_rate <= 1.0:
+        if not 0.0 <= self.profit_reserve_rate <= 1.0:
             raise ValueError("profit_reserve_rate must be between 0 and 1")
-        if not math.isfinite(self.protected_cash) or self.protected_cash < 0:
-            raise ValueError("protected_cash must be finite and non-negative")
+        if self.protected_cash < 0:
+            raise ValueError("protected_cash must be non-negative")
         if self.cash is None:
             self.cash = self.initial_balance
+
         # State loaded from SQLite is just as untrusted as constructor input.
         # Reject corrupt/non-finite account values before they can authorize buys.
         for name, value in (
@@ -87,8 +96,6 @@ class VirtualPortfolio:
             raise ValueError("cash must be non-negative")
         if self.commissions < 0:
             raise ValueError("commissions must be non-negative")
-        if isinstance(self.initial_balance, bool) or isinstance(self.commission_rate, bool):
-            raise ValueError("initial_balance and commission_rate must be numeric, not boolean")
 
     def buy(
         self, ticker: str, quantity: int, price: float, timestamp,
