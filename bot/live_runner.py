@@ -710,12 +710,13 @@ class LiveMarketRunner:
             key = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
             # Do not pass stale, timestamp-less, or future-dated quotes to
             # valuation or execution as if they were current market prices.
-            if ticker and key in last_prices and key in fresh_quote_ids:
-                current_prices[ticker] = last_prices[key]
-            elif ticker in held_tickers and ticker in fresh_bid_by_ticker:
-                # Conservative executable-side mark for an existing holding only.
-                # It is never added to fresh_quote_tickers and cannot authorize BUY.
+            if ticker and ticker in held_tickers and ticker in fresh_bid_by_ticker:
+                # Prefer the executable-side bid for existing holdings; it is
+                # conservative for valuation and realistic for simulated exits.
+                # It never enters fresh_quote_tickers and cannot authorize BUY.
                 current_prices[ticker] = fresh_bid_by_ticker[ticker]
+            elif ticker and key in last_prices and key in fresh_quote_ids:
+                current_prices[ticker] = last_prices[key]
 
         latest_candles = {}
         candle_history = {}
