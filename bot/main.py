@@ -20,6 +20,25 @@ def _should_run_another_cycle(remaining_seconds: float, cycle_interval_minutes: 
     return remaining_seconds > cycle_interval_minutes * 60
 
 
+def _authorized_buys(decisions, missing_held_prices):
+    """Fail closed on new entries whenever any open holding lacks a fresh quote."""
+    if missing_held_prices:
+        missing = ", ".join(sorted(missing_held_prices))
+        print(
+            "NEW ENTRIES BLOCKED: portfolio valuation is incomplete because "
+            f"open holdings have no verified fresh quote: {missing}"
+        )
+        return set(), {}
+    eligible = {
+        ticker: decision
+        for ticker, decision in decisions.items()
+        if getattr(decision, "action", None) == "BUY"
+    }
+    return set(eligible), {
+        ticker: decision.reason for ticker, decision in eligible.items()
+    }
+
+
 def main() -> None:
     config = Config.from_env()
     run_duration_minutes = _env_positive_float("RUN_DURATION_MINUTES", 60.0)
@@ -121,15 +140,9 @@ def main() -> None:
                 # Only explicit BUY recommendations from a valid L1-L15 result may
                 # authorize new virtual entries. Existing PositionManager exits and
                 # PositionSizer risk/cash/commission controls remain authoritative.
-                eligible_buy_tickers = {
-                    ticker for ticker, decision in decisions.items()
-                    if decision.action == "BUY"
-                }
-                eligible_buy_reasons = {
-                    ticker: decision.reason
-                    for ticker, decision in decisions.items()
-                    if decision.action == "BUY"
-                }
+                eligible_buy_tickers, eligible_buy_reasons = _authorized_buys(
+                    decisions, missing_held_prices
+                )
                 reserve_before_cycle = portfolio.protected_cash
                 sell_trades, buy_trades = PaperExecutor(
                     take_profit=config.take_profit_percent / 100.0
