@@ -248,16 +248,42 @@ def main() -> None:
             print(f"Next cycle in {sleep_seconds / 60:.2f} min.")
             time.sleep(sleep_seconds)
 
-    # Final run summary uses the last verified active-session snapshot only.
+    _print_end_of_run_report(
+        portfolio=portfolio,
+        starting_trade_count=starting_trade_count,
+        starting_realized_pnl=starting_realized_pnl,
+        starting_commissions=starting_commissions,
+        starting_reserve=starting_reserve,
+        elapsed_minutes=(time.monotonic() - run_started_monotonic) / 60.0,
+        cycles_started=cycle,
+        last_result=last_report_result,
+        intelligence_results=last_intelligence_results,
+        decisions=last_decisions,
+    )
+
+
+def _print_end_of_run_report(
+    *,
+    portfolio,
+    starting_trade_count: int,
+    starting_realized_pnl: float,
+    starting_commissions: float,
+    starting_reserve: float,
+    elapsed_minutes: float,
+    cycles_started: int,
+    last_result,
+    intelligence_results=None,
+    decisions=None,
+) -> None:
+    """Print run-scoped trade totals and portfolio value without inventing prices."""
     run_trades = portfolio.trades[starting_trade_count:]
     run_buys = [trade for trade in run_trades if trade.side == "BUY"]
     run_sells = [trade for trade in run_trades if trade.side == "SELL"]
-    report_prices = getattr(last_report_result, "current_prices", {}) or {}
+    report_prices = getattr(last_result, "current_prices", {}) or {}
     final_equity, missing_final_prices = portfolio.equity_with_available_prices(report_prices)
-    elapsed_minutes = (time.monotonic() - run_started_monotonic) / 60.0
     print()
     print("=" * 20 + " RNB — ИТОГ ВСЕГО ЗАПУСКА " + "=" * 20)
-    print(f"Длительность: {elapsed_minutes:.2f} мин; циклов начато: {cycle}.")
+    print(f"Длительность: {elapsed_minutes:.2f} мин; циклов начато: {cycles_started}.")
     print(f"Сделок за этот запуск: {len(run_trades)} (покупок={len(run_buys)}, продаж={len(run_sells)}).")
     print(f"Реализованный P/L за запуск: {portfolio.realized_pnl - starting_realized_pnl:+.2f} RUB.")
     print(f"Комиссии за запуск: {portfolio.commissions - starting_commissions:.2f} RUB.")
@@ -267,13 +293,13 @@ def main() -> None:
         print("Итоговая оценка неполная; позиции без свежих цен: " + ", ".join(missing_final_prices))
     _print_readable_cycle_summary(
         portfolio=portfolio,
-        result=last_report_result,
+        result=last_result,
         sell_trades=run_sells,
         buy_trades=run_buys,
         equity=final_equity,
         equity_complete=not missing_final_prices,
-        intelligence_results=last_intelligence_results,
-        decisions=last_decisions,
+        intelligence_results=intelligence_results,
+        decisions=decisions,
         reserve_added_this_cycle=portfolio.protected_cash - starting_reserve,
         scope_label="Весь запуск",
     )
