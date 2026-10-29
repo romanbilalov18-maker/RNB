@@ -90,6 +90,40 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(buys, [])
         self.assertNotIn("HELD", portfolio.positions)
 
+    def test_take_profit_can_close_position_on_a_later_session(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+        portfolio.positions["HELD"].purchase_session = "previous_session"
+        portfolio.positions["HELD"].purchase_exchange = "MOEX"
+
+        scan = LiveScanResult(
+            selected_10=[],
+            selected_3=[],
+            buy_candidates=[],
+            analyses={},
+            current_prices={"HELD": 120.0},
+            previous_closes={},
+            lot_sizes={"HELD": 1},
+            active_trading_tickers={"HELD"},
+            session_by_ticker={
+                "HELD": {
+                    "session": "current_session",
+                    "instrument_exchange": "MOEX",
+                }
+            },
+        )
+
+        sells, buys = PaperExecutor().execute(
+            portfolio,
+            scan,
+            eligible_buy_tickers=set(),
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0].ticker, "HELD")
+        self.assertEqual(buys, [])
+        self.assertNotIn("HELD", portfolio.positions)
+
 
 if __name__ == "__main__":
     unittest.main()
