@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionManager
+from bot.position_health import assess_position_health
 from bot.position_sizer import PositionSizer
 from bot.virtual_portfolio import VirtualPortfolio
 
@@ -78,6 +79,37 @@ class PaperExecutor:
             active_analyses,
             execution_prices,
         )
+        # Emit one auditable status per holding: quote provenance, market-health
+        # diagnostics, and the exact rule that did or did not authorize an exit.
+        # Missing data is a review state, never an automatic sell instruction.
+        for decision in decisions:
+            ticker = decision.ticker
+            analysis = scan.analyses.get(ticker)
+            price_available = ticker in execution_prices
+            if ticker in sellable_quote_tickers and ticker in (getattr(scan, "fresh_quote_tickers", set()) or set()):
+                quote_source = "fresh_bid_preferred_last_trade_also_fresh"
+            elif ticker in sellable_quote_tickers:
+                quote_source = "fresh_order_book_bid_last_trade_stale_or_ineligible"
+            elif active_tickers is None or ticker in (active_tickers or set()):
+                quote_source = "fresh_last_trade_quote"
+            else:
+                quote_source = "no_verified_fresh_exit_quote"
+            health = assess_position_health(
+                ticker,
+                (getattr(scan, "candle_history", {}) or {}).get(ticker, ()),
+                current_price_available=price_available,
+                momentum=getattr(analysis, "momentum", None),
+                trend_strength=getattr(analysis, "trend_strength", None),
+            )
+            spread = (getattr(scan, "liquidity_spread_ticks_by_ticker", {}) or {}).get(ticker)
+            spread_label = f"{float(spread):.2f}_ticks" if isinstance(spread, (int, float)) else "unverified"
+            print(
+                f"POSITION STATUS: ticker={ticker} quote_source={quote_source} "
+                f"price={execution_prices.get(ticker, 'UNAVAILABLE')} "
+                f"health={health.status} flat_sessions={health.flat_sessions} "
+                f"spread={spread_label} exit_action={decision.action} "
+                f"exit_reason={decision.reason}"
+            )
         sell_trades = self.position_manager.execute_sales(
             portfolio,
             decisions,
