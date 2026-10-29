@@ -90,6 +90,35 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(buys, [])
         self.assertNotIn("HELD", portfolio.positions)
 
+
+    def test_fresh_bid_fallback_can_exit_without_last_trade_eligibility(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+
+        scan = LiveScanResult(
+            selected_10=[],
+            selected_3=[],
+            buy_candidates=[],
+            analyses={},
+            current_prices={"HELD": 120.0},
+            previous_closes={},
+            lot_sizes={},
+            active_trading_tickers={"OTHER"},
+            sellable_quote_tickers={"HELD"},
+        )
+
+        sells, buys = PaperExecutor().execute(
+            portfolio,
+            scan,
+            eligible_buy_tickers=set(),
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0].ticker, "HELD")
+        self.assertEqual(sells[0].price, 120.0)
+        self.assertEqual(buys, [])
+        self.assertNotIn("HELD", portfolio.positions)
+
     def test_take_profit_can_close_position_on_a_later_session(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
