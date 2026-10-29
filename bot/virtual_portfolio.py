@@ -70,6 +70,25 @@ class VirtualPortfolio:
             raise ValueError("protected_cash must be finite and non-negative")
         if self.cash is None:
             self.cash = self.initial_balance
+        # State loaded from SQLite is just as untrusted as constructor input.
+        # Reject corrupt/non-finite account values before they can authorize buys.
+        for name, value in (
+            ("cash", self.cash),
+            ("realized_pnl", self.realized_pnl),
+            ("commissions", self.commissions),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"{name} must be a finite number")
+        if self.cash < 0:
+            raise ValueError("cash must be non-negative")
+        if self.commissions < 0:
+            raise ValueError("commissions must be non-negative")
+        if isinstance(self.initial_balance, bool) or isinstance(self.commission_rate, bool):
+            raise ValueError("initial_balance and commission_rate must be numeric, not boolean")
 
     def buy(
         self, ticker: str, quantity: int, price: float, timestamp,
