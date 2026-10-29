@@ -352,5 +352,54 @@ class TestPositionSizer(unittest.TestCase):
                 )
 
 
+    def test_rejects_non_finite_cash_and_equity(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        for cash in (float("nan"), float("inf"), -1.0, True):
+            with self.subTest(cash=cash):
+                with self.assertRaises(ValueError):
+                    PositionSizer(commission_rate=0.001).plan(
+                        cash=cash,
+                        analyses=analysis,
+                        prices={"A": 10.0},
+                        lot_sizes={"A": 1},
+                    )
+        with self.assertRaises(ValueError):
+            PositionSizer(commission_rate=0.001).plan(
+                cash=1000.0,
+                analyses=analysis,
+                prices={"A": 10.0},
+                lot_sizes={"A": 1},
+                total_equity=float("nan"),
+            )
+
+    def test_rejects_invalid_price_lot_size_and_duplicate_ticker(self):
+        sizer = PositionSizer(commission_rate=0.001)
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        invalid_inputs = (
+            ({"A": float("nan")}, {"A": 1}),
+            ({"A": 0.0}, {"A": 1}),
+            ({"A": 10.0}, {"A": 0}),
+            ({"A": 10.0}, {"A": True}),
+        )
+        for prices, lot_sizes in invalid_inputs:
+            with self.subTest(prices=prices, lot_sizes=lot_sizes):
+                with self.assertRaises(ValueError):
+                    sizer.plan(
+                        cash=1000.0,
+                        analyses=analysis,
+                        prices=prices,
+                        lot_sizes=lot_sizes,
+                    )
+        with self.assertRaises(ValueError):
+            sizer.plan(
+                cash=1000.0,
+                analyses=[
+                    SimpleNamespace(ticker="A", volatility=0.1),
+                    SimpleNamespace(ticker="A", volatility=0.2),
+                ],
+                prices={"A": 10.0},
+                lot_sizes={"A": 1},
+            )
+
 if __name__ == "__main__":
     unittest.main()
