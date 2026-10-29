@@ -164,5 +164,27 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(performance.net_return_pct_if_sold_now, 9.79)
 
 
+    def test_rejects_corrupt_non_finite_or_negative_persisted_account_state(self):
+        invalid_states = (
+            {"cash": float("nan")},
+            {"cash": float("inf")},
+            {"cash": -1.0},
+            {"realized_pnl": float("nan")},
+            {"commissions": float("inf")},
+            {"commissions": -0.01},
+            {"protected_cash": float("inf")},
+        )
+        for state in invalid_states:
+            with self.subTest(state=state):
+                with self.assertRaises(ValueError):
+                    VirtualPortfolio(10_000, **state)
+
+    def test_rejects_boolean_balance_and_commission_configuration(self):
+        with self.assertRaises(ValueError):
+            VirtualPortfolio(True)
+        with self.assertRaises(ValueError):
+            VirtualPortfolio(10_000, commission_rate=True)
+
+
 if __name__ == "__main__":
     unittest.main()
