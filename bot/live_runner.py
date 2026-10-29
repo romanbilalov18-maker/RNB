@@ -27,6 +27,7 @@ class LiveScanResult:
     lot_sizes: dict[str, int]
     active_trading_tickers: set[str] | None = None
     fresh_quote_tickers: set[str] = field(default_factory=set)
+    sellable_quote_tickers: set[str] = field(default_factory=set)
     liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
     liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
@@ -409,6 +410,8 @@ class LiveMarketRunner:
 
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
+        fresh_bid_by_ticker = {}
+        sellable_quote_tickers = set()
         active_instrument_ids = set()
         trading_status_by_id = {}
         trading_api_available_by_id = {}
@@ -641,6 +644,33 @@ class LiveMarketRunner:
                 continue
             bids = getattr(order_book, "bids", ()) or ()
             asks = getattr(order_book, "asks", ()) or ()
+            # Unlike GetLastPrices, a fresh order book can still provide an
+            # executable bid when no recent trade has occurred. Accept it for
+            # exits only when the exchange timestamp itself is verified fresh.
+            book_time = getattr(order_book, "orderbook_ts", None)
+            if isinstance(book_time, datetime):
+                _, book_freshness = self._quote_freshness(
+                    book_time, now_utc, self.max_quote_age_seconds
+                )
+                if book_freshness == "fresh" and bids:
+                    try:
+                        best_bid_for_exit = self._quotation(getattr(bids[0], "price", None))
+                        bid_quantity = int(getattr(bids[0], "quantity", 0) or 0)
+                    except (TypeError, ValueError, OverflowError):
+                        best_bid_for_exit, bid_quantity = 0.0, 0
+                    if (
+                        math.isfinite(best_bid_for_exit)
+                        and best_bid_for_exit > 0
+                        and bid_quantity > 0
+                        and ticker in held_tickers
+                    ):
+                        fresh_bid_by_ticker[ticker] = best_bid_for_exit
+                        sellable_quote_tickers.add(ticker)
+                        print(
+                            f"HELD POSITION EXIT QUOTE: ticker={ticker} source=fresh_order_book_bid "
+                            f"bid={best_bid_for_exit:g} quantity={bid_quantity} "
+                            f"book_time={book_time.isoformat()}"
+                        )
             if not bids or not asks:
                 continue
             try:
@@ -682,6 +712,10 @@ class LiveMarketRunner:
             # valuation or execution as if they were current market prices.
             if ticker and key in last_prices and key in fresh_quote_ids:
                 current_prices[ticker] = last_prices[key]
+            elif ticker in held_tickers and ticker in fresh_bid_by_ticker:
+                # Conservative executable-side mark for an existing holding only.
+                # It is never added to fresh_quote_tickers and cannot authorize BUY.
+                current_prices[ticker] = fresh_bid_by_ticker[ticker]
 
         latest_candles = {}
         candle_history = {}
@@ -767,6 +801,7 @@ class LiveMarketRunner:
             lot_sizes=lot_sizes,
             active_trading_tickers=active_trading_tickers,
             fresh_quote_tickers=fresh_quote_tickers,
+            sellable_quote_tickers=sellable_quote_tickers,
             liquidity_by_ticker=liquidity_by_ticker,
             liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
             latest_candles=latest_candles,
