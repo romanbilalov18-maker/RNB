@@ -32,12 +32,14 @@ class EndOfRunReportTests(unittest.TestCase):
                 elapsed_minutes=5.0,
                 cycles_started=2,
                 last_result=SimpleNamespace(current_prices={}),
+                starting_run_equity=10_000.0,
             )
 
         report = output.getvalue()
         self.assertIn("ИТОГ ВСЕГО ЗАПУСКА", report)
         self.assertIn("Сделок за этот запуск: 1 (покупок=0, продаж=1)", report)
         self.assertIn("Реализованный P/L за запуск: +97.90 RUB", report)
+        self.assertIn("Общий P/L за запуск (изменение стоимости портфеля от первого полного снимка): +97.90 RUB (+0.98%)", report)
         self.assertIn("Комиссии за запуск: 1.10 RUB", report)
         self.assertIn("Изменение защищённого резерва за запуск: 68.53 RUB", report)
         self.assertIn("Полнота оценки: ПОЛНАЯ", report)
