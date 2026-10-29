@@ -173,6 +173,8 @@ class TestVirtualPortfolio(unittest.TestCase):
             {"commissions": float("inf")},
             {"commissions": -0.01},
             {"protected_cash": float("inf")},
+            {"protected_cash": True},
+            {"profit_reserve_rate": True},
         )
         for state in invalid_states:
             with self.subTest(state=state):
