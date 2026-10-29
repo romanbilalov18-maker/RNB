@@ -6,6 +6,29 @@ from bot.market_context.trading_schedule import ExchangeSession
 
 
 class LiveMarketDataGuardTests(unittest.TestCase):
+
+    def test_buy_screen_rejects_illiquid_or_stagnant_candidates(self):
+        base = dict(
+            average_volume=1000.0,
+            volume_ratio=1.0,
+            spread_ticks=2.0,
+            position_health_status="NORMAL_MONITORING",
+        )
+        self.assertIsNone(LiveMarketRunner._buy_candidate_rejection_reason(**base))
+        cases = [
+            ({"average_volume": 0.0}, "zero_or_invalid_historical_volume"),
+            ({"volume_ratio": 0.01}, "recent_volume_below_10_percent_of_history"),
+            ({"spread_ticks": None}, "top_of_book_spread_unverified"),
+            ({"spread_ticks": 11.0}, "top_of_book_spread_too_wide"),
+            ({"position_health_status": "PROLONGED_STAGNATION"}, "prolonged_price_stagnation"),
+        ]
+        for changes, expected in cases:
+            with self.subTest(changes=changes):
+                args = {**base, **changes}
+                reason = LiveMarketRunner._buy_candidate_rejection_reason(**args)
+                self.assertIsNotNone(reason)
+                self.assertIn(expected, reason)
+
     def test_explicit_exchange_statuses_are_active(self):
         for status in (
             "SECURITY_TRADING_STATUS_NORMAL_TRADING",
