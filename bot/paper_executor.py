@@ -358,25 +358,14 @@ class PaperExecutor:
             # position; initialize metadata only for a newly opened position.
             if position.purchase_timestamp is None:
                 session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(plan.ticker, {})
-                purchase_session = session_info.get("session")
-                purchase_exchange = session_info.get("instrument_exchange")
-                if purchase_session and str(purchase_session).strip() and purchase_exchange and str(purchase_exchange).strip():
-                    # Store entry metadata atomically. A timestamp without its
-                    # exchange/session context would create a partial record that
-                    # correctly fails closed on every exit after restart.
-                    position.purchase_timestamp = purchase_time
-                    position.purchase_session = str(purchase_session).strip()
-                    position.purchase_exchange = str(purchase_exchange).strip()
+                if self._record_entry_metadata(position, purchase_time, session_info):
                     print(
                         f"POSITION ENTRY METADATA: {plan.ticker} "
-                        f"purchase_timestamp={purchase_time.isoformat()} "
+                        f"purchase_timestamp={position.purchase_timestamp.isoformat()} "
                         f"purchase_session={position.purchase_session} "
                         f"purchase_exchange={position.purchase_exchange}"
                     )
                 else:
-                    # Do not persist partial provenance. The trade itself keeps
-                    # its execution timestamp; the open position remains an
-                    # explicitly legacy/unknown-context holding until verified.
                     print(
                         f"POSITION ENTRY METADATA UNAVAILABLE: {plan.ticker}; "
                         "session/exchange missing, position metadata left entirely unset."
@@ -384,6 +373,20 @@ class PaperExecutor:
             buy_trades.append(trade)
 
         return sell_trades, buy_trades
+
+    @staticmethod
+    def _record_entry_metadata(position, purchase_time, session_info: dict) -> bool:
+        """Persist complete entry provenance, or leave legacy metadata untouched."""
+        session = session_info.get("session")
+        exchange = session_info.get("instrument_exchange")
+        if not session or not str(session).strip() or not exchange or not str(exchange).strip():
+            return False
+        if position.purchase_timestamp is not None:
+            return True
+        position.purchase_timestamp = purchase_time
+        position.purchase_session = str(session).strip()
+        position.purchase_exchange = str(exchange).strip()
+        return True
 
     @staticmethod
     def _blocked_reentries(
