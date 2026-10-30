@@ -103,6 +103,30 @@ class SQLitePortfolioStore:
             ).fetchone()
 
             if row is None:
+                # A missing singleton row is a fresh database only when every
+                # dependent state table is also empty. Never silently replace a
+                # damaged account with a new balance and erase orphaned history.
+                dependent_tables = (
+                    "positions",
+                    "trades",
+                    "equity_history",
+                    "committed_cycles",
+                )
+                residual_state = {
+                    table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    for table in dependent_tables
+                }
+                populated = {
+                    table: count
+                    for table, count in residual_state.items()
+                    if count
+                }
+                if populated:
+                    raise RuntimeError(
+                        "Portfolio database is inconsistent: portfolio row id=1 "
+                        "is missing while dependent state remains "
+                        f"({populated}); refusing to create a new portfolio."
+                    )
                 portfolio = VirtualPortfolio(
                     initial_balance=initial_balance,
                     commission_rate=commission_rate,
