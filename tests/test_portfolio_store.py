@@ -223,7 +223,7 @@ class TestSQLitePortfolioStore(unittest.TestCase):
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM portfolio").fetchone()[0], 0)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 1)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 1)
-                self.assertEqual(db.execute("SELECT ticker, quantity FROM positions").fetchone(), ("KEEP", 2))
+                self.assertEqual(tuple(db.execute("SELECT ticker, quantity FROM positions").fetchone()), ("KEEP", 2))
                 self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
     def test_missing_portfolio_row_with_only_cycle_history_fails_closed(self):
