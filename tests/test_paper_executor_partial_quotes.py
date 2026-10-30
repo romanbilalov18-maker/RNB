@@ -104,6 +104,10 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(len(portfolio.trades), before_trades)
         self.assertEqual(set(portfolio.positions), {"HELD_A", "HELD_B"})
 
+        self.assertEqual(portfolio.positions["HELD_A"].quote_unavailable_cycles, 1)
+        self.assertEqual(portfolio.positions["HELD_B"].quote_unavailable_cycles, 1)
+        self.assertEqual(portfolio.positions["HELD_A"].last_health_status, "QUOTE_UNAVAILABLE")
+
     def test_held_position_can_be_evaluated_when_confirmed_active(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
