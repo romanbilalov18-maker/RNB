@@ -84,7 +84,38 @@ jobs:
               with sqlite3.connect(portfolio) as db:
                   row = db.execute("SELECT initial_balance, cash, realized_pnl, commissions FROM portfolio WHERE id = 1").fetchone()
                   trades = db.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-              print(f"RESTORED_PORTFOLIO found=1 state={row} trades={trades}")
+                  position_columns = {item[1] for item in db.execute("PRAGMA table_info(positions)")}
+                  required_position_columns = {
+                      "ticker", "quantity", "average_price", "purchase_timestamp",
+                      "purchase_session", "purchase_exchange",
+                  }
+                  missing_columns = required_position_columns - position_columns
+                  if missing_columns:
+                      raise SystemExit(
+                          "RESTORED_PORTFOLIO invalid: positions schema missing "
+                          + ",".join(sorted(missing_columns))
+                      )
+                  positions = db.execute(
+                      "SELECT COUNT(*), "
+                      "SUM(CASE WHEN purchase_timestamp IS NOT NULL THEN 1 ELSE 0 END), "
+                      "SUM(CASE WHEN purchase_session IS NOT NULL AND purchase_session != '' THEN 1 ELSE 0 END), "
+                      "SUM(CASE WHEN purchase_exchange IS NOT NULL AND purchase_exchange != '' THEN 1 ELSE 0 END), "
+                      "SUM(CASE WHEN "
+                      "(purchase_timestamp IS NOT NULL OR purchase_session IS NOT NULL OR purchase_exchange IS NOT NULL) "
+                      "AND (purchase_timestamp IS NULL OR purchase_session IS NULL OR purchase_exchange IS NULL) "
+                      "THEN 1 ELSE 0 END) FROM positions"
+                  ).fetchone()
+                  if positions[4]:
+                      raise SystemExit(
+                          f"RESTORED_PORTFOLIO invalid: {positions[4]} positions have partial entry metadata"
+                      )
+              print(
+                  f"RESTORED_PORTFOLIO found=1 state={row} trades={trades} "
+                  f"open_positions={positions[0]} "
+                  f"entry_timestamps={positions[1] or 0} "
+                  f"entry_sessions={positions[2] or 0} "
+                  f"entry_exchanges={positions[3] or 0}"
+              )
           else:
               print("RESTORED_PORTFOLIO found=0 (first run or cache miss)")
           if audit.exists():
@@ -190,6 +221,30 @@ jobs:
               with sqlite3.connect(path) as db:
                   rows = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                   print(f"PERSISTED_STATE {name}: rows={rows}")
+                  if table == "trades" and "positions" in {
+                      item[0] for item in db.execute(
+                          "SELECT name FROM sqlite_master WHERE type='table'"
+                      )
+                  }:
+                      position_rows = db.execute(
+                          "SELECT COUNT(*), "
+                          "SUM(CASE WHEN purchase_timestamp IS NOT NULL THEN 1 ELSE 0 END), "
+                          "SUM(CASE WHEN purchase_session IS NOT NULL AND purchase_session != '' THEN 1 ELSE 0 END), "
+                          "SUM(CASE WHEN purchase_exchange IS NOT NULL AND purchase_exchange != '' THEN 1 ELSE 0 END), "
+                          "SUM(CASE WHEN "
+                          "(purchase_timestamp IS NOT NULL OR purchase_session IS NOT NULL OR purchase_exchange IS NOT NULL) "
+                          "AND (purchase_timestamp IS NULL OR purchase_session IS NULL OR purchase_exchange IS NULL) "
+                          "THEN 1 ELSE 0 END) FROM positions"
+                      ).fetchone()
+                      print(
+                          f"PERSISTED_POSITIONS open={position_rows[0]} "
+                          f"timestamps={position_rows[1] or 0} "
+                          f"sessions={position_rows[2] or 0} "
+                          f"exchanges={position_rows[3] or 0} "
+                          f"partial_metadata={position_rows[4] or 0}"
+                      )
+                      if position_rows[4]:
+                          raise SystemExit("PERSISTED_POSITIONS invalid: partial entry metadata")
                   if table == "decision_audit":
                       cycles = db.execute("SELECT COUNT(DISTINCT cycle_id) FROM decision_audit").fetchone()[0]
                       print(f"PERSISTED_STATE decision_audit cycles={cycles}")
