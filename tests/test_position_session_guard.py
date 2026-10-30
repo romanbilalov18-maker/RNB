@@ -95,6 +95,7 @@ class PositionSessionGuardTests(unittest.TestCase):
         portfolio.positions["TEST"] = VirtualPosition("TEST", 10, 100.0)
         bearish = SimpleNamespace(momentum=-0.10, trend_strength=-0.10)
         scan = self._scan("MORNING", "MOEX")
+        scan.current_prices["TEST"] = 100.0
         scan.analyses = {"TEST": bearish}
 
         sells, buys = PaperExecutor().execute(
