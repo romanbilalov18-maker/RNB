@@ -154,12 +154,43 @@ class PaperExecutor:
                 f"spread={spread_label} exit_action={decision.action} "
                 f"exit_reason={decision.reason}"
             )
+        for decision in decisions:
+            if decision.action == "SELL":
+                print(
+                    f"SELL_DECISION: ticker={decision.ticker} "
+                    f"reason={decision.reason} "
+                    f"verified_execution_price={execution_prices.get(decision.ticker, 'UNAVAILABLE')}"
+                )
+
         sell_trades = self.position_manager.execute_sales(
             portfolio,
             decisions,
             execution_prices,
         )
-        recently_sold = {trade.ticker for trade in sell_trades}
+        executed_sell_tickers = {trade.ticker for trade in sell_trades}
+        for decision in decisions:
+            if decision.action != "SELL":
+                continue
+            if decision.ticker in executed_sell_tickers:
+                trade = next(
+                    trade for trade in sell_trades
+                    if trade.ticker == decision.ticker
+                )
+                print(
+                    f"SELL_EXECUTED: ticker={trade.ticker} "
+                    f"quantity={trade.quantity} price={trade.price} "
+                    f"realized_pnl={trade.realized_pnl:.6f} "
+                    f"reason={trade.reason}"
+                )
+            else:
+                position = portfolio.positions.get(decision.ticker)
+                print(
+                    f"SELL_SKIPPED: ticker={decision.ticker} "
+                    f"reason=execution_validation_failed "
+                    f"position_exists={position is not None} "
+                    f"price={execution_prices.get(decision.ticker, 'UNAVAILABLE')}"
+                )
+        recently_sold = executed_sell_tickers
         sell_decision_tickers = {
             decision.ticker
             for decision in decisions
