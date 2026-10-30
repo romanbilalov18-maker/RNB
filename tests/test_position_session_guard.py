@@ -176,9 +176,11 @@ class PositionSessionGuardTests(unittest.TestCase):
     def test_legacy_position_can_still_use_verified_price_take_profit(self):
         portfolio = VirtualPortfolio(initial_balance=10_000, commission_rate=0.0)
         portfolio.positions["TEST"] = VirtualPosition("TEST", 10, 100.0)
+        scan = self._scan("MORNING", "MOEX")
+        scan.current_prices["TEST"] = 110.0
 
         sells, buys = PaperExecutor().execute(
-            portfolio, self._scan("MORNING", "MOEX"), eligible_buy_tickers=set()
+            portfolio, scan, eligible_buy_tickers=set()
         )
 
         self.assertEqual(len(sells), 1)
