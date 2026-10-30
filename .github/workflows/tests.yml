@@ -44,6 +44,10 @@ jobs:
   live-tinvest-test:
     name: Live T-Invest smoke test
     if: github.event_name == 'workflow_dispatch' && inputs.run_live_tinvest == true
+    # Serialize access to the shared virtual portfolio cache.
+    concurrency:
+      group: rnb-virtual-portfolio-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
@@ -232,8 +236,69 @@ jobs:
               print("RECONCILIATION note=action_rows count ticker-cycle observations, not individual portfolio trades; compare money totals and per-trade rows separately")
           PY
 
-      - name: Save virtual portfolio
+      - name: Validate SQLite state before cache save
         if: always()
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          databases = {
+              "data/virtual_portfolio.sqlite3": {
+                  "portfolio", "positions", "trades", "equity_history",
+                  "committed_cycles", "cycle_tracking_meta",
+              },
+              "data/decision_audit.sqlite": {
+                  "decision_audit", "market_session_prices", "decision_outcomes",
+                  "decision_learning_snapshots",
+              },
+          }
+          errors = []
+          for filename, required_tables in databases.items():
+              path = Path(filename)
+              if not path.is_file() or path.stat().st_size == 0:
+                  errors.append(f"{filename}: missing or empty")
+                  continue
+              try:
+                  with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+                      integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+                      if integrity != "ok":
+                          errors.append(f"{filename}: integrity_check={integrity}")
+                      present = {
+                          row[0] for row in db.execute(
+                              "SELECT name FROM sqlite_master WHERE type='table'"
+                          )
+                      }
+                      missing = required_tables - present
+                      if missing:
+                          errors.append(f"{filename}: missing tables {sorted(missing)}")
+                      if filename.endswith("virtual_portfolio.sqlite3") and "portfolio" in present:
+                          row = db.execute(
+                              "SELECT COUNT(*) FROM portfolio WHERE id=1"
+                          ).fetchone()[0]
+                          if row != 1:
+                              errors.append(f"{filename}: expected exactly one portfolio row, got {row}")
+                      if filename.endswith("decision_audit.sqlite") and "decision_audit" in present:
+                          bad = db.execute(
+                              "SELECT COUNT(*) FROM decision_audit "
+                              "WHERE cycle_id IS NULL OR ticker IS NULL OR equity IS NULL "
+                              "OR cash IS NULL OR total_commissions IS NULL"
+                          ).fetchone()[0]
+                          if bad:
+                              errors.append(f"{filename}: {bad} invalid audit rows")
+              except sqlite3.Error as exc:
+                  errors.append(f"{filename}: SQLite error: {exc}")
+
+          if errors:
+              for error in errors:
+                  print("STATE_VALIDATION_ERROR " + error)
+              raise SystemExit(1)
+          print("STATE_VALIDATION_OK both SQLite databases passed integrity and schema checks")
+          PY
+
+      - name: Save virtual portfolio
+        # Never cache state from a failed run or failed verification step.
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: data
