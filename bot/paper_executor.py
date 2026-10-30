@@ -56,12 +56,22 @@ class PaperExecutor:
                 entry_timestamp and entry_session and str(entry_session).strip()
                 and entry_exchange and str(entry_exchange).strip()
             )
-            if not has_complete_entry_metadata:
+            has_any_entry_metadata = bool(
+                entry_timestamp or entry_session or entry_exchange
+            )
+            if not has_any_entry_metadata:
                 active_analyses.pop(ticker, None)
                 print(
-                    f"POSITION LEGACY GUARD: {ticker} entry metadata incomplete; "
+                    f"POSITION LEGACY GUARD: {ticker} has no recorded entry metadata; "
                     "strategy-based exit disabled; verified-price Take Profit/Stop Loss only."
                 )
+            elif not has_complete_entry_metadata:
+                active_analyses.pop(ticker, None)
+                print(
+                    f"POSITION METADATA GUARD: {ticker} has partial entry metadata; "
+                    "all exits blocked until entry context is verified."
+                )
+                continue
             else:
                 current_session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(ticker, {})
                 current_session = current_session_info.get("session")
