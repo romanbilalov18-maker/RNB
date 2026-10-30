@@ -41,7 +41,11 @@ class SQLitePortfolioStore:
                     average_price REAL NOT NULL,
                     purchase_timestamp TEXT,
                     purchase_session TEXT,
-                    purchase_exchange TEXT
+                    purchase_exchange TEXT,
+                    quote_unavailable_cycles INTEGER NOT NULL DEFAULT 0,
+                    stagnant_sessions INTEGER NOT NULL DEFAULT 0,
+                    last_health_status TEXT,
+                    last_health_candle_timestamp TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS trades (
@@ -86,6 +90,14 @@ class SQLitePortfolioStore:
                 db.execute("ALTER TABLE positions ADD COLUMN purchase_session TEXT")
             if "purchase_exchange" not in position_columns:
                 db.execute("ALTER TABLE positions ADD COLUMN purchase_exchange TEXT")
+            if "quote_unavailable_cycles" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN quote_unavailable_cycles INTEGER NOT NULL DEFAULT 0")
+            if "stagnant_sessions" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN stagnant_sessions INTEGER NOT NULL DEFAULT 0")
+            if "last_health_status" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN last_health_status TEXT")
+            if "last_health_candle_timestamp" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN last_health_candle_timestamp TEXT")
             trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
             if "reason" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
@@ -151,6 +163,10 @@ class SQLitePortfolioStore:
                     purchase_timestamp=(datetime.fromisoformat(position["purchase_timestamp"]) if position["purchase_timestamp"] else None),
                     purchase_session=position["purchase_session"],
                     purchase_exchange=position["purchase_exchange"],
+                    quote_unavailable_cycles=position["quote_unavailable_cycles"],
+                    stagnant_sessions=position["stagnant_sessions"],
+                    last_health_status=position["last_health_status"],
+                    last_health_candle_timestamp=position["last_health_candle_timestamp"],
                 )
 
             for trade in db.execute("SELECT * FROM trades ORDER BY id"):
@@ -247,13 +263,19 @@ class SQLitePortfolioStore:
             db.execute("DELETE FROM positions")
             db.executemany(
                 """
-                INSERT INTO positions (ticker, quantity, average_price, purchase_timestamp, purchase_session, purchase_exchange)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO positions (
+                    ticker, quantity, average_price, purchase_timestamp,
+                    purchase_session, purchase_exchange, quote_unavailable_cycles,
+                    stagnant_sessions, last_health_status, last_health_candle_timestamp
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (p.ticker, p.quantity, p.average_price,
                      p.purchase_timestamp.isoformat() if p.purchase_timestamp else None,
-                     p.purchase_session, p.purchase_exchange)
+                     p.purchase_session, p.purchase_exchange,
+                     p.quote_unavailable_cycles, p.stagnant_sessions,
+                     p.last_health_status, p.last_health_candle_timestamp)
                     for p in portfolio.positions.values()
                 ],
             )
