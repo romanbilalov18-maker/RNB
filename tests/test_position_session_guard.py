@@ -15,7 +15,7 @@ class PositionSessionGuardTests(unittest.TestCase):
         return SimpleNamespace(
             analyses={},
             buy_candidates=[],
-            current_prices={"TEST": 110.0},
+            current_prices={"TEST": 100.0},
             previous_closes={},
             lot_sizes={},
             active_trading_tickers={"TEST"},
@@ -65,6 +65,47 @@ class PositionSessionGuardTests(unittest.TestCase):
 
         self.assertEqual(sells, [])
         self.assertEqual(portfolio.positions["TEST"].quantity, 10)
+
+    def test_stop_loss_remains_active_when_trading_session_changes(self):
+        portfolio = VirtualPortfolio(initial_balance=10_000, commission_rate=0.0)
+        portfolio.positions["TEST"] = VirtualPosition(
+            "TEST", 10, 100.0,
+            purchase_timestamp=datetime(2026, 10, 20, 10, tzinfo=timezone.utc),
+            purchase_session="MORNING",
+            purchase_exchange="MOEX",
+        )
+        scan = self._scan("EVENING", "MOEX")
+        scan.current_prices["TEST"] = 94.0
+
+        sells, buys = PaperExecutor().execute(
+            portfolio, scan, eligible_buy_tickers=set()
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertIn("лимит убытка", sells[0].reason)
+        self.assertEqual(sells[0].price, 94.0)
+        self.assertEqual(buys, [])
+        self.assertNotIn("TEST", portfolio.positions)
+
+    def test_partial_entry_metadata_still_allows_verified_stop_loss(self):
+        portfolio = VirtualPortfolio(initial_balance=10_000, commission_rate=0.0)
+        portfolio.positions["TEST"] = VirtualPosition(
+            "TEST", 10, 100.0,
+            purchase_timestamp=datetime(2026, 10, 20, 10, tzinfo=timezone.utc),
+            purchase_session="MORNING",
+            purchase_exchange=None,
+        )
+        scan = self._scan("MORNING", "MOEX")
+        scan.current_prices["TEST"] = 94.0
+
+        sells, buys = PaperExecutor().execute(
+            portfolio, scan, eligible_buy_tickers=set()
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertIn("лимит убытка", sells[0].reason)
+        self.assertEqual(buys, [])
+        self.assertNotIn("TEST", portfolio.positions)
 
     def test_new_entry_metadata_is_recorded_only_when_session_and_exchange_are_known(self):
         position = VirtualPosition("TEST", 1, 100.0)
