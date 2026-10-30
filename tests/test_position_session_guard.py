@@ -90,6 +90,35 @@ class PositionSessionGuardTests(unittest.TestCase):
             self.assertEqual(position.purchase_session, "MORNING")
             self.assertEqual(position.purchase_exchange, "MOEX")
 
+    def test_legacy_position_without_entry_metadata_ignores_strategy_sell_signal(self):
+        portfolio = VirtualPortfolio(initial_balance=10_000, commission_rate=0.0)
+        portfolio.positions["TEST"] = VirtualPosition("TEST", 10, 100.0)
+        bearish = SimpleNamespace(momentum=-0.10, trend_strength=-0.10)
+        scan = self._scan("MORNING", "MOEX")
+        scan.analyses = {"TEST": bearish}
+
+        sells, buys = PaperExecutor().execute(
+            portfolio, scan, eligible_buy_tickers=set()
+        )
+
+        self.assertEqual(sells, [])
+        self.assertEqual(buys, [])
+        self.assertEqual(portfolio.positions["TEST"].quantity, 10)
+
+    def test_legacy_position_can_still_use_verified_price_take_profit(self):
+        portfolio = VirtualPortfolio(initial_balance=10_000, commission_rate=0.0)
+        portfolio.positions["TEST"] = VirtualPosition("TEST", 10, 100.0)
+
+        sells, buys = PaperExecutor().execute(
+            portfolio, self._scan("MORNING", "MOEX"), eligible_buy_tickers=set()
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0].ticker, "TEST")
+        self.assertEqual(sells[0].price, 110.0)
+        self.assertEqual(buys, [])
+        self.assertNotIn("TEST", portfolio.positions)
+
 
 if __name__ == "__main__":
     unittest.main()
