@@ -200,6 +200,54 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), len(before_trades))
             self.assertAlmostEqual(restored.cash, before_portfolio[2])
 
+    def test_missing_portfolio_row_with_residual_state_fails_closed_without_deleting_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = store.load_or_create(10_000, 0.001)
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            portfolio.buy("KEEP", 2, 100.0, timestamp)
+            store.save(portfolio, {"KEEP": 100.0})
+
+            # Simulate a damaged/incompletely restored database: the account
+            # singleton is missing, while positions and trade history survive.
+            with store._connect() as db:
+                db.execute("DELETE FROM portfolio WHERE id=1")
+                db.commit()
+
+            with self.assertRaisesRegex(RuntimeError, "refusing to create a new portfolio"):
+                SQLitePortfolioStore(path).load_or_create(50_000, 0.005)
+
+            # A failed recovery attempt must not erase the remaining durable data.
+            with store._connect() as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM portfolio").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT ticker, quantity FROM positions").fetchone(), ("KEEP", 2))
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
+    def test_missing_portfolio_row_with_only_cycle_history_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            store.load_or_create(10_000, 0.001)
+            with store._connect() as db:
+                db.execute(
+                    "INSERT INTO committed_cycles (cycle_id, committed_at) VALUES (?, ?)",
+                    ("previously-committed", "test"),
+                )
+                db.execute("DELETE FROM portfolio WHERE id=1")
+                db.commit()
+
+            with self.assertRaisesRegex(RuntimeError, "committed_cycles"):
+                SQLitePortfolioStore(path).load_or_create(10_000, 0.001)
+
+            with store._connect() as db:
+                self.assertEqual(
+                    db.execute("SELECT cycle_id FROM committed_cycles").fetchone()[0],
+                    "previously-committed",
+                )
+
     def test_new_store_creates_initial_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
