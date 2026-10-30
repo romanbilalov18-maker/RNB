@@ -18,6 +18,9 @@ class VirtualPosition:
     purchase_timestamp: datetime | None = None
     purchase_session: str | None = None
     purchase_exchange: str | None = None
+    quote_unavailable_cycles: int = 0
+    stagnant_sessions: int = 0
+    last_health_status: str | None = None
 
 
 @dataclass(frozen=True)
