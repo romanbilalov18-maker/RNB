@@ -1,4 +1,6 @@
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from datetime import datetime, timezone
 
 from bot.live_runner import LiveScanResult
@@ -239,6 +241,27 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(sells, [])
         self.assertEqual(buys, [])
         self.assertEqual(portfolio.positions["HELD"].quantity, 2)
+
+
+    def test_sell_decision_and_execution_are_separately_audited(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+        scan = LiveScanResult(
+            selected_10=[], selected_3=[], buy_candidates=[], analyses={},
+            current_prices={"HELD": 94.0}, previous_closes={}, lot_sizes={},
+            active_trading_tickers={"HELD"},
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, buys = PaperExecutor().execute(
+                portfolio, scan, eligible_buy_tickers=set()
+            )
+        log = output.getvalue()
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(buys, [])
+        self.assertIn("SELL_DECISION: ticker=HELD", log)
+        self.assertIn("SELL_EXECUTED: ticker=HELD", log)
+        self.assertNotIn("SELL_SKIPPED: ticker=HELD", log)
 
 
 if __name__ == "__main__":
