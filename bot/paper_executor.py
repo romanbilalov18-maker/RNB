@@ -149,10 +149,25 @@ class PaperExecutor:
             )
             spread = (getattr(scan, "liquidity_spread_ticks_by_ticker", {}) or {}).get(ticker)
             spread_label = f"{float(spread):.2f}_ticks" if isinstance(spread, (int, float)) else "unverified"
+            position = portfolio.positions.get(ticker)
+            if position is not None:
+                if price_available:
+                    position.quote_unavailable_cycles = 0
+                else:
+                    position.quote_unavailable_cycles = max(
+                        0, int(getattr(position, "quote_unavailable_cycles", 0) or 0)
+                    ) + 1
+                position.stagnant_sessions = max(
+                    0, int(getattr(position, "stagnant_sessions", 0) or 0),
+                    int(health.flat_sessions or 0),
+                )
+                position.last_health_status = health.status
             print(
                 f"POSITION STATUS: ticker={ticker} quote_source={quote_source} "
                 f"price={execution_prices.get(ticker, 'UNAVAILABLE')} "
                 f"health={health.status} recommendation={health.recommendation} "
+                f"quote_unavailable_cycles={getattr(position, 'quote_unavailable_cycles', 0) if position is not None else 0} "
+                f"stagnant_sessions={getattr(position, 'stagnant_sessions', 0) if position is not None else 0} "
                 f"candles_checked={health.candles_checked} flat_sessions={health.flat_sessions} "
                 f"recent_range_pct={health.recent_range_pct if health.recent_range_pct is not None else 'UNAVAILABLE'} "
                 f"spread={spread_label} exit_action={decision.action} "
