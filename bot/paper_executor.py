@@ -116,10 +116,9 @@ class PaperExecutor:
         }
         if active_tickers is not None and not active_tickers and not sellable_quote_tickers:
             print(
-                "EXECUTION DIAGNOSTIC: no entries/exits considered; "
-                "no instrument passed strict active-session + fresh-quote checks."
+                "EXECUTION DIAGNOSTIC: no instruments passed active-session + fresh-quote "
+                "checks; existing holdings will still be reported as QUOTE_UNAVAILABLE."
             )
-            return [], []
 
         decisions = self.position_manager.evaluate(
             portfolio,
@@ -153,7 +152,9 @@ class PaperExecutor:
             print(
                 f"POSITION STATUS: ticker={ticker} quote_source={quote_source} "
                 f"price={execution_prices.get(ticker, 'UNAVAILABLE')} "
-                f"health={health.status} flat_sessions={health.flat_sessions} "
+                f"health={health.status} recommendation={health.recommendation} "
+                f"candles_checked={health.candles_checked} flat_sessions={health.flat_sessions} "
+                f"recent_range_pct={health.recent_range_pct if health.recent_range_pct is not None else 'UNAVAILABLE'} "
                 f"spread={spread_label} exit_action={decision.action} "
                 f"exit_reason={decision.reason}"
             )
