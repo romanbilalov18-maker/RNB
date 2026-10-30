@@ -47,7 +47,37 @@ class PaperExecutor:
         # eligible (fail-open) so an upgrade cannot strand existing holdings.
         sellable_quote_tickers = set(getattr(scan, "sellable_quote_tickers", set()) or set())
         exit_eligible_tickers = set()
-        for ticker in portfolio.positions:
+        for ticker, position in portfolio.positions.items():
+            # Positions with recorded entry metadata are managed only when the
+            # broker confirms the same exchange and named session. If the current
+            # session metadata is missing or differs, do not apply another
+            # session's analysis/price to this holding. Legacy positions without
+            # entry metadata retain the previous compatibility behavior.
+            entry_session = position.purchase_session
+            entry_exchange = position.purchase_exchange
+            current_session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(ticker, {})
+            current_session = current_session_info.get("session")
+            current_exchange = current_session_info.get("instrument_exchange")
+            session_mismatch = (
+                (entry_session is not None and (
+                    not current_session
+                    or str(current_session).strip().casefold() != str(entry_session).strip().casefold()
+                ))
+                or (entry_exchange is not None and (
+                    not current_exchange
+                    or str(current_exchange).strip().casefold() != str(entry_exchange).strip().casefold()
+                ))
+            )
+            if session_mismatch:
+                print(
+                    f"POSITION SESSION GUARD: {ticker} exit evaluation skipped; "
+                    f"entry_session={entry_session or 'UNKNOWN'} "
+                    f"current_session={current_session or 'UNKNOWN'} "
+                    f"entry_exchange={entry_exchange or 'UNKNOWN'} "
+                    f"current_exchange={current_exchange or 'UNKNOWN'}"
+                )
+                continue
+
             # A fresh, timestamp-verified order-book bid may authorize evaluating
             # an exit even when the last-trade quote is stale. It never authorizes
             # a new entry. Without either quote source, do not invent an execution price.
