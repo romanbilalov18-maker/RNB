@@ -207,7 +207,7 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(len(portfolio.trades), before_trades)
         self.assertIn("HELD", portfolio.positions)
 
-    def test_take_profit_can_close_position_on_a_later_session(self):
+    def test_position_is_not_managed_in_a_different_named_session(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
         portfolio.positions["HELD"].purchase_session = "previous_session"
@@ -236,10 +236,9 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
             eligible_buy_tickers=set(),
         )
 
-        self.assertEqual(len(sells), 1)
-        self.assertEqual(sells[0].ticker, "HELD")
+        self.assertEqual(sells, [])
         self.assertEqual(buys, [])
-        self.assertNotIn("HELD", portfolio.positions)
+        self.assertEqual(portfolio.positions["HELD"].quantity, 2)
 
 
 if __name__ == "__main__":
