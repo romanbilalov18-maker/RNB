@@ -69,9 +69,8 @@ class PaperExecutor:
                 active_analyses.pop(ticker, None)
                 print(
                     f"POSITION METADATA GUARD: {ticker} has partial entry metadata; "
-                    "all exits blocked until entry context is verified."
+                    "strategy-based exit disabled; verified-price Take Profit/Stop Loss remain enabled."
                 )
-                continue
             else:
                 current_session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(ticker, {})
                 current_session = current_session_info.get("session")
@@ -83,14 +82,18 @@ class PaperExecutor:
                     or str(current_exchange).strip().casefold() != str(entry_exchange).strip().casefold()
                 )
                 if session_mismatch:
+                    # A session mismatch blocks only model/strategy exits. Hard
+                    # price guards are session-independent and must still run
+                    # against a verified executable quote.
+                    active_analyses.pop(ticker, None)
                     print(
-                        f"POSITION SESSION GUARD: {ticker} exit evaluation skipped; "
+                        f"POSITION SESSION GUARD: {ticker} strategy exit disabled; "
+                        "verified-price Take Profit/Stop Loss remain enabled; "
                         f"entry_session={entry_session} "
                         f"current_session={current_session or 'UNKNOWN'} "
                         f"entry_exchange={entry_exchange} "
                         f"current_exchange={current_exchange or 'UNKNOWN'}"
                     )
-                    continue
 
             # A fresh, timestamp-verified order-book bid may authorize evaluating
             # an exit even when the last-trade quote is stale. It never authorizes
