@@ -357,16 +357,30 @@ class PaperExecutor:
             # Preserve the original entry session when averaging into an existing
             # position; initialize metadata only for a newly opened position.
             if position.purchase_timestamp is None:
-                position.purchase_timestamp = purchase_time
                 session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(plan.ticker, {})
-                position.purchase_session = session_info.get("session")
-                position.purchase_exchange = session_info.get("instrument_exchange")
-                print(
-                    f"POSITION ENTRY METADATA: {plan.ticker} "
-                    f"purchase_timestamp={purchase_time.isoformat()} "
-                    f"purchase_session={position.purchase_session or 'UNKNOWN'} "
-                    f"purchase_exchange={position.purchase_exchange or 'UNKNOWN'}"
-                )
+                purchase_session = session_info.get("session")
+                purchase_exchange = session_info.get("instrument_exchange")
+                if purchase_session and str(purchase_session).strip() and purchase_exchange and str(purchase_exchange).strip():
+                    # Store entry metadata atomically. A timestamp without its
+                    # exchange/session context would create a partial record that
+                    # correctly fails closed on every exit after restart.
+                    position.purchase_timestamp = purchase_time
+                    position.purchase_session = str(purchase_session).strip()
+                    position.purchase_exchange = str(purchase_exchange).strip()
+                    print(
+                        f"POSITION ENTRY METADATA: {plan.ticker} "
+                        f"purchase_timestamp={purchase_time.isoformat()} "
+                        f"purchase_session={position.purchase_session} "
+                        f"purchase_exchange={position.purchase_exchange}"
+                    )
+                else:
+                    # Do not persist partial provenance. The trade itself keeps
+                    # its execution timestamp; the open position remains an
+                    # explicitly legacy/unknown-context holding until verified.
+                    print(
+                        f"POSITION ENTRY METADATA UNAVAILABLE: {plan.ticker}; "
+                        "session/exchange missing, position metadata left entirely unset."
+                    )
             buy_trades.append(trade)
 
         return sell_trades, buy_trades
