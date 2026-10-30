@@ -42,41 +42,45 @@ class PaperExecutor:
             for ticker, analysis in scan.analyses.items()
             if active_tickers is None or ticker in active_tickers
         }
-        # Manage a position only during the same named exchange session in which
-        # its first open lot was bought. Legacy positions without metadata remain
-        # eligible (fail-open) so an upgrade cannot strand existing holdings.
+        # Strategy-based exits require complete, verified entry metadata and a
+        # matching current exchange session. Legacy/incomplete positions are not
+        # assigned invented purchase details: they may use hard price-based
+        # Take Profit/Stop Loss rules on a verified fresh exit quote only.
         sellable_quote_tickers = set(getattr(scan, "sellable_quote_tickers", set()) or set())
         exit_eligible_tickers = set()
         for ticker, position in portfolio.positions.items():
-            # Positions with recorded entry metadata are managed only when the
-            # broker confirms the same exchange and named session. If the current
-            # session metadata is missing or differs, do not apply another
-            # session's analysis/price to this holding. Legacy positions without
-            # entry metadata retain the previous compatibility behavior.
+            entry_timestamp = position.purchase_timestamp
             entry_session = position.purchase_session
             entry_exchange = position.purchase_exchange
-            current_session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(ticker, {})
-            current_session = current_session_info.get("session")
-            current_exchange = current_session_info.get("instrument_exchange")
-            session_mismatch = (
-                (entry_session is not None and (
+            has_complete_entry_metadata = bool(
+                entry_timestamp and entry_session and str(entry_session).strip()
+                and entry_exchange and str(entry_exchange).strip()
+            )
+            if not has_complete_entry_metadata:
+                active_analyses.pop(ticker, None)
+                print(
+                    f"POSITION LEGACY GUARD: {ticker} entry metadata incomplete; "
+                    "strategy-based exit disabled; verified-price Take Profit/Stop Loss only."
+                )
+            else:
+                current_session_info = (getattr(scan, "session_by_ticker", {}) or {}).get(ticker, {})
+                current_session = current_session_info.get("session")
+                current_exchange = current_session_info.get("instrument_exchange")
+                session_mismatch = (
                     not current_session
                     or str(current_session).strip().casefold() != str(entry_session).strip().casefold()
-                ))
-                or (entry_exchange is not None and (
-                    not current_exchange
+                    or not current_exchange
                     or str(current_exchange).strip().casefold() != str(entry_exchange).strip().casefold()
-                ))
-            )
-            if session_mismatch:
-                print(
-                    f"POSITION SESSION GUARD: {ticker} exit evaluation skipped; "
-                    f"entry_session={entry_session or 'UNKNOWN'} "
-                    f"current_session={current_session or 'UNKNOWN'} "
-                    f"entry_exchange={entry_exchange or 'UNKNOWN'} "
-                    f"current_exchange={current_exchange or 'UNKNOWN'}"
                 )
-                continue
+                if session_mismatch:
+                    print(
+                        f"POSITION SESSION GUARD: {ticker} exit evaluation skipped; "
+                        f"entry_session={entry_session} "
+                        f"current_session={current_session or 'UNKNOWN'} "
+                        f"entry_exchange={entry_exchange} "
+                        f"current_exchange={current_exchange or 'UNKNOWN'}"
+                    )
+                    continue
 
             # A fresh, timestamp-verified order-book bid may authorize evaluating
             # an exit even when the last-trade quote is stale. It never authorizes
