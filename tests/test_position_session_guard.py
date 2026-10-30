@@ -66,6 +66,32 @@ class PositionSessionGuardTests(unittest.TestCase):
         self.assertEqual(sells, [])
         self.assertEqual(portfolio.positions["TEST"].quantity, 10)
 
+    def test_new_entry_metadata_is_recorded_only_when_session_and_exchange_are_known(self):
+        position = VirtualPosition("TEST", 1, 100.0)
+        purchased_at = datetime(2026, 10, 30, 10, tzinfo=timezone.utc)
+
+        recorded = PaperExecutor._record_entry_metadata(
+            position, purchased_at, {"session": "MORNING", "instrument_exchange": "MOEX"}
+        )
+
+        self.assertTrue(recorded)
+        self.assertEqual(position.purchase_timestamp, purchased_at)
+        self.assertEqual(position.purchase_session, "MORNING")
+        self.assertEqual(position.purchase_exchange, "MOEX")
+
+    def test_missing_entry_context_does_not_create_partial_metadata(self):
+        position = VirtualPosition("TEST", 1, 100.0)
+        purchased_at = datetime(2026, 10, 30, 10, tzinfo=timezone.utc)
+
+        recorded = PaperExecutor._record_entry_metadata(
+            position, purchased_at, {"session": "MORNING", "instrument_exchange": ""}
+        )
+
+        self.assertFalse(recorded)
+        self.assertIsNone(position.purchase_timestamp)
+        self.assertIsNone(position.purchase_session)
+        self.assertIsNone(position.purchase_exchange)
+
     def test_position_metadata_survives_store_reopen(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
