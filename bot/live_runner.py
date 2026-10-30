@@ -250,34 +250,51 @@ class LiveMarketRunner:
             )
             ticker = str(getattr(share, "ticker", "") or "")
             candles = histories.get(instrument_id, ())
+            is_held_or_tracked = ticker in held_tickers or ticker in tracked_tickers
+            primary_error = None
             try:
                 analyses[ticker] = self.analyzer.analyze(
                     instrument_id, ticker, candles
                 )
-            except ValueError as primary_error:
-                # Do not leave an existing holding without momentum/trend
-                # analysis just because the standard BUY-screening history
-                # threshold was missed. A shorter, still meaningful history
-                # is permitted for held/tracked positions only.
-                if ticker in held_tickers or ticker in tracked_tickers:
-                    try:
-                        analyses[ticker] = self.held_position_analyzer.analyze(
-                            instrument_id, ticker, candles
-                        )
-                        print(
-                            f"HELD POSITION ANALYSIS FALLBACK: ticker={ticker} "
-                            f"candles={len(candles)} min_required=15 "
-                            "purpose=EXIT_ONLY buy_eligibility=UNCHANGED"
-                        )
-                        continue
-                    except ValueError:
-                        pass
-                print(
-                    f"ANALYSIS UNAVAILABLE: ticker={ticker} "
-                    f"candles={len(candles)} "
-                    f"reason={str(primary_error)}"
-                )
+                if is_held_or_tracked:
+                    print(
+                        f"HELD POSITION ANALYSIS STATUS: ticker={ticker} "
+                        f"status=PRIMARY_OK candles={len(candles)}"
+                    )
                 continue
+            except Exception as exc:
+                # Broker history can be incomplete or malformed. Keep the
+                # failure local to this ticker and try the restricted exit-only
+                # analyzer for every held/tracked instrument.
+                primary_error = exc
+
+            if is_held_or_tracked:
+                try:
+                    analyses[ticker] = self.held_position_analyzer.analyze(
+                        instrument_id, ticker, candles
+                    )
+                    print(
+                        f"HELD POSITION ANALYSIS FALLBACK: ticker={ticker} "
+                        f"candles={len(candles)} min_required=15 "
+                        "purpose=EXIT_ONLY buy_eligibility=UNCHANGED "
+                        f"primary_error={type(primary_error).__name__}"
+                    )
+                    continue
+                except Exception as fallback_error:
+                    print(
+                        f"HELD POSITION ANALYSIS STATUS: ticker={ticker} "
+                        f"status=UNAVAILABLE candles={len(candles)} "
+                        f"primary_error={type(primary_error).__name__}:{primary_error} "
+                        f"fallback_error={type(fallback_error).__name__}:{fallback_error}"
+                    )
+                    continue
+
+            print(
+                f"ANALYSIS UNAVAILABLE: ticker={ticker} "
+                f"candles={len(candles)} "
+                f"reason={type(primary_error).__name__}:{primary_error}"
+            )
+            continue
 
         ranked_selected = [
             analyses[ticker]
