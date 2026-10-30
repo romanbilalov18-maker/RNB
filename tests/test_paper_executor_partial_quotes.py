@@ -220,7 +220,7 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
             selected_3=[],
             buy_candidates=[],
             analyses={},
-            current_prices={"HELD": 120.0},
+            current_prices={"HELD": 100.0},
             previous_closes={},
             lot_sizes={"HELD": 1},
             active_trading_tickers={"HELD"},
