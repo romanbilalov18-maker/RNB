@@ -117,6 +117,15 @@ def main() -> None:
                         "No active T-Invest trading session. Virtual trades and decision "
                         "anchors are disabled; collecting completed historical candles only."
                     )
+                    # Update quote-gap/stagnation counters for every holding even
+                    # while the exchange is closed. Empty active universe prevents
+                    # both buys and price-based exits; no price is fabricated.
+                    PaperExecutor().execute(
+                        portfolio,
+                        result,
+                        eligible_buy_tickers=set(),
+                    )
+                    store.save(portfolio)
                     collection = audit_store.record_market_session_prices(
                         result.candle_history,
                         commission_rate=portfolio.commission_rate,
