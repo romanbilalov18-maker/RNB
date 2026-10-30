@@ -29,6 +29,30 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.trades[0].ticker, "TEST")
 
+    def test_position_health_counters_survive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("HEALTH", 2, 100, datetime.now(timezone.utc))
+            position = portfolio.positions["HEALTH"]
+            position.quote_unavailable_cycles = 7
+            position.stagnant_sessions = 5
+            position.last_health_status = "QUOTE_UNAVAILABLE"
+            position.last_health_candle_timestamp = "2026-10-30T20:00:00+00:00"
+
+            store.save(portfolio)
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            restored_position = restored.positions["HEALTH"]
+
+            self.assertEqual(restored_position.quote_unavailable_cycles, 7)
+            self.assertEqual(restored_position.stagnant_sessions, 5)
+            self.assertEqual(restored_position.last_health_status, "QUOTE_UNAVAILABLE")
+            self.assertEqual(
+                restored_position.last_health_candle_timestamp,
+                "2026-10-30T20:00:00+00:00",
+            )
+
     def test_partial_sale_commissions_and_reserve_survive_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
