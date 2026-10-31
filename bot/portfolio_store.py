@@ -20,14 +20,19 @@ def _parse_persisted_timestamp(value: str, field: str) -> datetime:
     return parsed
 
 
-def _validate_persisted_number(value, field: str, *, positive: bool = False) -> float:
+def _validate_persisted_number(
+    value, field: str, *, positive: bool = False, signed: bool = False
+) -> float:
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, float))
         or not math.isfinite(value)
-        or (value <= 0 if positive else value < 0)
+        or (value <= 0 if positive else (value < 0 and not signed))
     ):
-        qualifier = "positive finite" if positive else "finite non-negative"
+        qualifier = (
+            "positive finite" if positive
+            else ("finite number" if signed else "finite non-negative")
+        )
         raise ValueError(f"corrupt portfolio data: {field} must be {qualifier}")
     return float(value)
 
@@ -248,7 +253,9 @@ class SQLitePortfolioStore:
                         f"corrupt portfolio data: BUY trade {trade['id']} has realized P/L"
                     )
                 _validate_persisted_number(
-                    trade["realized_pnl"], f"trade {trade['id']} realized_pnl"
+                    trade["realized_pnl"],
+                    f"trade {trade['id']} realized_pnl",
+                    signed=True,
                 )
                 if trade["entry_price"] is not None:
                     _validate_persisted_number(
