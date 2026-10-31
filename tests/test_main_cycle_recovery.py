@@ -314,7 +314,7 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                         current_prices={"AAA": 100.0},
                         as_of=datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc),
                     )
-                finally:
+            finally:
                 portfolio_store.save = original_save
 
             self.assertEqual(audit_store.cycle_ids(), set())
