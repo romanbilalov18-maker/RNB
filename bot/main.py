@@ -730,6 +730,7 @@ def _print_cycle_result(
             current_price_available=ticker in result.current_prices,
             momentum=getattr(analysis, "momentum", None),
             trend_strength=getattr(analysis, "trend_strength", None),
+            market_closed=ticker in (getattr(result, "market_closed_tickers", set()) or set()),
         )
         range_text = (
             f"{health.recent_range_pct * 100:.3f}%"
