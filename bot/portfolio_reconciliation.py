@@ -86,6 +86,10 @@ def _reconcile_trade_ledger(
         expected_commissions += commission
 
         if side == "BUY":
+            if reserve_transfer is not None and abs(reserve_transfer) > 1e-9:
+                raise PortfolioReconciliationError(
+                    f"trade #{index} BUY cannot transfer profit to reserve"
+                )
             if "entry_price" in trade.keys() and trade["entry_price"] is not None:
                 recorded_entry = _number(
                     f"trade #{index} entry price", trade["entry_price"]
