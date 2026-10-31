@@ -114,6 +114,29 @@ class PortfolioReconciliationTests(unittest.TestCase):
             self.assertAlmostEqual(result["commissions"], 2.95)
             self.assertAlmostEqual(result["realized_pnl"], 18.7)
 
+    def test_rejects_trade_commission_mismatch_even_when_aggregates_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(
+                directory,
+                cash=842.8,
+                account_commissions=2.85,
+                audit_commissions=2.85,
+            )
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("UPDATE trades SET commission=0.9 WHERE id=1")
+            with sqlite3.connect(audit_path) as db:
+                db.execute(
+                    "UPDATE decision_audit SET virtual_commission=0.9 "
+                    "WHERE virtual_action='BUY' AND virtual_commission=1.0"
+                )
+                db.execute(
+                    "UPDATE decision_audit SET virtual_commission=0.75 "
+                    "WHERE virtual_action='SELL'"
+                )
+
+            with self.assertRaisesRegex(PortfolioReconciliationError, "trade #1 commission"):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
     def test_rejects_cash_that_does_not_match_trade_ledger(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path, audit_path = self._create_databases(directory, cash=850.0)
