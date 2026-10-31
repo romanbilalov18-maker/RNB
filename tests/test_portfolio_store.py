@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,9 +105,10 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             store.save(portfolio, {"TEST": 120})
 
             history = store.equity_history()
-            self.assertEqual(len(history), 2)
-            self.assertAlmostEqual(history[0], 9_999.0)
-            self.assertAlmostEqual(history[1], 10_199.0)
+            self.assertEqual(len(history), 3)
+            self.assertAlmostEqual(history[0], 10_000.0)
+            self.assertAlmostEqual(history[1], 9_999.0)
+            self.assertAlmostEqual(history[2], 10_199.0)
 
             restored = store.load_or_create(20_000, 0.002)
             self.assertAlmostEqual(restored.equity({"TEST": 120}), 10_199.0)
@@ -132,13 +134,29 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             current_equity = restored.equity({"TEST": 90})
             stats = restored.statistics(current_equity, history)
 
-            self.assertEqual(len(history), 3)
-            self.assertAlmostEqual(history[0], 9_999.0)
-            self.assertAlmostEqual(history[1], 9_799.0)
-            self.assertAlmostEqual(history[2], 9_899.0)
-            self.assertAlmostEqual(stats.peak_equity, 9_999.0)
-            self.assertAlmostEqual(stats.max_drawdown, 200.0)
-            self.assertAlmostEqual(stats.max_drawdown_pct, 200.0 / 9_999.0 * 100.0)
+            self.assertEqual(len(history), 4)
+            self.assertAlmostEqual(history[0], 10_000.0)
+            self.assertAlmostEqual(history[1], 9_999.0)
+            self.assertAlmostEqual(history[2], 9_799.0)
+            self.assertAlmostEqual(history[3], 9_899.0)
+            self.assertAlmostEqual(stats.peak_equity, 10_000.0)
+            self.assertAlmostEqual(stats.max_drawdown, 201.0)
+            self.assertAlmostEqual(stats.max_drawdown_pct, 201.0 / 10_000.0 * 100.0)
+
+    def test_first_equity_snapshot_keeps_initial_capital_as_drawdown_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("TEST", 10, 100, datetime.now(timezone.utc))
+
+            store.save(portfolio, {"TEST": 80})
+
+            history = store.equity_history()
+            self.assertEqual(history, [10_000.0, 9_799.0])
+            stats = portfolio.statistics(history[-1], history)
+            self.assertEqual(stats.peak_equity, 10_000.0)
+            self.assertAlmostEqual(stats.max_drawdown, 201.0)
+            self.assertAlmostEqual(stats.max_drawdown_pct, 2.01)
 
     def test_missing_market_price_saves_portfolio_without_partial_equity_history(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +319,98 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(portfolio.cash, 10_000)
             self.assertEqual(portfolio.positions, {})
             self.assertEqual(portfolio.trades, [])
+
+    def test_migrates_legacy_portfolio_schema_without_losing_financial_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.sqlite3"
+            timestamp = datetime(2025, 1, 2, tzinfo=timezone.utc).isoformat()
+            with sqlite3.connect(path) as db:
+                db.executescript(
+                    """
+                    CREATE TABLE portfolio (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        initial_balance REAL NOT NULL,
+                        commission_rate REAL NOT NULL,
+                        cash REAL NOT NULL,
+                        realized_pnl REAL NOT NULL,
+                        commissions REAL NOT NULL
+                    );
+                    INSERT INTO portfolio VALUES (1, 10000, 0.001, 8999, 0, 1);
+                    CREATE TABLE positions (
+                        ticker TEXT PRIMARY KEY,
+                        quantity INTEGER NOT NULL,
+                        average_price REAL NOT NULL
+                    );
+                    INSERT INTO positions VALUES ('TEST', 10, 100);
+                    CREATE TABLE trades (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        ticker TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        quantity INTEGER NOT NULL,
+                        price REAL NOT NULL,
+                        commission REAL NOT NULL,
+                        realized_pnl REAL NOT NULL
+                    );
+                    """
+                )
+                db.execute(
+                    "INSERT INTO trades (timestamp, ticker, side, quantity, price, commission, realized_pnl) "
+                    "VALUES (?, 'TEST', 'BUY', 10, 100, 1, 0)",
+                    (timestamp,),
+                )
+                db.commit()
+
+            store = SQLitePortfolioStore(path)
+            restored = store.load_or_create(50_000, 0.005)
+
+            self.assertEqual(restored.initial_balance, 10_000)
+            self.assertAlmostEqual(restored.cash, 8_999)
+            self.assertAlmostEqual(restored.commissions, 1)
+            self.assertAlmostEqual(restored.protected_cash, 0)
+            self.assertAlmostEqual(restored.profit_reserve_rate, 0.7)
+            self.assertEqual(restored.positions["TEST"].quantity, 10)
+            self.assertEqual(len(restored.trades), 1)
+            self.assertEqual(restored.trades[0].reason, "not recorded")
+            self.assertIsNone(restored.trades[0].entry_price)
+
+    def test_reconciles_repeated_buys_partial_sales_and_full_close_after_restarts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001, profit_reserve_rate=0.4)
+
+            portfolio.buy("TEST", 4, 100.0, timestamp)
+            store.save(portfolio)
+            portfolio = SQLitePortfolioStore(path).load_or_create(1, 0)
+            portfolio.buy("TEST", 6, 120.0, timestamp)
+            store.save(portfolio)
+            portfolio = SQLitePortfolioStore(path).load_or_create(1, 0)
+            self.assertAlmostEqual(portfolio.positions["TEST"].average_price, 112.0)
+
+            portfolio.sell("TEST", 3, 130.0, timestamp)
+            store.save(portfolio)
+            portfolio = SQLitePortfolioStore(path).load_or_create(1, 0)
+            portfolio.buy("TEST", 2, 90.0, timestamp)
+            store.save(portfolio)
+            portfolio = SQLitePortfolioStore(path).load_or_create(1, 0)
+            portfolio.sell("TEST", 4, 115.0, timestamp)
+            store.save(portfolio)
+            portfolio = SQLitePortfolioStore(path).load_or_create(1, 0)
+            portfolio.sell("TEST", 5, 110.0, timestamp)
+
+            self.assertEqual(portfolio.positions, {})
+            self.assertAlmostEqual(portfolio.realized_pnl, sum(
+                trade.realized_pnl for trade in portfolio.trades if trade.side == "SELL"
+            ))
+            self.assertAlmostEqual(portfolio.commissions, sum(
+                trade.commission for trade in portfolio.trades
+            ))
+            self.assertAlmostEqual(
+                portfolio.cash + portfolio.protected_cash,
+                portfolio.initial_balance + portfolio.realized_pnl,
+            )
 
 
 if __name__ == "__main__":

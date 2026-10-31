@@ -331,6 +331,17 @@ class SQLitePortfolioStore:
                         + ", ".join(unpriced_positions)
                     )
                 else:
+                    # The account's initial capital is a real equity observation.
+                    # Keep it as the drawdown baseline even when the first
+                    # market valuation happens only after trades have begun.
+                    has_equity_history = db.execute(
+                        "SELECT 1 FROM equity_history LIMIT 1"
+                    ).fetchone()
+                    if not has_equity_history:
+                        db.execute(
+                            "INSERT INTO equity_history (timestamp, equity) VALUES (?, ?)",
+                            (datetime.now().astimezone().isoformat(), portfolio.initial_balance),
+                        )
                     db.execute(
                         "INSERT INTO equity_history (timestamp, equity) VALUES (?, ?)",
                         (datetime.now().astimezone().isoformat(), equity),
