@@ -244,7 +244,7 @@ def main() -> int:
             "RECONCILIATION status=incomplete "
             f"portfolio_exists={args.portfolio.is_file()} audit_exists={args.audit.is_file()}"
         )
-        return 0
+        return 1
 
     try:
         totals = reconcile_portfolio_databases(args.portfolio, args.audit)
