@@ -81,7 +81,10 @@ class PaperCyclePersistenceTests(unittest.TestCase):
             self.assertEqual(restored.positions, portfolio.positions)
             self.assertEqual(restored.trades, portfolio.trades)
             self.assertAlmostEqual(restored.equity(scan.current_prices), equity_before_restart)
-            self.assertEqual(len(store.equity_history()), 1)
+            equity_history = store.equity_history()
+            self.assertEqual(len(equity_history), 2)
+            self.assertEqual(equity_history[0], portfolio.initial_balance)
+            self.assertAlmostEqual(equity_history[1], equity_before_restart)
 
     def test_invalid_intelligence_result_cannot_authorize_new_virtual_buy(self):
         candidate = analysis("AAA")
