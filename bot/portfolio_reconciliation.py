@@ -1,4 +1,4 @@
-"""Reconcile persisted portfolio totals against trades and decision audit."""
+"""Reconcile persisted portfolio balances and positions against the trade ledger."""
 
 from __future__ import annotations
 
@@ -27,24 +27,120 @@ def _require_columns(db: sqlite3.Connection, table: str, required: set[str]) -> 
         )
 
 
-def _assert_close(label: str, actual: float, expected: float) -> None:
-    if not math.isfinite(actual) or not math.isfinite(expected):
+def _number(label: str, value: object) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise PortfolioReconciliationError(f"{label} is not numeric") from exc
+    if not math.isfinite(result):
         raise PortfolioReconciliationError(f"{label} is not finite")
+    return result
+
+
+def _assert_close(label: str, actual: float, expected: float) -> None:
     if not math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-6):
         raise PortfolioReconciliationError(
             f"{label} mismatch: actual={actual:.12f} expected={expected:.12f}"
         )
 
 
+def _reconcile_trade_ledger(
+    *,
+    initial_balance: float,
+    commission_rate: float,
+    reserve_rate: float,
+    trades: list[sqlite3.Row],
+    stored_positions: list[sqlite3.Row],
+) -> tuple[float, float, float, float]:
+    """Rebuild cash, protected reserve, realized P/L and open positions from trades."""
+    expected_cash = initial_balance
+    expected_reserve = 0.0
+    expected_realized = 0.0
+    expected_commissions = 0.0
+    positions: dict[str, dict[str, float]] = {}
+
+    for index, trade in enumerate(trades, start=1):
+        ticker = str(trade["ticker"] or "").strip()
+        side = str(trade["side"] or "").upper()
+        quantity_value = trade["quantity"]
+        if isinstance(quantity_value, bool) or not isinstance(quantity_value, int) or quantity_value <= 0:
+            raise PortfolioReconciliationError(f"trade #{index} has invalid quantity")
+        quantity = quantity_value
+        price = _number(f"trade #{index} price", trade["price"])
+        commission = _number(f"trade #{index} commission", trade["commission"])
+        recorded_pnl = _number(f"trade #{index} realized P/L", trade["realized_pnl"])
+        if not ticker or price <= 0 or commission < 0:
+            raise PortfolioReconciliationError(f"trade #{index} has invalid ticker, price or commission")
+        expected_commissions += commission
+
+        if side == "BUY":
+            expected_cash -= quantity * price + commission
+            position = positions.setdefault(ticker, {"quantity": 0, "average_price": 0.0})
+            old_quantity = position["quantity"]
+            new_quantity = old_quantity + quantity
+            position["average_price"] = (
+                old_quantity * position["average_price"] + quantity * price
+            ) / new_quantity
+            position["quantity"] = new_quantity
+            _assert_close(f"trade #{index} BUY realized P/L", recorded_pnl, 0.0)
+            continue
+
+        if side != "SELL":
+            raise PortfolioReconciliationError(f"trade #{index} has unsupported side {side!r}")
+        position = positions.get(ticker)
+        if position is None or quantity > position["quantity"]:
+            raise PortfolioReconciliationError(
+                f"trade #{index} sells more {ticker} than the ledger holds"
+            )
+        entry_price = position["average_price"]
+        entry_commission = quantity * entry_price * commission_rate
+        calculated_pnl = quantity * (price - entry_price) - commission - entry_commission
+        _assert_close(f"trade #{index} SELL realized P/L", recorded_pnl, calculated_pnl)
+        reserve_transfer = max(calculated_pnl, 0.0) * reserve_rate
+        expected_cash += quantity * price - commission - reserve_transfer
+        expected_reserve += reserve_transfer
+        expected_realized += calculated_pnl
+        position["quantity"] -= quantity
+        if position["quantity"] == 0:
+            del positions[ticker]
+
+    persisted: dict[str, tuple[int, float]] = {}
+    for row in stored_positions:
+        ticker = str(row["ticker"] or "").strip()
+        quantity = row["quantity"]
+        average_price = _number(f"position {ticker} average price", row["average_price"])
+        if not ticker or isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0 or average_price <= 0:
+            raise PortfolioReconciliationError(f"stored position {ticker!r} is invalid")
+        if ticker in persisted:
+            raise PortfolioReconciliationError(f"duplicate stored position {ticker}")
+        persisted[ticker] = (quantity, average_price)
+
+    if set(persisted) != set(positions):
+        missing = sorted(set(positions) - set(persisted))
+        unexpected = sorted(set(persisted) - set(positions))
+        raise PortfolioReconciliationError(
+            f"open positions differ from trade ledger: missing={missing}, unexpected={unexpected}"
+        )
+    for ticker, rebuilt in positions.items():
+        quantity, average_price = persisted[ticker]
+        if quantity != rebuilt["quantity"]:
+            raise PortfolioReconciliationError(
+                f"position {ticker} quantity mismatch: actual={quantity} expected={int(rebuilt['quantity'])}"
+            )
+        _assert_close(
+            f"position {ticker} average price",
+            average_price,
+            rebuilt["average_price"],
+        )
+
+    return expected_cash, expected_reserve, expected_realized, expected_commissions
+
+
 def reconcile_portfolio_databases(
     portfolio_path: str | Path,
     audit_path: str | Path,
 ) -> dict[str, float | int]:
-    """Check account totals against the trade ledger and decision audit totals.
-
-    The audit stores one row per ticker and cycle, so action-row counts are
-    diagnostic only. Money totals are the cross-database reconciliation keys.
-    """
+    """Check account totals, open positions, trade ledger and decision audit."""
     portfolio_path = Path(portfolio_path)
     audit_path = Path(audit_path)
     if not portfolio_path.is_file() or not audit_path.is_file():
@@ -56,21 +152,54 @@ def reconcile_portfolio_databases(
         _require_columns(
             db,
             "portfolio",
-            {"id", "realized_pnl", "commissions", "cash"},
+            {
+                "id", "initial_balance", "commission_rate", "cash",
+                "realized_pnl", "commissions", "protected_cash", "profit_reserve_rate",
+            },
         )
-        _require_columns(db, "trades", {"commission", "realized_pnl"})
+        _require_columns(
+            db,
+            "positions",
+            {"ticker", "quantity", "average_price"},
+        )
+        _require_columns(
+            db,
+            "trades",
+            {"ticker", "side", "quantity", "price", "commission", "realized_pnl"},
+        )
         accounts = db.execute(
-            "SELECT realized_pnl, commissions, cash FROM portfolio WHERE id=1"
+            "SELECT initial_balance, commission_rate, cash, realized_pnl, "
+            "commissions, protected_cash, profit_reserve_rate "
+            "FROM portfolio WHERE id=1"
         ).fetchall()
         if len(accounts) != 1:
             raise PortfolioReconciliationError(
                 f"expected one portfolio account row, found {len(accounts)}"
             )
-        account_realized, account_commissions, cash = map(float, accounts[0])
-        trade_count, trade_commissions, trade_realized = db.execute(
-            "SELECT COUNT(*), COALESCE(SUM(commission), 0), "
-            "COALESCE(SUM(realized_pnl), 0) FROM trades"
-        ).fetchone()
+        account = accounts[0]
+        initial_balance = _number("initial_balance", account["initial_balance"])
+        commission_rate = _number("commission_rate", account["commission_rate"])
+        account_cash = _number("cash", account["cash"])
+        account_realized = _number("portfolio realized P/L", account["realized_pnl"])
+        account_commissions = _number("portfolio commissions", account["commissions"])
+        account_reserve = _number("protected_cash", account["protected_cash"])
+        reserve_rate = _number("profit_reserve_rate", account["profit_reserve_rate"])
+        if initial_balance <= 0 or commission_rate < 0 or not 0 <= reserve_rate <= 1:
+            raise PortfolioReconciliationError("portfolio configuration values are outside valid ranges")
+        trades = db.execute("SELECT * FROM trades ORDER BY id").fetchall()
+        stored_positions = db.execute(
+            "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
+        ).fetchall()
+
+    expected_cash, expected_reserve, trade_realized, trade_commissions = (
+        _reconcile_trade_ledger(
+            initial_balance=initial_balance,
+            commission_rate=commission_rate,
+            reserve_rate=reserve_rate,
+            trades=trades,
+            stored_positions=stored_positions,
+        )
+    )
 
     with sqlite3.connect(audit_path) as db:
         _require_columns(
@@ -86,17 +215,21 @@ def reconcile_portfolio_databases(
         ).fetchone()
 
     totals = {
-        "trade_count": int(trade_count),
+        "trade_count": len(trades),
         "audit_rows": int(audit_count),
         "audit_action_rows": int(action_rows or 0),
-        "commissions": float(account_commissions),
-        "realized_pnl": float(account_realized),
-        "cash": float(cash),
+        "cash": account_cash,
+        "protected_cash": account_reserve,
+        "commissions": account_commissions,
+        "realized_pnl": account_realized,
+        "open_positions": len(stored_positions),
     }
-    _assert_close("portfolio commissions vs trade ledger", totals["commissions"], float(trade_commissions))
-    _assert_close("portfolio realized P/L vs trade ledger", totals["realized_pnl"], float(trade_realized))
-    _assert_close("audit commissions vs trade ledger", float(audit_commissions), float(trade_commissions))
-    _assert_close("audit realized P/L vs trade ledger", float(audit_realized), float(trade_realized))
+    _assert_close("portfolio cash vs trade ledger", account_cash, expected_cash)
+    _assert_close("portfolio protected reserve vs trade ledger", account_reserve, expected_reserve)
+    _assert_close("portfolio commissions vs trade ledger", account_commissions, trade_commissions)
+    _assert_close("portfolio realized P/L vs trade ledger", account_realized, trade_realized)
+    _assert_close("audit commissions vs trade ledger", _number("audit commissions", audit_commissions), trade_commissions)
+    _assert_close("audit realized P/L vs trade ledger", _number("audit realized P/L", audit_realized), trade_realized)
     return totals
 
 
@@ -124,8 +257,10 @@ def main() -> int:
         f"portfolio_trade_count={totals['trade_count']} "
         f"audit_rows={totals['audit_rows']} "
         f"audit_action_rows={totals['audit_action_rows']} "
+        f"open_positions={totals['open_positions']} "
+        f"cash={totals['cash']:.6f} protected_cash={totals['protected_cash']:.6f} "
         f"commissions={totals['commissions']:.6f} "
-        f"realized_pnl={totals['realized_pnl']:.6f} cash={totals['cash']:.6f}"
+        f"realized_pnl={totals['realized_pnl']:.6f}"
     )
     return 0
 
