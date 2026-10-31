@@ -51,7 +51,7 @@ def _reconcile_trade_ledger(
     reserve_rate: float,
     trades: list[sqlite3.Row],
     stored_positions: list[sqlite3.Row],
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, int]:
     """Rebuild cash, protected reserve, realized P/L and open positions from trades."""
     expected_cash = initial_balance
     expected_reserve = 0.0
@@ -200,7 +200,7 @@ def reconcile_portfolio_databases(
         _require_columns(
             db,
             "trades",
-            {"ticker", "side", "quantity", "price", "commission", "realized_pnl", "reserve_transfer"},
+            {"ticker", "side", "quantity", "price", "commission", "realized_pnl"},
         )
         accounts = db.execute(
             "SELECT initial_balance, commission_rate, cash, realized_pnl, "
