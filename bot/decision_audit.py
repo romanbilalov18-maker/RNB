@@ -116,12 +116,14 @@ class DecisionAuditStore:
 
     @classmethod
     def _is_completed_daily_candle(cls, candle: object, now: datetime | None = None) -> bool:
-        """Accept prior Moscow-dated weekday candles and prevent same-day leakage.
+        """Accept prior completed broker candles and prevent same-day leakage.
 
         T-Invest timestamps can represent UTC interval starts. Convert them to
-        Moscow time before assigning a session date. Weekend dates are invalid;
-        exchange holidays should be absent from broker-provided daily candles.
+        Moscow time before assigning a session date. Weekend dates are accepted
+        only when T-Invest returned a completed candle for that ticker.
         """
+        if getattr(candle, "is_complete", True) is False:
+            return False
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
@@ -278,7 +280,7 @@ class DecisionAuditStore:
                             VALUES (?, ?, ?) ON CONFLICT(ticker, session_date)
                             DO UPDATE SET close_price=excluded.close_price
                         """, (ticker, session, close))
-            self._evaluate_due_outcomes(db, commission_rate)
+            self._evaluate_due_outcomes(db, commission_rate, as_of=as_of)
             db.commit()
         return len(rows)
 
@@ -331,7 +333,7 @@ class DecisionAuditStore:
             outcomes_before = db.execute(
                 "SELECT COUNT(*) FROM decision_outcomes"
             ).fetchone()[0]
-            self._evaluate_due_outcomes(db, commission_rate)
+            self._evaluate_due_outcomes(db, commission_rate, as_of=as_of)
             outcomes_after = db.execute(
                 "SELECT COUNT(*) FROM decision_outcomes"
             ).fetchone()[0]
@@ -380,18 +382,32 @@ class DecisionAuditStore:
             db.commit()
         return len(audit_ids)
 
-    def _evaluate_due_outcomes(self, db, commission_rate: float) -> None:
+    def _evaluate_due_outcomes(
+        self, db, commission_rate: float, *, as_of: datetime | None = None
+    ) -> None:
+        as_of = as_of or datetime.now(timezone.utc)
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        as_of = as_of.astimezone(timezone.utc)
+        # Same-day daily candles are never considered complete for a decision
+        # made on that Moscow calendar date.
+        latest_completed_session = (
+            as_of.astimezone(self.MARKET_TIMEZONE).date() - timedelta(days=1)
+        ).isoformat()
         anchors = db.execute("""
             SELECT id, ticker, recommendation, anchor_price, anchor_session_date
             FROM decision_audit WHERE anchor_price IS NOT NULL AND anchor_session_date IS NOT NULL
         """).fetchall()
-        now = datetime.now(timezone.utc).isoformat()
+        evaluated_at = as_of.isoformat()
         cost_pct = max(0.0, float(commission_rate)) * 2 * 100
         for anchor in anchors:
             sessions = db.execute("""
                 SELECT session_date, close_price FROM market_session_prices
-                WHERE ticker=? AND session_date>? ORDER BY session_date ASC
-            """, (anchor["ticker"], anchor["anchor_session_date"])).fetchall()
+                WHERE ticker=? AND session_date>? AND session_date<=?
+                ORDER BY session_date ASC
+            """, (
+                anchor["ticker"], anchor["anchor_session_date"], latest_completed_session
+            )).fetchall()
             for horizon in self.HORIZONS:
                 if len(sessions) < horizon:
                     continue
@@ -410,7 +426,7 @@ class DecisionAuditStore:
                      raw_return_pct, net_return_pct, direction_correct, evaluated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (anchor["id"], horizon, target["session_date"], float(target["close_price"]),
-                      raw, net, correct, now))
+                      raw, net, correct, evaluated_at))
 
     def learning_observations_by_ticker(self) -> dict[str, tuple[LearningObservation, ...]]:
         """Return only matured, scored 3-session outcomes with their original L1-L15 scores."""
