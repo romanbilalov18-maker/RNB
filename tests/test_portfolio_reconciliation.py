@@ -1,10 +1,14 @@
+import contextlib
+import io
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from bot.portfolio_reconciliation import (
     PortfolioReconciliationError,
+    main,
     reconcile_portfolio_databases,
 )
 
@@ -77,6 +81,24 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 (audit_commissions - 2.2, audit_realized),
             )
         return portfolio_path, audit_path
+
+
+    def test_cli_fails_when_either_persisted_database_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path = Path(directory) / "portfolio.sqlite3"
+            audit_path = Path(directory) / "audit.sqlite3"
+            with sqlite3.connect(portfolio_path):
+                pass
+            output = io.StringIO()
+            with patch(
+                "sys.argv",
+                ["portfolio_reconciliation", "--portfolio", str(portfolio_path),
+                 "--audit", str(audit_path)],
+            ), contextlib.redirect_stdout(output):
+                result = main()
+
+            self.assertEqual(result, 1)
+            self.assertIn("status=incomplete", output.getvalue())
 
     def test_accepts_matching_cash_reserve_positions_and_audit(self):
         with tempfile.TemporaryDirectory() as directory:
