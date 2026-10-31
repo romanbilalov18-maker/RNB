@@ -57,6 +57,7 @@ def _reconcile_trade_ledger(
     expected_reserve = 0.0
     expected_realized = 0.0
     expected_commissions = 0.0
+    legacy_reserve_trade_count = 0
     positions: dict[str, dict[str, float]] = {}
 
     for index, trade in enumerate(trades, start=1):
@@ -69,6 +70,11 @@ def _reconcile_trade_ledger(
         price = _number(f"trade #{index} price", trade["price"])
         commission = _number(f"trade #{index} commission", trade["commission"])
         recorded_pnl = _number(f"trade #{index} realized P/L", trade["realized_pnl"])
+        reserve_transfer = (
+            _number(f"trade #{index} reserve transfer", trade["reserve_transfer"])
+            if "reserve_transfer" in trade.keys() and trade["reserve_transfer"] is not None
+            else None
+        )
         if not ticker or price <= 0 or commission < 0:
             raise PortfolioReconciliationError(f"trade #{index} has invalid ticker, price or commission")
         expected_commission = quantity * price * commission_rate
@@ -116,9 +122,17 @@ def _reconcile_trade_ledger(
         entry_commission = quantity * entry_price * commission_rate
         calculated_pnl = quantity * (price - entry_price) - commission - entry_commission
         _assert_close(f"trade #{index} SELL realized P/L", recorded_pnl, calculated_pnl)
-        reserve_transfer = max(calculated_pnl, 0.0) * reserve_rate
-        expected_cash += quantity * price - commission - reserve_transfer
-        expected_reserve += reserve_transfer
+        if reserve_transfer is None:
+            legacy_reserve_trade_count += 1
+            reserve_transfer_for_cash = 0.0
+        else:
+            if reserve_transfer < 0 or reserve_transfer > max(calculated_pnl, 0.0) + 1e-6:
+                raise PortfolioReconciliationError(
+                    f"trade #{index} reserve transfer is outside realized-profit bounds"
+                )
+            reserve_transfer_for_cash = reserve_transfer
+            expected_reserve += reserve_transfer
+        expected_cash += quantity * price - commission - reserve_transfer_for_cash
         expected_realized += calculated_pnl
         position["quantity"] -= quantity
         if position["quantity"] == 0:
@@ -153,7 +167,7 @@ def _reconcile_trade_ledger(
             rebuilt["average_price"],
         )
 
-    return expected_cash, expected_reserve, expected_realized, expected_commissions
+    return expected_cash, expected_reserve, expected_realized, expected_commissions, legacy_reserve_trade_count
 
 
 def reconcile_portfolio_databases(
@@ -186,7 +200,7 @@ def reconcile_portfolio_databases(
         _require_columns(
             db,
             "trades",
-            {"ticker", "side", "quantity", "price", "commission", "realized_pnl"},
+            {"ticker", "side", "quantity", "price", "commission", "realized_pnl", "reserve_transfer"},
         )
         accounts = db.execute(
             "SELECT initial_balance, commission_rate, cash, realized_pnl, "
@@ -212,7 +226,7 @@ def reconcile_portfolio_databases(
             "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
         ).fetchall()
 
-    expected_cash, expected_reserve, trade_realized, trade_commissions = (
+    expected_cash, expected_reserve, trade_realized, trade_commissions, legacy_reserve_trade_count = (
         _reconcile_trade_ledger(
             initial_balance=initial_balance,
             commission_rate=commission_rate,
@@ -319,8 +333,20 @@ def reconcile_portfolio_databases(
             expected["realized_pnl"],
         )
 
+    if legacy_reserve_trade_count:
+        # Legacy sells lack per-trade reserve transfers. Reconcile conserved
+        # cash + reserve and preserve the persisted aggregate reserve anchor.
+        legacy_reserve = account_reserve - expected_reserve
+        if legacy_reserve < -1e-6:
+            raise PortfolioReconciliationError(
+                "persisted protected reserve is below explicitly recorded trade transfers"
+            )
+        expected_cash -= max(legacy_reserve, 0.0)
+        expected_reserve = account_reserve
+
     totals = {
         "trade_count": len(trades),
+        "legacy_reserve_trades": legacy_reserve_trade_count,
         "audit_rows": int(audit_count),
         "audit_action_rows": int(action_rows or 0),
         "audit_tickers": len(audit_ticker_totals),
