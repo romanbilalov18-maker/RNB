@@ -534,6 +534,55 @@ class DecisionAuditStoreTests(unittest.TestCase):
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(sunday, now=sunday_morning))
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(date_only_today, now=saturday_morning))
 
+    def test_incomplete_broker_candle_is_never_used_for_learning(self):
+        prior = candle("2026-10-16", 100)
+        incomplete = SimpleNamespace(
+            time=datetime.fromisoformat("2026-10-17T00:00:00+00:00"),
+            close=101,
+            is_complete=False,
+        )
+        as_of = datetime.fromisoformat("2026-10-18T08:00:00+00:00")
+
+        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(prior, now=as_of))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(incomplete, now=as_of))
+
+    def test_outcome_evaluation_respects_historical_as_of_cutoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            store.record_cycle(
+                "anchor-cutoff",
+                {"AAA": SimpleNamespace(action="BUY", reason="test")},
+                [],
+                equity=1000, cash=1000, total_commissions=0,
+                current_prices={"AAA": 100},
+                as_of=datetime.fromisoformat("2026-10-02T12:00:00+00:00"),
+            )
+            with store._connect() as db:
+                db.executemany(
+                    "INSERT INTO market_session_prices (ticker, session_date, close_price) VALUES (?, ?, ?)",
+                    [
+                        ("AAA", "2026-10-05", 101),
+                        ("AAA", "2026-10-06", 102),
+                        ("AAA", "2026-10-07", 103),
+                    ],
+                )
+                store._evaluate_due_outcomes(
+                    db, 0.0005,
+                    as_of=datetime.fromisoformat("2026-10-06T12:00:00+00:00"),
+                )
+                first = db.execute(
+                    "SELECT horizon_sessions FROM decision_outcomes ORDER BY horizon_sessions"
+                ).fetchall()
+                self.assertEqual([row["horizon_sessions"] for row in first], [1])
+                store._evaluate_due_outcomes(
+                    db, 0.0005,
+                    as_of=datetime.fromisoformat("2026-10-08T12:00:00+00:00"),
+                )
+                later = db.execute(
+                    "SELECT horizon_sessions FROM decision_outcomes ORDER BY horizon_sessions"
+                ).fetchall()
+                self.assertEqual([row["horizon_sessions"] for row in later], [1, 3])
+
     def test_record_market_session_prices_keeps_actual_weekend_broker_candles(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
