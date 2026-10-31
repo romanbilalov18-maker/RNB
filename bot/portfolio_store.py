@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 from bot.models import VirtualPosition, VirtualTrade
 from bot.virtual_portfolio import VirtualPortfolio
+
+
+
+def _parse_persisted_timestamp(value: str, field: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"corrupt portfolio data: invalid {field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"corrupt portfolio data: {field} must include a timezone")
+    return parsed
+
+
+def _validate_persisted_number(value, field: str, *, positive: bool = False) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or (value <= 0 if positive else value < 0)
+    ):
+        qualifier = "positive finite" if positive else "finite non-negative"
+        raise ValueError(f"corrupt portfolio data: {field} must be {qualifier}")
+    return float(value)
+
+
+def _validate_persisted_quantity(value, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"corrupt portfolio data: {field} must be a positive integer")
+    return value
 
 
 class SQLitePortfolioStore:
@@ -166,7 +196,12 @@ class SQLitePortfolioStore:
                     ticker=position["ticker"],
                     quantity=position["quantity"],
                     average_price=position["average_price"],
-                    purchase_timestamp=(datetime.fromisoformat(position["purchase_timestamp"]) if position["purchase_timestamp"] else None),
+                    purchase_timestamp=(
+                        _parse_persisted_timestamp(
+                            position["purchase_timestamp"], "position purchase_timestamp"
+                        )
+                        if position["purchase_timestamp"] else None
+                    ),
                     purchase_session=position["purchase_session"],
                     purchase_exchange=position["purchase_exchange"],
                     quote_unavailable_cycles=position["quote_unavailable_cycles"],
@@ -174,11 +209,58 @@ class SQLitePortfolioStore:
                     last_health_status=position["last_health_status"],
                     last_health_candle_timestamp=position["last_health_candle_timestamp"],
                 )
+                if not isinstance(position["ticker"], str) or not position["ticker"].strip():
+                    raise ValueError("corrupt portfolio data: position ticker must not be empty")
+                _validate_persisted_quantity(
+                    position["quantity"], f"position {position['ticker']} quantity"
+                )
+                _validate_persisted_number(
+                    position["average_price"],
+                    f"position {position['ticker']} average_price",
+                    positive=True,
+                )
+                for counter_name in ("quote_unavailable_cycles", "stagnant_sessions"):
+                    counter = position[counter_name]
+                    if isinstance(counter, bool) or not isinstance(counter, int) or counter < 0:
+                        raise ValueError(
+                            f"corrupt portfolio data: position {position['ticker']} "
+                            f"{counter_name} must be a non-negative integer"
+                        )
 
             for trade in db.execute("SELECT * FROM trades ORDER BY id"):
+                if not isinstance(trade["ticker"], str) or not trade["ticker"].strip():
+                    raise ValueError("corrupt portfolio data: trade ticker must not be empty")
+                if trade["side"] not in {"BUY", "SELL"}:
+                    raise ValueError(
+                        f"corrupt portfolio data: trade {trade['id']} has invalid side"
+                    )
+                _validate_persisted_quantity(
+                    trade["quantity"], f"trade {trade['id']} quantity"
+                )
+                _validate_persisted_number(
+                    trade["price"], f"trade {trade['id']} price", positive=True
+                )
+                _validate_persisted_number(
+                    trade["commission"], f"trade {trade['id']} commission"
+                )
+                if trade["side"] == "BUY" and trade["realized_pnl"] != 0:
+                    raise ValueError(
+                        f"corrupt portfolio data: BUY trade {trade['id']} has realized P/L"
+                    )
+                _validate_persisted_number(
+                    trade["realized_pnl"], f"trade {trade['id']} realized_pnl"
+                )
+                if trade["entry_price"] is not None:
+                    _validate_persisted_number(
+                        trade["entry_price"],
+                        f"trade {trade['id']} entry_price",
+                        positive=True,
+                    )
                 portfolio.trades.append(
                     VirtualTrade(
-                        timestamp=datetime.fromisoformat(trade["timestamp"]),
+                        timestamp=_parse_persisted_timestamp(
+                            trade["timestamp"], f"trade {trade['id']} timestamp"
+                        ),
                         ticker=trade["ticker"],
                         side=trade["side"],
                         quantity=trade["quantity"],
