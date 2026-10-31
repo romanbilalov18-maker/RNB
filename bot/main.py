@@ -910,6 +910,7 @@ def _print_readable_cycle_summary(
     priced_position_count = len(performances)
     missing_position_count = len(missing_quotes)
     known_assets_total = cash + reserve + known_market_value
+    estimated_liquidation_equivalent = known_assets_total - estimated_exit_commissions
 
     print()
     print("=" * 20 + " RNB — СОСТОЯНИЕ ПОРТФЕЛЯ " + "=" * 20)
@@ -943,8 +944,14 @@ def _print_readable_cycle_summary(
     if missing_quotes:
         print("   Это только частичный итог: стоимость позиций без свежих котировок не включена.")
         print("   Поэтому разницу со стартовым капиталом нельзя считать убытком; полная оценка пока невозможна.")
+        print("   Оценка виртуального остатка после закрытия всех позиций: НЕИЗВЕСТНА — есть позиции без свежих цен.")
     else:
         print(f"   Полная стоимость портфеля (деньги + резерв + все позиции): {equity:.2f} RUB.")
+        print(
+            "   Оценка виртуального остатка после закрытия всех позиций "
+            f"(деньги + резерв + выручка минус комиссия продажи): {estimated_liquidation_equivalent:.2f} RUB; "
+            "без налогов и возможных сборов брокера."
+        )
     print()
     print("5. ФИНАНСОВЫЙ РЕЗУЛЬТАТ")
     cycle_realized_pnl = sum(float(getattr(trade, "realized_pnl", 0.0) or 0.0) for trade in sell_trades)

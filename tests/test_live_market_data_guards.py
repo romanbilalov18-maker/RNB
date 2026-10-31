@@ -21,6 +21,8 @@ class LiveMarketDataGuardTests(unittest.TestCase):
             ({"spread_ticks": None}, "top_of_book_spread_unverified"),
             ({"spread_ticks": 11.0}, "top_of_book_spread_too_wide"),
             ({"position_health_status": "PROLONGED_STAGNATION"}, "prolonged_price_stagnation"),
+            ({"buy_available": False}, "broker_buy_unavailable_or_unverified"),
+            ({"buy_available": None}, "broker_buy_unavailable_or_unverified"),
         ]
         for changes, expected in cases:
             with self.subTest(changes=changes):

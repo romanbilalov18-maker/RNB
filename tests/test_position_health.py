@@ -72,5 +72,15 @@ class PositionHealthTests(unittest.TestCase):
         self.assertEqual(result.candles_checked, 4)
 
 
+    def test_verified_market_closure_is_not_reported_as_quote_failure(self):
+        result = assess_position_health(
+            "TEST", candles([10, 10, 10, 10, 10, 10]),
+            current_price_available=False,
+            market_closed=True,
+        )
+        self.assertEqual(result.status, "MARKET_CLOSED")
+        self.assertIn("not a quote failure", result.recommendation.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

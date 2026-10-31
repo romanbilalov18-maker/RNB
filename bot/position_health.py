@@ -48,6 +48,7 @@ def assess_position_health(
     current_price_available: bool,
     momentum: float | None = None,
     trend_strength: float | None = None,
+    market_closed: bool = False,
 ) -> PositionHealth:
     """Flag stagnant holdings and quote gaps without treating either as a sell."""
     completed = []
@@ -74,7 +75,10 @@ def assess_position_health(
         else None
     )
 
-    if not current_price_available:
+    if market_closed:
+        status = "MARKET_CLOSED"
+        recommendation = "WAIT_FOR_NEXT_EXCHANGE_SESSION; a scheduled closure is not a quote failure"
+    elif not current_price_available:
         status = "QUOTE_UNAVAILABLE"
         recommendation = "VERIFY_MARKET_DATA; do not infer a sell from a missing quote"
     elif flat_sessions >= FLAT_REVIEW_SESSIONS or (

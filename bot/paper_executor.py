@@ -114,10 +114,12 @@ class PaperExecutor:
             for ticker, price in scan.current_prices.items()
             if ticker in exit_eligible_tickers
         }
+        market_closed_tickers = set(getattr(scan, "market_closed_tickers", set()) or set())
         if active_tickers is not None and not active_tickers and not sellable_quote_tickers:
+            closed_count = sum(ticker in market_closed_tickers for ticker in portfolio.positions)
             print(
                 "EXECUTION DIAGNOSTIC: no instruments passed active-session + fresh-quote "
-                "checks; existing holdings will still be reported as QUOTE_UNAVAILABLE."
+                f"checks; confirmed_closed_holdings={closed_count}/{len(portfolio.positions)}."
             )
 
         decisions = self.position_manager.evaluate(
@@ -146,6 +148,7 @@ class PaperExecutor:
                 current_price_available=price_available,
                 momentum=getattr(analysis, "momentum", None),
                 trend_strength=getattr(analysis, "trend_strength", None),
+                market_closed=ticker in market_closed_tickers,
             )
             spread = (getattr(scan, "liquidity_spread_ticks_by_ticker", {}) or {}).get(ticker)
             spread_label = f"{float(spread):.2f}_ticks" if isinstance(spread, (int, float)) else "unverified"
@@ -163,7 +166,7 @@ class PaperExecutor:
             if position is not None:
                 if price_available:
                     position.quote_unavailable_cycles = 0
-                else:
+                elif ticker not in market_closed_tickers:
                     position.quote_unavailable_cycles = max(
                         0, int(getattr(position, "quote_unavailable_cycles", 0) or 0)
                     ) + 1

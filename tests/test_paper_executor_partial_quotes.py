@@ -37,6 +37,8 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(portfolio.cash, before_cash)
         self.assertEqual(len(portfolio.trades), before_trades)
         self.assertEqual(portfolio.positions["HELD"].quantity, 2)
+        self.assertEqual(portfolio.positions["HELD"].quote_unavailable_cycles, 1)
+        self.assertEqual(portfolio.positions["HELD"].last_health_status, "QUOTE_UNAVAILABLE")
 
     def test_held_position_is_not_sold_when_not_confirmed_active(self):
         portfolio = VirtualPortfolio(10_000)
@@ -67,7 +69,7 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(len(portfolio.trades), before_trades)
         self.assertEqual(portfolio.positions["HELD"].quantity, 2)
 
-    def test_all_holdings_report_quote_unavailable_when_market_has_no_active_tickers(self):
+    def test_all_holdings_report_market_closed_without_increasing_quote_gap_counter(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD_A", 2, 100, datetime.now(timezone.utc))
         portfolio.buy("HELD_B", 3, 50, datetime.now(timezone.utc))
@@ -83,6 +85,7 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
             previous_closes={},
             lot_sizes={},
             active_trading_tickers=set(),
+            market_closed_tickers={"HELD_A", "HELD_B"},
         )
 
         output = StringIO()
@@ -98,15 +101,15 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(buys, [])
         self.assertIn("POSITION STATUS: ticker=HELD_A", log)
         self.assertIn("POSITION STATUS: ticker=HELD_B", log)
-        self.assertIn("health=QUOTE_UNAVAILABLE", log)
-        self.assertIn("recommendation=VERIFY_MARKET_DATA", log)
+        self.assertIn("health=MARKET_CLOSED", log)
+        self.assertIn("recommendation=WAIT_FOR_NEXT_EXCHANGE_SESSION", log)
         self.assertEqual(portfolio.cash, before_cash)
         self.assertEqual(len(portfolio.trades), before_trades)
         self.assertEqual(set(portfolio.positions), {"HELD_A", "HELD_B"})
 
-        self.assertEqual(portfolio.positions["HELD_A"].quote_unavailable_cycles, 1)
-        self.assertEqual(portfolio.positions["HELD_B"].quote_unavailable_cycles, 1)
-        self.assertEqual(portfolio.positions["HELD_A"].last_health_status, "QUOTE_UNAVAILABLE")
+        self.assertEqual(portfolio.positions["HELD_A"].quote_unavailable_cycles, 0)
+        self.assertEqual(portfolio.positions["HELD_B"].quote_unavailable_cycles, 0)
+        self.assertEqual(portfolio.positions["HELD_A"].last_health_status, "MARKET_CLOSED")
 
     def test_broker_instrument_status_is_reported_for_held_position(self):
         portfolio = VirtualPortfolio(10_000)

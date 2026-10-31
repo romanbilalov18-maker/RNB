@@ -40,6 +40,7 @@ class LiveScanResult:
     market_context: object | None = None
     session_by_ticker: dict[str, dict] = field(default_factory=dict)
     instrument_status_by_ticker: dict[str, dict] = field(default_factory=dict)
+    market_closed_tickers: set[str] = field(default_factory=set)
 
 
 class LiveMarketRunner:
@@ -487,16 +488,12 @@ class LiveMarketRunner:
 
         # Resolve the returned official schedule against Moscow's current date
         # and UTC clock. Individual instruments inherit only their own exchange.
-        exchange_sessions = {}
-        for share in shares:
-            exchange = str(getattr(share, "exchange", "") or "")
-            exchange_key = normalize_exchange(exchange)
-            if exchange_key not in exchange_sessions:
-                exchange_sessions[exchange_key] = resolve_exchange_session(
-                    exchange,
-                    schedule_map.get(exchange_key),
-                    now_utc,
-                )
+        # Include every analyzed instrument, not only the normal BUY universe.
+        # Held positions can be non-RUB or API-buy-disabled and still need their
+        # own exchange calendar for safe monitoring and session-aware exits.
+        exchange_sessions = self._exchange_sessions_for_shares(
+            analysis_shares, schedule_map, now_utc
+        )
 
         session_by_ticker = {}
         instrument_status_by_ticker = {}
@@ -838,6 +835,7 @@ class LiveMarketRunner:
                 volume_ratio=analysis.volume_ratio,
                 spread_ticks=spread_ticks,
                 position_health_status=health.status,
+                buy_available=getattr(shares_by_ticker.get(analysis.ticker), "buy_available_flag", None),
             )
             if rejection:
                 liquidity_rejections[analysis.ticker] = rejection
@@ -892,7 +890,28 @@ class LiveMarketRunner:
             market_context=market_context,
             session_by_ticker=session_by_ticker,
             instrument_status_by_ticker=instrument_status_by_ticker,
+            market_closed_tickers={
+                ticker for ticker, session in session_by_ticker.items()
+                if session.get("verified") is True and session.get("is_open") is False
+            },
         )
+
+    @staticmethod
+    def _exchange_sessions_for_shares(
+        shares: list[object],
+        schedule_map: dict[str, object],
+        now_utc: datetime,
+    ) -> dict[str, ExchangeSession]:
+        """Resolve one official exchange session for every analyzed instrument."""
+        sessions: dict[str, ExchangeSession] = {}
+        for share in shares:
+            exchange = str(getattr(share, "exchange", "") or "")
+            exchange_key = normalize_exchange(exchange)
+            if exchange_key not in sessions:
+                sessions[exchange_key] = resolve_exchange_session(
+                    exchange, schedule_map.get(exchange_key), now_utc
+                )
+        return sessions
 
     @staticmethod
     def _buy_candidate_rejection_reason(
@@ -901,8 +920,11 @@ class LiveMarketRunner:
         volume_ratio: float,
         spread_ticks: float | None,
         position_health_status: str,
+        buy_available: bool = True,
     ) -> str | None:
-        """Fail closed on candidates whose recent trading activity is unreliable."""
+        """Fail closed on candidates whose broker or market evidence is unreliable."""
+        if buy_available is not True:
+            return "broker_buy_unavailable_or_unverified"
         if not math.isfinite(average_volume) or average_volume <= 0:
             return "zero_or_invalid_historical_volume"
         if not math.isfinite(volume_ratio) or volume_ratio < 0.10:
