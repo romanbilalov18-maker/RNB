@@ -71,6 +71,12 @@ def _reconcile_trade_ledger(
         recorded_pnl = _number(f"trade #{index} realized P/L", trade["realized_pnl"])
         if not ticker or price <= 0 or commission < 0:
             raise PortfolioReconciliationError(f"trade #{index} has invalid ticker, price or commission")
+        expected_commission = quantity * price * commission_rate
+        _assert_close(
+            f"trade #{index} commission",
+            commission,
+            expected_commission,
+        )
         expected_commissions += commission
 
         if side == "BUY":
