@@ -35,3 +35,5 @@ class VirtualTrade:
     realized_pnl: float
     reason: str = "not recorded"
     entry_price: float | None = None
+    # None means a legacy trade whose historical reserve transfer was not recorded.
+    reserve_transfer: float | None = 0.0
