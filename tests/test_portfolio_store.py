@@ -30,6 +30,59 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.trades[0].ticker, "TEST")
 
+    def test_rejects_corrupt_persisted_position_quantity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("TEST", 2, 100.0, datetime.now(timezone.utc))
+            store.save(portfolio)
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE positions SET quantity=0 WHERE ticker='TEST'")
+
+            with self.assertRaisesRegex(ValueError, "position TEST quantity"):
+                SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+
+    def test_rejects_corrupt_persisted_position_price(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("TEST", 2, 100.0, datetime.now(timezone.utc))
+            store.save(portfolio)
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE positions SET average_price=-1 WHERE ticker='TEST'")
+
+            with self.assertRaisesRegex(ValueError, "average_price"):
+                SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+
+    def test_rejects_naive_persisted_trade_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("TEST", 2, 100.0, datetime.now(timezone.utc))
+            store.save(portfolio)
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE trades SET timestamp='2026-10-31T12:00:00'")
+
+            with self.assertRaisesRegex(ValueError, "must include a timezone"):
+                SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+
+    def test_restores_valid_negative_realized_pnl_from_sell_trade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime.now(timezone.utc)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("TEST", 2, 100.0, timestamp)
+            portfolio.sell("TEST", 2, 90.0, timestamp)
+            store.save(portfolio)
+
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            self.assertLess(restored.trades[-1].realized_pnl, 0)
+            self.assertLess(restored.realized_pnl, 0)
+
     def test_position_health_counters_survive_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
