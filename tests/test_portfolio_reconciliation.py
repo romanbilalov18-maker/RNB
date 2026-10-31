@@ -168,6 +168,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
                 db.execute("UPDATE trades SET reserve_transfer=0 WHERE side='BUY'")
                 db.execute("UPDATE trades SET reserve_transfer=9.35 WHERE side='SELL'")
+                db.execute("UPDATE portfolio SET profit_reserve_rate=0.99 WHERE id=1")
             result = reconcile_portfolio_databases(portfolio_path, audit_path)
             self.assertEqual(result["legacy_reserve_trades"], 0)
             self.assertAlmostEqual(result["cash"], 842.9)
