@@ -96,6 +96,9 @@ def _prepare_chronological_observations(observations):
         return observations, False, "decision timestamps must be valid timezone-aware ISO timestamps"
     if len(set(parsed)) != len(parsed):
         return observations, False, "duplicate decision timestamps make chronological ordering ambiguous"
+    target_dates = [_target_date(getattr(item, "outcome_target_date", None)) for item in observations]
+    if any(value is None for value in target_dates):
+        return observations, False, "outcome target dates are missing or invalid"
     ordered = tuple(
         item for _, item in sorted(zip(parsed, observations), key=lambda pair: pair[0])
     )
