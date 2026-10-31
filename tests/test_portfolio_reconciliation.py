@@ -18,7 +18,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
         self,
         directory,
         *,
-        cash=842.7,
+        cash=842.9,
         protected_cash=9.35,
         position_quantity=15,
         position_average_price=11.0,
@@ -112,7 +112,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
             self.assertEqual(result["audit_action_rows"], 3)
             self.assertEqual(result["audit_tickers"], 1)
             self.assertEqual(result["open_positions"], 1)
-            self.assertAlmostEqual(result["cash"], 842.7)
+            self.assertAlmostEqual(result["cash"], 842.9)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
             self.assertAlmostEqual(result["commissions"], 2.95)
             self.assertAlmostEqual(result["realized_pnl"], 18.7)
@@ -141,7 +141,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                     "UPDATE positions SET quantity=4, average_price=20.0 WHERE ticker='AAA'"
                 )
                 db.execute(
-                    "UPDATE portfolio SET cash=925.25, protected_cash=9.35, "
+                    "UPDATE portfolio SET cash=925.45, protected_cash=9.35, "
                     "realized_pnl=15.4, commissions=5.4 WHERE id=1"
                 )
 
@@ -156,10 +156,21 @@ class PortfolioReconciliationTests(unittest.TestCase):
 
             self.assertEqual(result["trade_count"], 5)
             self.assertEqual(result["open_positions"], 1)
-            self.assertAlmostEqual(result["cash"], 925.25)
+            self.assertAlmostEqual(result["cash"], 925.45)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
             self.assertAlmostEqual(result["realized_pnl"], 15.4)
             self.assertAlmostEqual(result["commissions"], 5.4)
+
+    def test_uses_recorded_per_trade_reserve_transfers_when_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory, cash=842.9)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
+                db.execute("UPDATE trades SET reserve_transfer=0 WHERE side='BUY'")
+                db.execute("UPDATE trades SET reserve_transfer=9.35 WHERE side='SELL'")
+            result = reconcile_portfolio_databases(portfolio_path, audit_path)
+            self.assertEqual(result["legacy_reserve_trades"], 0)
+            self.assertAlmostEqual(result["cash"], 842.9)
 
     def test_rejects_trade_commission_mismatch_even_when_aggregates_match(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -233,7 +244,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path, audit_path = self._create_databases(directory, protected_cash=8.0)
 
-            with self.assertRaisesRegex(PortfolioReconciliationError, "protected reserve"):
+            with self.assertRaisesRegex(PortfolioReconciliationError, "cash vs trade ledger"):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
     def test_rejects_open_position_quantity_that_differs_from_trade_ledger(self):
