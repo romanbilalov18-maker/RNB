@@ -18,7 +18,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
         self,
         directory,
         *,
-        cash=842.9,
+        cash=842.7,
         protected_cash=9.35,
         position_quantity=15,
         position_average_price=11.0,
@@ -112,7 +112,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
             self.assertEqual(result["audit_action_rows"], 3)
             self.assertEqual(result["audit_tickers"], 1)
             self.assertEqual(result["open_positions"], 1)
-            self.assertAlmostEqual(result["cash"], 842.9)
+            self.assertAlmostEqual(result["cash"], 842.7)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
             self.assertAlmostEqual(result["commissions"], 2.95)
             self.assertAlmostEqual(result["realized_pnl"], 18.7)
@@ -141,7 +141,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                     "UPDATE positions SET quantity=4, average_price=20.0 WHERE ticker='AAA'"
                 )
                 db.execute(
-                    "UPDATE portfolio SET cash=925.45, protected_cash=9.35, "
+                    "UPDATE portfolio SET cash=925.25, protected_cash=9.35, "
                     "realized_pnl=15.4, commissions=5.4 WHERE id=1"
                 )
 
@@ -156,7 +156,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
 
             self.assertEqual(result["trade_count"], 5)
             self.assertEqual(result["open_positions"], 1)
-            self.assertAlmostEqual(result["cash"], 925.45)
+            self.assertAlmostEqual(result["cash"], 925.25)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
             self.assertAlmostEqual(result["realized_pnl"], 15.4)
             self.assertAlmostEqual(result["commissions"], 5.4)
