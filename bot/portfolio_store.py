@@ -94,7 +94,8 @@ class SQLitePortfolioStore:
                     commission REAL NOT NULL,
                     realized_pnl REAL NOT NULL,
                     reason TEXT NOT NULL DEFAULT 'not recorded',
-                    entry_price REAL
+                    entry_price REAL,
+                    reserve_transfer REAL
                 );
 
                 CREATE TABLE IF NOT EXISTS equity_history (
@@ -141,6 +142,8 @@ class SQLitePortfolioStore:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
             if "entry_price" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
+            if "reserve_transfer" not in trade_columns:
+                db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
 
     def load_or_create(
         self,
@@ -276,6 +279,13 @@ class SQLitePortfolioStore:
                         realized_pnl=trade["realized_pnl"],
                         reason=trade["reason"],
                         entry_price=trade["entry_price"],
+                        reserve_transfer=(
+                            _validate_persisted_number(
+                                trade["reserve_transfer"],
+                                f"trade {trade['id']} reserve_transfer",
+                            )
+                            if trade["reserve_transfer"] is not None else None
+                        ),
                     )
                 )
 
@@ -382,8 +392,8 @@ class SQLitePortfolioStore:
                 """
                 INSERT INTO trades
                     (timestamp, ticker, side, quantity, price,
-                     commission, realized_pnl, reason, entry_price)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     commission, realized_pnl, reason, entry_price, reserve_transfer)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -396,6 +406,7 @@ class SQLitePortfolioStore:
                         trade.realized_pnl,
                         trade.reason,
                         trade.entry_price,
+                        trade.reserve_transfer,
                     )
                     for trade in portfolio.trades
                 ],
