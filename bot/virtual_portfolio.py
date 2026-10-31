@@ -118,7 +118,7 @@ class VirtualPortfolio:
         self.commissions += commission
         trade = VirtualTrade(
             timestamp, ticker, "BUY", quantity, price, commission, 0.0,
-            reason=reason, entry_price=price,
+            reason=reason, entry_price=price, reserve_transfer=0.0,
         )
         self.trades.append(trade)
         return trade
@@ -149,6 +149,7 @@ class VirtualPortfolio:
         trade = VirtualTrade(
             timestamp, ticker, "SELL", quantity, price, commission, realized_pnl,
             reason=reason, entry_price=position.average_price,
+            reserve_transfer=reserve_transfer,
         )
         self.trades.append(trade)
         return trade
