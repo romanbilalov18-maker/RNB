@@ -10,6 +10,50 @@ from bot.main import (
 )
 
 
+
+
+
+class _PortfolioStoreDouble:
+    def __init__(self, committed=(), save_error=None):
+        self.committed = set(committed)
+        self.save_error = save_error
+        self.save_calls = 0
+
+    def committed_cycle_ids(self):
+        return set(self.committed)
+
+    def save(self, *args, **kwargs):
+        self.save_calls += 1
+        if self.save_error:
+            raise self.save_error
+
+
+class _AuditStoreDouble:
+    def __init__(self, cycles=(), record_count=1, rollback_error=None):
+        self.cycles = set(cycles)
+        self.record_count = record_count
+        self.rollback_error = rollback_error
+        self.record_calls = 0
+        self.deleted = []
+
+    def cycle_ids(self):
+        return set(self.cycles)
+
+    def cycle_record_count(self, cycle_id):
+        return self.record_count
+
+    def record_cycle(self, *, cycle_id, **kwargs):
+        self.record_calls += 1
+        self.cycles.add(cycle_id)
+        return self.record_count
+
+    def delete_cycle(self, cycle_id):
+        if self.rollback_error:
+            raise self.rollback_error
+        self.deleted.append(cycle_id)
+        self.cycles.discard(cycle_id)
+
+
 class TestMainCycleRecoveryGuards(unittest.TestCase):
     def test_missing_price_for_held_position_rejects_cycle(self):
         portfolio = Mock()
@@ -48,10 +92,8 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
         audit_store.delete_cycle.assert_not_called()
 
     def test_persist_rejects_cycle_already_present_only_in_audit(self):
-        portfolio_store = Mock()
-        audit_store = Mock()
-        portfolio_store.committed_cycle_ids.return_value = set()
-        audit_store.cycle_ids.return_value = {"cycle-orphan"}
+        portfolio_store = _PortfolioStoreDouble()
+        audit_store = _AuditStoreDouble(cycles={"cycle-orphan"})
 
         with self.assertRaisesRegex(CycleConsistencyError, "already exists in audit"):
             _persist_cycle_safely(
@@ -60,15 +102,12 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                 equity=1000.0, cash=1000.0, total_commissions=0.0,
             )
 
-        audit_store.record_cycle.assert_not_called()
-        portfolio_store.save.assert_not_called()
+        self.assertEqual(audit_store.record_calls, 0)
+        self.assertEqual(portfolio_store.save_calls, 0)
 
     def test_persist_returns_existing_committed_cycle_without_replaying(self):
-        portfolio_store = Mock()
-        audit_store = Mock()
-        portfolio_store.committed_cycle_ids.return_value = {"cycle-done"}
-        audit_store.cycle_ids.return_value = {"cycle-done"}
-        audit_store.cycle_record_count.return_value = 2
+        portfolio_store = _PortfolioStoreDouble(committed={"cycle-done"})
+        audit_store = _AuditStoreDouble(cycles={"cycle-done"}, record_count=2)
 
         result = _persist_cycle_safely(
             portfolio_store, audit_store, Mock(), {},
@@ -77,16 +116,12 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
         )
 
         self.assertEqual(result, 2)
-        audit_store.record_cycle.assert_not_called()
-        portfolio_store.save.assert_not_called()
+        self.assertEqual(audit_store.record_calls, 0)
+        self.assertEqual(portfolio_store.save_calls, 0)
 
     def test_failed_portfolio_save_rolls_back_audit_cycle(self):
-        portfolio_store = Mock()
-        audit_store = Mock()
-        portfolio_store.committed_cycle_ids.return_value = set()
-        audit_store.cycle_ids.return_value = set()
-        audit_store.record_cycle.return_value = 1
-        portfolio_store.save.side_effect = OSError("disk full")
+        portfolio_store = _PortfolioStoreDouble(save_error=OSError("disk full"))
+        audit_store = _AuditStoreDouble(record_count=1)
 
         with self.assertRaisesRegex(OSError, "disk full"):
             _persist_cycle_safely(
@@ -95,16 +130,13 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                 equity=1000.0, cash=1000.0, total_commissions=0.0,
             )
 
-        audit_store.delete_cycle.assert_called_once_with("cycle-rollback")
+        self.assertEqual(audit_store.deleted, ["cycle-rollback"])
 
     def test_failed_audit_rollback_raises_consistency_error(self):
-        portfolio_store = Mock()
-        audit_store = Mock()
-        portfolio_store.committed_cycle_ids.return_value = set()
-        audit_store.cycle_ids.return_value = set()
-        audit_store.record_cycle.return_value = 1
-        portfolio_store.save.side_effect = OSError("disk full")
-        audit_store.delete_cycle.side_effect = OSError("audit locked")
+        portfolio_store = _PortfolioStoreDouble(save_error=OSError("disk full"))
+        audit_store = _AuditStoreDouble(
+            record_count=1, rollback_error=OSError("audit locked")
+        )
 
         with self.assertRaisesRegex(CycleConsistencyError, "manual reconciliation"):
             _persist_cycle_safely(
