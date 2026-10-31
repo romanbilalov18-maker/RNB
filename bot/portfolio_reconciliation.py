@@ -80,6 +80,13 @@ def _reconcile_trade_ledger(
         expected_commissions += commission
 
         if side == "BUY":
+            if "entry_price" in trade.keys() and trade["entry_price"] is not None:
+                recorded_entry = _number(
+                    f"trade #{index} entry price", trade["entry_price"]
+                )
+                _assert_close(
+                    f"trade #{index} BUY entry price", recorded_entry, price
+                )
             expected_cash -= quantity * price + commission
             position = positions.setdefault(ticker, {"quantity": 0, "average_price": 0.0})
             old_quantity = position["quantity"]
@@ -99,6 +106,13 @@ def _reconcile_trade_ledger(
                 f"trade #{index} sells more {ticker} than the ledger holds"
             )
         entry_price = position["average_price"]
+        if "entry_price" in trade.keys() and trade["entry_price"] is not None:
+            recorded_entry = _number(
+                f"trade #{index} entry price", trade["entry_price"]
+            )
+            _assert_close(
+                f"trade #{index} SELL entry price", recorded_entry, entry_price
+            )
         entry_commission = quantity * entry_price * commission_rate
         calculated_pnl = quantity * (price - entry_price) - commission - entry_commission
         _assert_close(f"trade #{index} SELL realized P/L", recorded_pnl, calculated_pnl)
