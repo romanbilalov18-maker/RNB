@@ -167,11 +167,22 @@ class PaperExecutor:
                     position.quote_unavailable_cycles = max(
                         0, int(getattr(position, "quote_unavailable_cycles", 0) or 0)
                     ) + 1
-                position.stagnant_sessions = max(
-                    0, int(getattr(position, "stagnant_sessions", 0) or 0),
-                    int(health.flat_sessions or 0),
-                )
+                # This is the current consecutive flat-candle streak, not a
+                # lifetime counter. It can fall back to zero when real candles
+                # show movement again.
+                position.stagnant_sessions = max(0, int(health.flat_sessions or 0))
                 position.last_health_status = health.status
+                completed_candles = [
+                    candle for candle in (getattr(scan, "candle_history", {}) or {}).get(ticker, ())
+                    if getattr(candle, "is_complete", True) is not False
+                ]
+                if completed_candles:
+                    candle_time = getattr(completed_candles[-1], "time", None)
+                    if candle_time is not None:
+                        position.last_health_candle_timestamp = (
+                            candle_time.isoformat() if hasattr(candle_time, "isoformat")
+                            else str(candle_time)
+                        )
             print(
                 f"POSITION STATUS: ticker={ticker} quote_source={quote_source} "
                 f"price={execution_prices.get(ticker, 'UNAVAILABLE')} "
