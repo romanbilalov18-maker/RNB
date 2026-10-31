@@ -117,6 +117,52 @@ class PortfolioReconciliationTests(unittest.TestCase):
             self.assertAlmostEqual(result["commissions"], 2.95)
             self.assertAlmostEqual(result["realized_pnl"], 18.7)
 
+    def test_reconciles_partial_sales_full_close_and_reopen_same_ticker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
+                db.execute("DELETE FROM trades")
+                lifecycle = [
+                    ("BUY", 10, 10.0, 1.0, 0.0, 10.0),
+                    ("BUY", 10, 12.0, 1.2, 0.0, 12.0),
+                    ("SELL", 5, 15.0, 0.75, 18.7, 11.0),
+                    ("SELL", 15, 11.0, 1.65, -3.3, 11.0),
+                    ("BUY", 4, 20.0, 0.8, 0.0, 20.0),
+                ]
+                for side, quantity, price, fee, pnl, entry in lifecycle:
+                    db.execute(
+                        "INSERT INTO trades "
+                        "(ticker, side, quantity, price, commission, realized_pnl, entry_price) "
+                        "VALUES ('AAA', ?, ?, ?, ?, ?, ?)",
+                        (side, quantity, price, fee, pnl, entry),
+                    )
+                db.execute(
+                    "UPDATE positions SET quantity=4, average_price=20.0 WHERE ticker='AAA'"
+                )
+                db.execute(
+                    "UPDATE portfolio SET cash=925.25, protected_cash=9.35, "
+                    "realized_pnl=15.4, commissions=5.4 WHERE id=1"
+                )
+
+            with sqlite3.connect(audit_path) as db:
+                db.execute("DELETE FROM decision_audit")
+                db.execute(
+                    "INSERT INTO decision_audit VALUES "
+                    "('cycle-lifecycle', '2026-10-31T12:00:00+00:00', 'AAA', "
+                    "'BUY', '', NULL, NULL, NULL, 'BUY+BUY+SELL+SELL+BUY', "
+                    "44, 5.4, 15.4, 925.25, 925.25, 5.4, 1, NULL, NULL, '', 10.0, 20.0)"
+                )
+
+            result = reconcile_portfolio_databases(portfolio_path, audit_path)
+
+            self.assertEqual(result["trade_count"], 5)
+            self.assertEqual(result["open_positions"], 1)
+            self.assertAlmostEqual(result["cash"], 925.25)
+            self.assertAlmostEqual(result["protected_cash"], 9.35)
+            self.assertAlmostEqual(result["realized_pnl"], 15.4)
+            self.assertAlmostEqual(result["commissions"], 5.4)
+
     def test_rejects_trade_commission_mismatch_even_when_aggregates_match(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path, audit_path = self._create_databases(
