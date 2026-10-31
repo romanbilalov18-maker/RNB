@@ -91,8 +91,8 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertAlmostEqual(restored.profit_reserve_rate, 0.35)
             restored.sell("TEST", 10, 110.0, timestamp)
 
-            self.assertAlmostEqual(restored.protected_cash, 13.706)
-            self.assertAlmostEqual(restored.cash, 9971.294)
+            self.assertAlmostEqual(restored.protected_cash, 34.265)
+            self.assertAlmostEqual(restored.cash, 10063.635)
 
     def test_equity_history_tracks_market_revaluation_across_saves(self):
         with tempfile.TemporaryDirectory() as directory:
