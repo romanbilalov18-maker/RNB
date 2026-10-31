@@ -10,20 +10,22 @@ from bot.intelligence.levels.level_11.models.learning_observation import Learnin
 
 def make_observations(count=60):
     observations = []
+    first_day = date(2026, 1, 1)
     for i in range(count):
         correct = (i % 2 == 0)
         strong = 0.9 if correct else 0.1
         # A weaker feature is wrong on a repeatable subset of observations.
         weak_predicts_correct = correct if i % 4 != 0 else not correct
         weak = 0.8 if weak_predicts_correct else 0.2
+        decision_day = first_day + timedelta(days=i)
         observations.append(
             LearningObservation(
                 outcome_return=0.02 if correct else -0.02,
                 correct=correct,
                 level_scores={"L01": strong, "L02": weak},
                 analyzer_scores={"L01:trend": strong, "L02:noise": weak},
-                decision_time=f"2026-01-{(i % 28) + 1:02d}T12:00:00+00:00",
-                outcome_target_date=f"2026-02-{(i % 28) + 1:02d}",
+                decision_time=f"{decision_day.isoformat()}T12:00:00+00:00",
+                outcome_target_date=(decision_day + timedelta(days=3)).isoformat(),
             )
         )
     return tuple(observations)
