@@ -105,9 +105,14 @@ class DecisionAuditStore:
         return None
 
     @classmethod
-    def _is_market_session_date(cls, session: date) -> bool:
-        """Reject weekend dates; broker daily candles provide actual sessions."""
-        return session.weekday() < 5
+    def _is_valid_broker_session_date(cls, session: date) -> bool:
+        """Accept dates represented by actual completed broker candles.
+
+        Weekend exchange sessions exist for some MOEX instruments. A weekend
+        date is valid only when T-Invest returned a completed candle for that
+        ticker; no calendar-based or synthetic session is created here.
+        """
+        return isinstance(session, date)
 
     @classmethod
     def _is_completed_daily_candle(cls, candle: object, now: datetime | None = None) -> bool:
@@ -128,7 +133,7 @@ class DecisionAuditStore:
             session = date.fromisoformat(session_text)
         except ValueError:
             return False
-        return session < market_today and cls._is_market_session_date(session)
+        return session < market_today and cls._is_valid_broker_session_date(session)
 
     @staticmethod
     def _price(value: object) -> float | None:
@@ -233,20 +238,6 @@ class DecisionAuditStore:
                 getattr(trades[-1], "price", None) if trades else None,
             ))
         with self._connect() as db:
-            # Remove legacy weekend prices written by older versions. Outcomes
-            # are derived data, so rebuild them after removing invalid sessions.
-            weekend_rows = db.execute("SELECT ticker, session_date FROM market_session_prices").fetchall()
-            invalid_rows = [
-                (row["ticker"], row["session_date"]) for row in weekend_rows
-                if date.fromisoformat(row["session_date"]).weekday() >= 5
-            ]
-            if invalid_rows:
-                db.executemany(
-                    "DELETE FROM market_session_prices WHERE ticker=? AND session_date=?",
-                    invalid_rows,
-                )
-                db.execute("DELETE FROM decision_outcomes")
-
             db.executemany("""
                 INSERT INTO decision_audit (
                     cycle_id, recorded_at, ticker, recommendation, reason, score, confidence,
@@ -281,7 +272,7 @@ class DecisionAuditStore:
                         continue
                     session = self._session_date(candle)
                     close = self._price(getattr(candle, "close", None))
-                    if session and close and self._is_market_session_date(date.fromisoformat(session)):
+                    if session and close and self._is_valid_broker_session_date(date.fromisoformat(session)):
                         db.execute("""
                             INSERT INTO market_session_prices (ticker, session_date, close_price)
                             VALUES (?, ?, ?) ON CONFLICT(ticker, session_date)
@@ -306,21 +297,6 @@ class DecisionAuditStore:
         prices_added = 0
         prices_updated = 0
         with self._connect() as db:
-            existing_rows = db.execute(
-                "SELECT ticker, session_date FROM market_session_prices"
-            ).fetchall()
-            invalid_rows = [
-                (row["ticker"], row["session_date"])
-                for row in existing_rows
-                if date.fromisoformat(row["session_date"]).weekday() >= 5
-            ]
-            if invalid_rows:
-                db.executemany(
-                    "DELETE FROM market_session_prices WHERE ticker=? AND session_date=?",
-                    invalid_rows,
-                )
-                db.execute("DELETE FROM decision_outcomes")
-
             for ticker, candles in candle_history.items():
                 ticker = str(ticker or "").strip()
                 if not ticker:
@@ -332,7 +308,7 @@ class DecisionAuditStore:
                     close = self._price(getattr(candle, "close", None))
                     if session is None or close is None:
                         continue
-                    if not self._is_market_session_date(date.fromisoformat(session)):
+                    if not self._is_valid_broker_session_date(date.fromisoformat(session)):
                         continue
                     previous = db.execute(
                         "SELECT close_price FROM market_session_prices WHERE ticker=? AND session_date=?",

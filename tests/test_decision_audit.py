@@ -149,9 +149,8 @@ class DecisionAuditStoreTests(unittest.TestCase):
     def test_uses_decision_time_price_and_excludes_same_day_close(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
-            # Pin the decision to a Monday so this test behaves identically on
-            # weekdays and weekends. The previous calendar day is Sunday and is
-            # not an exchange session; Friday is the preceding weekday session.
+            # Pin the decision to Monday. No Sunday candle is supplied for this
+            # ticker, so Friday remains its previous observed broker session.
             as_of = datetime.fromisoformat("2026-10-19T09:00:00+00:00")
             today_date = as_of.astimezone(DecisionAuditStore.MARKET_TIMEZONE).date()
             today = today_date.isoformat()
@@ -521,15 +520,35 @@ class DecisionAuditStoreTests(unittest.TestCase):
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=before_close_buffer))
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(current_day_candle, now=after_close_buffer))
 
-    def test_daily_candle_completion_handles_weekends_and_date_only_values(self):
+    def test_daily_candle_completion_accepts_prior_weekend_broker_candles_without_same_day_leakage(self):
         saturday_morning = datetime.fromisoformat("2026-10-17T08:00:00+00:00")
+        sunday_morning = datetime.fromisoformat("2026-10-18T08:00:00+00:00")
         friday = candle("2026-10-16", 100)
         saturday = candle("2026-10-17", 101)
+        sunday = candle("2026-10-18", 102)
         date_only_today = SimpleNamespace(time=__import__("datetime").date(2026, 10, 17))
 
         self.assertTrue(DecisionAuditStore._is_completed_daily_candle(friday, now=saturday_morning))
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(saturday, now=saturday_morning))
+        self.assertTrue(DecisionAuditStore._is_completed_daily_candle(saturday, now=sunday_morning))
+        self.assertFalse(DecisionAuditStore._is_completed_daily_candle(sunday, now=sunday_morning))
         self.assertFalse(DecisionAuditStore._is_completed_daily_candle(date_only_today, now=saturday_morning))
+
+    def test_record_market_session_prices_keeps_actual_weekend_broker_candles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DecisionAuditStore(Path(tmp) / "audit.sqlite")
+            as_of = datetime.fromisoformat("2026-10-18T08:00:00+00:00")
+            result = store.record_market_session_prices(
+                {"AAA": [candle("2026-10-17", 101)]},
+                as_of=as_of,
+            )
+            with store._connect() as db:
+                rows = db.execute(
+                    "SELECT session_date, close_price FROM market_session_prices"
+                ).fetchall()
+
+        self.assertEqual(result["prices_added"], 1)
+        self.assertEqual([(row["session_date"], row["close_price"]) for row in rows], [("2026-10-17", 101)])
 
 
     def test_price_rejects_non_finite_and_non_positive_values(self):
