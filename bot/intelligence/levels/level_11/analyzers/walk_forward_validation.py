@@ -213,7 +213,7 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
         "raw_train_count": len(raw_train),
         "purged_train_count": purged_train_count,
         "test_count": len(test),
-        "purging_applied": boundary is not None,
+        "purging_applied": boundary_time is not None,
         "chronology_verified": chronology_verified,
         "weights_learned_on_train_only": True,
         "calibrators_learned_on_train_only": True,
