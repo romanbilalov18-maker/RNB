@@ -206,8 +206,8 @@ class TestSQLitePortfolioStore(unittest.TestCase):
 
             with store._connect() as db:
                 before_portfolio = tuple(db.execute(
-                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, protected_cash "
-                    "FROM portfolio WHERE id=1"
+                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, "
+                    "protected_cash, profit_reserve_rate FROM portfolio WHERE id=1"
                 ).fetchone())
                 before_positions = [tuple(row) for row in db.execute(
                     "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
@@ -221,6 +221,9 @@ class TestSQLitePortfolioStore(unittest.TestCase):
                 )]
 
             portfolio.buy("NEW", 1, 50, timestamp)
+            # The reserve setting is part of the same atomic account snapshot.
+            # A later write failure must roll it back along with balances/trades.
+            portfolio.profit_reserve_rate = 0.35
             # Two mapping entries claim the same persisted ticker. SQLite's
             # positions primary key must reject the second insert after the
             # portfolio upsert and position delete have already run.
@@ -230,8 +233,8 @@ class TestSQLitePortfolioStore(unittest.TestCase):
 
             with store._connect() as db:
                 after_portfolio = tuple(db.execute(
-                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, protected_cash "
-                    "FROM portfolio WHERE id=1"
+                    "SELECT initial_balance, commission_rate, cash, realized_pnl, commissions, "
+                    "protected_cash, profit_reserve_rate FROM portfolio WHERE id=1"
                 ).fetchone())
                 after_positions = [tuple(row) for row in db.execute(
                     "SELECT ticker, quantity, average_price FROM positions ORDER BY ticker"
@@ -261,6 +264,8 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             )
             self.assertEqual(len(restored.trades), len(before_trades))
             self.assertAlmostEqual(restored.cash, before_portfolio[2])
+            self.assertAlmostEqual(restored.profit_reserve_rate, before_portfolio[6])
+            self.assertAlmostEqual(restored.profit_reserve_rate, 0.7)
 
     def test_missing_portfolio_row_with_residual_state_fails_closed_without_deleting_history(self):
         with tempfile.TemporaryDirectory() as directory:
