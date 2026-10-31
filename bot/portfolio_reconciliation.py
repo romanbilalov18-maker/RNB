@@ -224,7 +224,8 @@ def reconcile_portfolio_databases(
         audit_by_ticker = db.execute(
             "SELECT ticker, SUM(virtual_quantity) AS quantity, "
             "COALESCE(SUM(virtual_commission), 0) AS commissions, "
-            "COALESCE(SUM(realized_pnl), 0) AS realized_pnl "
+            "COALESCE(SUM(realized_pnl), 0) AS realized_pnl, "
+            "GROUP_CONCAT(virtual_action, '+') AS actions "
             "FROM decision_audit WHERE virtual_action != 'NO_TRADE' "
             "GROUP BY ticker ORDER BY ticker"
         ).fetchall()
@@ -233,8 +234,17 @@ def reconcile_portfolio_databases(
     for trade in trades:
         ticker = str(trade["ticker"] or "").strip()
         aggregate = ledger_by_ticker.setdefault(
-            ticker, {"quantity": 0, "commissions": 0.0, "realized_pnl": 0.0}
+            ticker, {
+                "quantity": 0, "commissions": 0.0, "realized_pnl": 0.0,
+                "BUY": 0, "SELL": 0,
+            }
         )
+        side = str(trade["side"] or "").upper()
+        if side not in {"BUY", "SELL"}:
+            raise PortfolioReconciliationError(
+                f"trade for {ticker} has unsupported side {side!r}"
+            )
+        aggregate[side] += 1
         aggregate["quantity"] += int(trade["quantity"])
         aggregate["commissions"] += _number(
             f"trade {ticker} commission", trade["commission"]
@@ -252,9 +262,20 @@ def reconcile_portfolio_databases(
             "realized_pnl": _number(
                 f"audit {row['ticker']} realized P/L", row["realized_pnl"]
             ),
+            "BUY": 0,
+            "SELL": 0,
         }
         for row in audit_by_ticker
     }
+    for row in audit_by_ticker:
+        ticker = str(row["ticker"])
+        actions = str(row["actions"] or "").split("+")
+        for action in actions:
+            if action not in {"BUY", "SELL"}:
+                raise PortfolioReconciliationError(
+                    f"audit {ticker} contains unsupported execution action {action!r}"
+                )
+            audit_ticker_totals[ticker][action] += 1
     if set(audit_ticker_totals) != set(ledger_by_ticker):
         raise PortfolioReconciliationError(
             "audit tickers differ from trade ledger: "
@@ -262,6 +283,12 @@ def reconcile_portfolio_databases(
         )
     for ticker, expected in ledger_by_ticker.items():
         actual = audit_ticker_totals[ticker]
+        if actual["BUY"] != expected["BUY"] or actual["SELL"] != expected["SELL"]:
+            raise PortfolioReconciliationError(
+                f"audit {ticker} execution-side count mismatch: "
+                f"BUY actual={actual['BUY']} expected={expected['BUY']}; "
+                f"SELL actual={actual['SELL']} expected={expected['SELL']}"
+            )
         if actual["quantity"] != expected["quantity"]:
             raise PortfolioReconciliationError(
                 f"audit {ticker} quantity mismatch: "
