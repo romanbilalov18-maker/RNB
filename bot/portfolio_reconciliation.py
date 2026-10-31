@@ -149,6 +149,7 @@ def reconcile_portfolio_databases(
         )
 
     with sqlite3.connect(portfolio_path) as db:
+        db.row_factory = sqlite3.Row
         _require_columns(
             db,
             "portfolio",
@@ -202,6 +203,7 @@ def reconcile_portfolio_databases(
     )
 
     with sqlite3.connect(audit_path) as db:
+        db.row_factory = sqlite3.Row
         _require_columns(
             db,
             "decision_audit",
