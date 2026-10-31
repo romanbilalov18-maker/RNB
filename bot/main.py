@@ -344,6 +344,77 @@ def _print_end_of_run_report(
         reserve_added_this_cycle=portfolio.protected_cash - starting_reserve,
         scope_label="Весь запуск",
     )
+    _print_problem_positions_summary(portfolio, last_result)
+
+
+
+def _print_problem_positions_summary(portfolio, last_result) -> None:
+    """Summarize open holdings that require manual review without inventing prices."""
+    positions = getattr(portfolio, "positions", {}) or {}
+    result = last_result
+    broker_statuses = getattr(result, "instrument_status_by_ticker", {}) or {}
+    current_prices = getattr(result, "current_prices", {}) or {}
+
+    review_items = []
+    for ticker, position in sorted(positions.items()):
+        unavailable_cycles = int(getattr(position, "quote_unavailable_cycles", 0) or 0)
+        stagnant_sessions = int(getattr(position, "stagnant_sessions", 0) or 0)
+        health_status = getattr(position, "last_health_status", None) or "UNKNOWN"
+        broker = broker_statuses.get(ticker) or {}
+        reasons = []
+        if unavailable_cycles >= 3:
+            reasons.append(f"нет свежей котировки {unavailable_cycles} циклов")
+        if health_status == "QUOTE_UNAVAILABLE":
+            reasons.append("последний health-статус: котировка недоступна")
+        if health_status == "PROLONGED_STAGNATION":
+            reasons.append("зафиксирован продолжительный застой цены")
+        if broker.get("resolution") == "UNRESOLVED":
+            reasons.append("инструмент не найден/не разрешён в каталоге T-Invest")
+        if broker.get("status_check_succeeded") and broker.get("api_trade_available") is False:
+            reasons.append("T-Invest сообщает, что торговля через API недоступна")
+        if not reasons:
+            continue
+
+        quantity = getattr(position, "quantity", None)
+        average_price = getattr(position, "average_price", None)
+        cost_basis = (
+            float(quantity) * float(average_price)
+            if isinstance(quantity, (int, float)) and not isinstance(quantity, bool)
+            and isinstance(average_price, (int, float)) and not isinstance(average_price, bool)
+            else None
+        )
+        price_available = _is_valid_report_price(current_prices.get(ticker))
+        review_items.append((ticker, position, broker, reasons, cost_basis, price_available))
+
+    print()
+    print("=" * 18 + " RNB — ПОЗИЦИИ, ТРЕБУЮЩИЕ ПРОВЕРКИ " + "=" * 18)
+    print(f"Позиций требуют внимания: {len(review_items)} из {len(positions)}.")
+    if not review_items:
+        print("Проблемных позиций по сохранённым health-счётчикам и последнему статусу T-Invest нет.")
+    for ticker, position, broker, reasons, cost_basis, price_available in review_items:
+        print(
+            f"- {ticker}: quantity={getattr(position, 'quantity', 'unknown')}; "
+            f"entry_price={getattr(position, 'average_price', 'unknown')}; "
+            f"cost_basis={cost_basis:.2f} RUB" if cost_basis is not None
+            else f"- {ticker}: quantity={getattr(position, 'quantity', 'unknown')}; cost_basis=unknown"
+        )
+        print(
+            f"  quote_unavailable_cycles={getattr(position, 'quote_unavailable_cycles', 0)}; "
+            f"stagnant_sessions={getattr(position, 'stagnant_sessions', 0)}; "
+            f"last_health_status={getattr(position, 'last_health_status', None) or 'UNKNOWN'}"
+        )
+        print(
+            f"  broker_resolution={broker.get('resolution', 'unknown')}; "
+            f"trading_status={broker.get('trading_status', 'unknown')}; "
+            f"api_trade_available={broker.get('api_trade_available', 'unknown')}; "
+            f"sell_available={broker.get('sell_available', 'unknown')}"
+        )
+        print("  Причина: " + "; ".join(reasons))
+        if not price_available:
+            print("  Рыночная стоимость и текущий P/L неизвестны: свежей подтверждённой цены нет.")
+        print("  Действие: ручная проверка инструмента; автоматическая продажа только из-за этих признаков запрещена.")
+    print("=" * 78)
+
 
 
 def _validate_held_position_prices(portfolio, market_prices) -> None:
