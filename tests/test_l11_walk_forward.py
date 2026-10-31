@@ -22,6 +22,8 @@ def make_observations(count=60):
                 correct=correct,
                 level_scores={"L01": strong, "L02": weak},
                 analyzer_scores={"L01:trend": strong, "L02:noise": weak},
+                decision_time=f"2026-01-{(i % 28) + 1:02d}T12:00:00+00:00",
+                outcome_target_date=f"2026-02-{(i % 28) + 1:02d}",
             )
         )
     return tuple(observations)
@@ -144,6 +146,45 @@ class L11WalkForwardTests(unittest.TestCase):
         result = evaluate_multiple_windows(make_observations(25), window_count=3, min_test_size=10)
         self.assertEqual(result["status"], "insufficient_data")
         self.assertFalse(result["deployment_allowed"])
+
+
+    def test_refuses_undated_rows_and_duplicate_instants(self):
+        rows = list(make_observations(60))
+        undated = list(rows)
+        undated[0] = LearningObservation(
+            outcome_return=undated[0].outcome_return, correct=undated[0].correct,
+            level_scores=undated[0].level_scores, analyzer_scores=undated[0].analyzer_scores,
+            outcome_target_date=undated[0].outcome_target_date,
+        )
+        result = evaluate_walk_forward(undated)
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertIn("missing or incomplete", result["reason"])
+
+        duplicated = list(rows)
+        duplicated[1] = LearningObservation(
+            outcome_return=duplicated[1].outcome_return, correct=duplicated[1].correct,
+            level_scores=duplicated[1].level_scores, analyzer_scores=duplicated[1].analyzer_scores,
+            decision_time=duplicated[0].decision_time,
+            outcome_target_date=duplicated[1].outcome_target_date,
+        )
+        result = evaluate_walk_forward(duplicated)
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertIn("duplicate", result["reason"])
+
+    def test_chronology_uses_absolute_time_across_timezone_offsets(self):
+        from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import _prepare_chronological_observations
+        first = LearningObservation(
+            outcome_return=0.01, correct=True, decision_time="2026-01-01T12:00:00+03:00",
+            outcome_target_date="2026-01-02",
+        )
+        second = LearningObservation(
+            outcome_return=0.01, correct=False, decision_time="2026-01-01T10:00:00+00:00",
+            outcome_target_date="2026-01-02",
+        )
+        ordered, verified, error = _prepare_chronological_observations((first, second))
+        self.assertTrue(verified)
+        self.assertIsNone(error)
+        self.assertEqual(ordered, (second, first))
 
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
