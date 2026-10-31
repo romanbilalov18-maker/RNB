@@ -108,6 +108,39 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(portfolio.positions["HELD_B"].quote_unavailable_cycles, 1)
         self.assertEqual(portfolio.positions["HELD_A"].last_health_status, "QUOTE_UNAVAILABLE")
 
+    def test_broker_instrument_status_is_reported_for_held_position(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+        scan = LiveScanResult(
+            selected_10=[], selected_3=[], buy_candidates=[], analyses={},
+            current_prices={}, previous_closes={}, lot_sizes={},
+            active_trading_tickers=set(),
+            instrument_status_by_ticker={
+                "HELD": {
+                    "resolution": "RESOLVED",
+                    "trading_status": "SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING",
+                    "api_trade_available": False,
+                    "sell_available": True,
+                    "status_check_succeeded": True,
+                }
+            },
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, buys = PaperExecutor().execute(
+                portfolio, scan, eligible_buy_tickers=set()
+            )
+
+        log = output.getvalue()
+        self.assertEqual(sells, [])
+        self.assertEqual(buys, [])
+        self.assertIn("broker_instrument_status=resolution=RESOLVED", log)
+        self.assertIn("api_trade_available=False", log)
+        self.assertIn("review_required=True", log)
+        self.assertIn("health=QUOTE_UNAVAILABLE", log)
+        self.assertIn("HELD", portfolio.positions)
+
     def test_held_position_can_be_evaluated_when_confirmed_active(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
