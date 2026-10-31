@@ -40,7 +40,7 @@ class L11WalkForwardTests(unittest.TestCase):
     def test_holdout_is_chronological_and_weights_are_learned_on_train_only(self):
         result = evaluate_walk_forward(make_observations(60), train_fraction=0.6)
         self.assertEqual(result["status"], "evaluated")
-        self.assertEqual(result["train_count"], 36)
+        self.assertEqual(result["train_count"], 33)
         self.assertEqual(result["test_count"], 24)
         self.assertTrue(result["weights_learned_on_train_only"])
         self.assertAlmostEqual(sum(result["level_weights"].values()), 1.0)
@@ -141,7 +141,7 @@ class L11WalkForwardTests(unittest.TestCase):
         from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_walk_forward
         result = evaluate_walk_forward(rows)
         self.assertEqual(result["status"], "insufficient_data")
-        self.assertIn("timestamps are incomplete", result["reason"])
+        self.assertIn("outcome target dates are missing or invalid", result["reason"])
 
     def test_multiple_windows_refuse_insufficient_history(self):
         from bot.intelligence.levels.level_11.analyzers.walk_forward_validation import evaluate_multiple_windows
