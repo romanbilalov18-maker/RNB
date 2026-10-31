@@ -44,7 +44,7 @@ class ClosedSessionOutcomeCollectionTests(unittest.TestCase):
                     candle("2026-10-05", 101),
                     candle("2026-10-06", 102),
                     candle("2026-10-07", 103),
-                    candle("2026-10-10", 999),  # Saturday must be ignored.
+                    candle("2026-10-10", 999),  # Actual completed broker weekend candle.
                     candle("2026-10-08", -1),   # Invalid price must be ignored.
                 ]
             }
@@ -52,7 +52,7 @@ class ClosedSessionOutcomeCollectionTests(unittest.TestCase):
                 prices, as_of=datetime.fromisoformat("2026-10-12T12:00:00+00:00")
             )
             self.assertEqual(result, {
-                "prices_added": 3, "prices_updated": 0, "outcomes_added": 2
+                "prices_added": 4, "prices_updated": 0, "outcomes_added": 2
             })
             summary = store.summary()
             self.assertEqual(summary["observations"], 1)
@@ -67,7 +67,7 @@ class ClosedSessionOutcomeCollectionTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(
                 [(row["session_date"], row["close_price"]) for row in saved],
-                [("2026-10-05", 101), ("2026-10-06", 102), ("2026-10-07", 103)],
+                [("2026-10-05", 101), ("2026-10-06", 102), ("2026-10-07", 103), ("2026-10-10", 999)],
             )
             self.assertEqual([row["horizon_sessions"] for row in horizons], [1, 3])
 
