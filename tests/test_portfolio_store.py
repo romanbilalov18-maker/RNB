@@ -127,6 +127,7 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual([trade.side for trade in restored.trades], ["BUY", "SELL"])
             self.assertAlmostEqual(restored.trades[1].commission, 0.44)
             self.assertAlmostEqual(restored.trades[1].realized_pnl, 39.16)
+            self.assertAlmostEqual(restored.trades[1].reserve_transfer, 27.412)
             self.assertAlmostEqual(restored.equity({"TEST": 110.0}), 10098.56)
     def test_profit_reserve_rate_survives_restart_and_controls_next_sale(self):
         with tempfile.TemporaryDirectory() as directory:
