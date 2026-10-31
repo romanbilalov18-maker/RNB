@@ -74,6 +74,26 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertAlmostEqual(restored.trades[1].commission, 0.44)
             self.assertAlmostEqual(restored.trades[1].realized_pnl, 39.16)
             self.assertAlmostEqual(restored.equity({"TEST": 110.0}), 10098.56)
+    def test_profit_reserve_rate_survives_restart_and_controls_next_sale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(
+                10_000,
+                commission_rate=0.001,
+                profit_reserve_rate=0.35,
+            )
+            portfolio.buy("TEST", 10, 100.0, timestamp)
+            store.save(portfolio)
+
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            self.assertAlmostEqual(restored.profit_reserve_rate, 0.35)
+            restored.sell("TEST", 10, 110.0, timestamp)
+
+            self.assertAlmostEqual(restored.protected_cash, 13.706)
+            self.assertAlmostEqual(restored.cash, 9971.294)
+
     def test_equity_history_tracks_market_revaluation_across_saves(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
