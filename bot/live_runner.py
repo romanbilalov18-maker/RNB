@@ -461,6 +461,7 @@ class LiveMarketRunner:
         active_instrument_ids = set()
         trading_status_by_id = {}
         trading_api_available_by_id = {}
+        trading_status_check_succeeded = False
         quote_age_by_id = {}
         fresh_quote_ids = set()
         now_utc = datetime.now(timezone.utc)
@@ -472,6 +473,7 @@ class LiveMarketRunner:
                     if str(getattr(share, "uid", "") or getattr(share, "figi", ""))
                 ],
             )
+            trading_status_check_succeeded = True
             for item in getattr(status_response, "trading_statuses", ()) or ():
                 raw_status = getattr(item, "trading_status", "")
                 status_name = str(getattr(raw_status, "name", raw_status)).upper()
@@ -497,6 +499,7 @@ class LiveMarketRunner:
                 )
 
         session_by_ticker = {}
+        instrument_status_by_ticker = {}
         for share in analysis_shares:
             ticker = str(getattr(share, "ticker", "") or "")
             instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", ""))
@@ -518,6 +521,19 @@ class LiveMarketRunner:
                 "broker_status_allows_session": status_compatible,
                 "quote_fresh": False,
                 "trade_eligible": False,
+            }
+            raw_catalog_status = getattr(share, "status", "UNAVAILABLE")
+            instrument_status_by_ticker[ticker] = {
+                "resolution": "RESOLVED",
+                "instrument_uid": str(getattr(share, "uid", "") or ""),
+                "figi": str(getattr(share, "figi", "") or ""),
+                "exchange": exchange or "UNAVAILABLE",
+                "trading_status": status_name,
+                "api_trade_available": trading_api_available_by_id.get(instrument_id),
+                "status_check_succeeded": trading_status_check_succeeded,
+                "catalog_status": str(getattr(raw_catalog_status, "name", raw_catalog_status)),
+                "buy_available": getattr(share, "buy_available_flag", None),
+                "sell_available": getattr(share, "sell_available_flag", None),
             }
 
         # Expose broker status and source quote timestamp so a smoke run can
@@ -838,6 +854,21 @@ class LiveMarketRunner:
             "verified_spread<=10_ticks+no_prolonged_stagnation"
         )
 
+        for raw_ticker in held_tickers:
+            ticker = str(raw_ticker or "").strip().upper()
+            instrument_status_by_ticker.setdefault(ticker, {
+                "resolution": "UNRESOLVED",
+                "instrument_uid": "UNAVAILABLE",
+                "figi": "UNAVAILABLE",
+                "exchange": "UNAVAILABLE",
+                "trading_status": "UNAVAILABLE",
+                "api_trade_available": None,
+                "status_check_succeeded": trading_status_check_succeeded,
+                "catalog_status": "NOT_FOUND_IN_TINVEST_CATALOG",
+                "buy_available": None,
+                "sell_available": None,
+            })
+
         return LiveScanResult(
             selected_10=selected_10,
             selected_3=buy_candidates[:3],
@@ -860,6 +891,7 @@ class LiveMarketRunner:
             market_sample_count=len(market_changes),
             market_context=market_context,
             session_by_ticker=session_by_ticker,
+            instrument_status_by_ticker=instrument_status_by_ticker,
         )
 
     @staticmethod
