@@ -68,16 +68,18 @@ class PortfolioReconciliationTests(unittest.TestCase):
             db.executescript(
                 """
                 CREATE TABLE decision_audit (
+                    ticker TEXT NOT NULL,
                     virtual_action TEXT NOT NULL,
+                    virtual_quantity INTEGER NOT NULL,
                     virtual_commission REAL NOT NULL,
                     realized_pnl REAL NOT NULL
                 );
-                INSERT INTO decision_audit VALUES ('BUY', 1.0, 0.0);
-                INSERT INTO decision_audit VALUES ('BUY', 1.2, 0.0);
+                INSERT INTO decision_audit VALUES ('AAA', 'BUY', 10, 1.0, 0.0);
+                INSERT INTO decision_audit VALUES ('AAA', 'BUY', 10, 1.2, 0.0);
                 """
             )
             db.execute(
-                "INSERT INTO decision_audit VALUES ('SELL', ?, ?)",
+                "INSERT INTO decision_audit VALUES ('AAA', 'SELL', 5, ?, ?)",
                 (audit_commissions - 2.2, audit_realized),
             )
         return portfolio_path, audit_path
@@ -108,6 +110,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
 
             self.assertEqual(result["trade_count"], 3)
             self.assertEqual(result["audit_action_rows"], 3)
+            self.assertEqual(result["audit_tickers"], 1)
             self.assertEqual(result["open_positions"], 1)
             self.assertAlmostEqual(result["cash"], 842.7)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
@@ -135,6 +138,30 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 )
 
             with self.assertRaisesRegex(PortfolioReconciliationError, "trade #1 commission"):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+    def test_rejects_audit_quantity_mismatch_for_one_ticker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(audit_path) as db:
+                db.execute(
+                    "UPDATE decision_audit SET virtual_quantity=9 "
+                    "WHERE virtual_action='BUY' AND virtual_quantity=10"
+                )
+
+            with self.assertRaisesRegex(PortfolioReconciliationError, "audit AAA quantity mismatch"):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+    def test_rejects_per_ticker_audit_mismatch_even_when_global_totals_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(audit_path) as db:
+                db.execute(
+                    "UPDATE decision_audit SET ticker='BBB' "
+                    "WHERE virtual_action='BUY' AND virtual_commission=1.0"
+                )
+
+            with self.assertRaisesRegex(PortfolioReconciliationError, "audit tickers differ"):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
     def test_rejects_cash_that_does_not_match_trade_ledger(self):
