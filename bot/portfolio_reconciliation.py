@@ -213,7 +213,7 @@ def reconcile_portfolio_databases(
         _require_columns(
             db,
             "decision_audit",
-            {"virtual_action", "virtual_commission", "realized_pnl"},
+            {"ticker", "virtual_action", "virtual_quantity", "virtual_commission", "realized_pnl"},
         )
         audit_count, action_rows, audit_commissions, audit_realized = db.execute(
             "SELECT COUNT(*), "
@@ -221,11 +221,68 @@ def reconcile_portfolio_databases(
             "COALESCE(SUM(virtual_commission), 0), "
             "COALESCE(SUM(realized_pnl), 0) FROM decision_audit"
         ).fetchone()
+        audit_by_ticker = db.execute(
+            "SELECT ticker, SUM(virtual_quantity) AS quantity, "
+            "COALESCE(SUM(virtual_commission), 0) AS commissions, "
+            "COALESCE(SUM(realized_pnl), 0) AS realized_pnl "
+            "FROM decision_audit WHERE virtual_action != 'NO_TRADE' "
+            "GROUP BY ticker ORDER BY ticker"
+        ).fetchall()
+
+    ledger_by_ticker: dict[str, dict[str, float | int]] = {}
+    for trade in trades:
+        ticker = str(trade["ticker"] or "").strip()
+        aggregate = ledger_by_ticker.setdefault(
+            ticker, {"quantity": 0, "commissions": 0.0, "realized_pnl": 0.0}
+        )
+        aggregate["quantity"] += int(trade["quantity"])
+        aggregate["commissions"] += _number(
+            f"trade {ticker} commission", trade["commission"]
+        )
+        aggregate["realized_pnl"] += _number(
+            f"trade {ticker} realized P/L", trade["realized_pnl"]
+        )
+
+    audit_ticker_totals = {
+        str(row["ticker"]): {
+            "quantity": int(row["quantity"] or 0),
+            "commissions": _number(
+                f"audit {row['ticker']} commissions", row["commissions"]
+            ),
+            "realized_pnl": _number(
+                f"audit {row['ticker']} realized P/L", row["realized_pnl"]
+            ),
+        }
+        for row in audit_by_ticker
+    }
+    if set(audit_ticker_totals) != set(ledger_by_ticker):
+        raise PortfolioReconciliationError(
+            "audit tickers differ from trade ledger: "
+            f"audit={sorted(audit_ticker_totals)}, ledger={sorted(ledger_by_ticker)}"
+        )
+    for ticker, expected in ledger_by_ticker.items():
+        actual = audit_ticker_totals[ticker]
+        if actual["quantity"] != expected["quantity"]:
+            raise PortfolioReconciliationError(
+                f"audit {ticker} quantity mismatch: "
+                f"actual={actual['quantity']} expected={expected['quantity']}"
+            )
+        _assert_close(
+            f"audit {ticker} commissions",
+            actual["commissions"],
+            expected["commissions"],
+        )
+        _assert_close(
+            f"audit {ticker} realized P/L",
+            actual["realized_pnl"],
+            expected["realized_pnl"],
+        )
 
     totals = {
         "trade_count": len(trades),
         "audit_rows": int(audit_count),
         "audit_action_rows": int(action_rows or 0),
+        "audit_tickers": len(audit_ticker_totals),
         "cash": account_cash,
         "protected_cash": account_reserve,
         "commissions": account_commissions,
