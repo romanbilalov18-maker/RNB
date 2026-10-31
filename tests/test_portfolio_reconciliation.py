@@ -140,6 +140,20 @@ class PortfolioReconciliationTests(unittest.TestCase):
             with self.assertRaisesRegex(PortfolioReconciliationError, "trade #1 commission"):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
+    def test_rejects_audit_buy_sell_side_mismatch_when_totals_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(audit_path) as db:
+                db.execute(
+                    "UPDATE decision_audit SET virtual_action='BUY' "
+                    "WHERE virtual_action='SELL'"
+                )
+
+            with self.assertRaisesRegex(
+                PortfolioReconciliationError, "execution-side count mismatch"
+            ):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
     def test_rejects_audit_quantity_mismatch_for_one_ticker(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path, audit_path = self._create_databases(directory)
