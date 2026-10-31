@@ -150,6 +150,16 @@ class PaperExecutor:
             spread = (getattr(scan, "liquidity_spread_ticks_by_ticker", {}) or {}).get(ticker)
             spread_label = f"{float(spread):.2f}_ticks" if isinstance(spread, (int, float)) else "unverified"
             position = portfolio.positions.get(ticker)
+            broker_status = (getattr(scan, "instrument_status_by_ticker", {}) or {}).get(ticker, {})
+            if not broker_status:
+                broker_status = {"resolution": "UNAVAILABLE", "trading_status": "UNAVAILABLE"}
+            broker_status_label = (
+                f"resolution={broker_status.get('resolution', 'UNAVAILABLE')};"
+                f"trading_status={broker_status.get('trading_status', 'UNAVAILABLE')};"
+                f"api_trade_available={broker_status.get('api_trade_available', 'UNAVAILABLE')};"
+                f"sell_available={broker_status.get('sell_available', 'UNAVAILABLE')};"
+                f"status_check_succeeded={broker_status.get('status_check_succeeded', False)}"
+            )
             if position is not None:
                 if price_available:
                     position.quote_unavailable_cycles = 0
@@ -168,6 +178,8 @@ class PaperExecutor:
                 f"health={health.status} recommendation={health.recommendation} "
                 f"quote_unavailable_cycles={getattr(position, 'quote_unavailable_cycles', 0) if position is not None else 0} "
                 f"stagnant_sessions={getattr(position, 'stagnant_sessions', 0) if position is not None else 0} "
+                f"broker_instrument_status={broker_status_label} "
+                f"review_required={bool(position is not None and (getattr(position, 'quote_unavailable_cycles', 0) >= 3 or broker_status.get('resolution') == 'UNRESOLVED' or (broker_status.get('status_check_succeeded') and broker_status.get('api_trade_available') is False)))} "
                 f"candles_checked={health.candles_checked} flat_sessions={health.flat_sessions} "
                 f"recent_range_pct={health.recent_range_pct if health.recent_range_pct is not None else 'UNAVAILABLE'} "
                 f"spread={spread_label} exit_action={decision.action} "
