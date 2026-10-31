@@ -32,7 +32,8 @@ class SQLitePortfolioStore:
                     cash REAL NOT NULL,
                     realized_pnl REAL NOT NULL,
                     commissions REAL NOT NULL,
-                    protected_cash REAL NOT NULL DEFAULT 0
+                    protected_cash REAL NOT NULL DEFAULT 0,
+                    profit_reserve_rate REAL NOT NULL DEFAULT 0.7
                 );
 
                 CREATE TABLE IF NOT EXISTS positions (
@@ -83,6 +84,8 @@ class SQLitePortfolioStore:
             portfolio_columns = {row["name"] for row in db.execute("PRAGMA table_info(portfolio)")}
             if "protected_cash" not in portfolio_columns:
                 db.execute("ALTER TABLE portfolio ADD COLUMN protected_cash REAL NOT NULL DEFAULT 0")
+            if "profit_reserve_rate" not in portfolio_columns:
+                db.execute("ALTER TABLE portfolio ADD COLUMN profit_reserve_rate REAL NOT NULL DEFAULT 0.7")
             position_columns = {row["name"] for row in db.execute("PRAGMA table_info(positions)")}
             if "purchase_timestamp" not in position_columns:
                 db.execute("ALTER TABLE positions ADD COLUMN purchase_timestamp TEXT")
@@ -108,6 +111,7 @@ class SQLitePortfolioStore:
         self,
         initial_balance: float,
         commission_rate: float,
+        profit_reserve_rate: float = 0.7,
     ) -> VirtualPortfolio:
         with self._connect() as db:
             row = db.execute(
@@ -142,6 +146,7 @@ class SQLitePortfolioStore:
                 portfolio = VirtualPortfolio(
                     initial_balance=initial_balance,
                     commission_rate=commission_rate,
+                    profit_reserve_rate=profit_reserve_rate,
                 )
                 self.save(portfolio)
                 return portfolio
@@ -153,6 +158,7 @@ class SQLitePortfolioStore:
                 realized_pnl=row["realized_pnl"],
                 commissions=row["commissions"],
                 protected_cash=row["protected_cash"],
+                profit_reserve_rate=row["profit_reserve_rate"],
             )
 
             for position in db.execute("SELECT * FROM positions"):
@@ -240,15 +246,16 @@ class SQLitePortfolioStore:
                 """
                 INSERT INTO portfolio
                     (id, initial_balance, commission_rate, cash,
-                     realized_pnl, commissions, protected_cash)
-                VALUES (1, ?, ?, ?, ?, ?, ?)
+                     realized_pnl, commissions, protected_cash, profit_reserve_rate)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     initial_balance=excluded.initial_balance,
                     commission_rate=excluded.commission_rate,
                     cash=excluded.cash,
                     realized_pnl=excluded.realized_pnl,
                     commissions=excluded.commissions,
-                    protected_cash=excluded.protected_cash
+                    protected_cash=excluded.protected_cash,
+                    profit_reserve_rate=excluded.profit_reserve_rate
                 """,
                 (
                     portfolio.initial_balance,
@@ -257,6 +264,7 @@ class SQLitePortfolioStore:
                     portfolio.realized_pnl,
                     portfolio.commissions,
                     portfolio.protected_cash,
+                    portfolio.profit_reserve_rate,
                 ),
             )
 
