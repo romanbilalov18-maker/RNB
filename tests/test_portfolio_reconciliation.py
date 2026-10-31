@@ -163,7 +163,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
 
     def test_uses_recorded_per_trade_reserve_transfers_when_available(self):
         with tempfile.TemporaryDirectory() as directory:
-            portfolio_path, audit_path = self._create_databases(directory, cash=842.9)
+            portfolio_path, audit_path = self._create_databases(directory, cash=842.7)
             with sqlite3.connect(portfolio_path) as db:
                 db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
                 db.execute("UPDATE trades SET reserve_transfer=0 WHERE side='BUY'")
@@ -171,7 +171,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 db.execute("UPDATE portfolio SET profit_reserve_rate=0.99 WHERE id=1")
             result = reconcile_portfolio_databases(portfolio_path, audit_path)
             self.assertEqual(result["legacy_reserve_trades"], 0)
-            self.assertAlmostEqual(result["cash"], 842.9)
+            self.assertAlmostEqual(result["cash"], 842.7)
 
     def test_rejects_trade_commission_mismatch_even_when_aggregates_match(self):
         with tempfile.TemporaryDirectory() as directory:
