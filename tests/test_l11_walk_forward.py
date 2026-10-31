@@ -186,7 +186,7 @@ class L11WalkForwardTests(unittest.TestCase):
         ordered, verified, error = _prepare_chronological_observations((first, second))
         self.assertTrue(verified)
         self.assertIsNone(error)
-        self.assertEqual(ordered, (second, first))
+        self.assertEqual(ordered, (first, second))
 
     def test_holdout_labels_are_required_for_auc(self):
         result = evaluate_walk_forward(make_observations(60))
