@@ -210,6 +210,43 @@ class PortfolioReconciliationTests(unittest.TestCase):
             with self.assertRaisesRegex(PortfolioReconciliationError, "average price"):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
+    def test_rejects_buy_entry_price_that_differs_from_execution_price(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
+                db.execute("UPDATE trades SET entry_price=price")
+                db.execute("UPDATE trades SET entry_price=9.5 WHERE id=1")
+
+            with self.assertRaisesRegex(
+                PortfolioReconciliationError, "BUY entry price"
+            ):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+    def test_rejects_sell_entry_price_that_differs_from_weighted_average_cost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
+                db.execute(
+                    "UPDATE trades SET entry_price=CASE "
+                    "WHEN side='SELL' THEN 11.0 ELSE price END"
+                )
+                db.execute("UPDATE trades SET entry_price=10.5 WHERE side='SELL'")
+
+            with self.assertRaisesRegex(
+                PortfolioReconciliationError, "SELL entry price"
+            ):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+    def test_accepts_legacy_trade_ledger_without_entry_price_column(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+
+            result = reconcile_portfolio_databases(portfolio_path, audit_path)
+
+            self.assertEqual(result["trade_count"], 3)
+
     def test_rejects_sell_realized_pnl_that_does_not_match_entry_cost_and_fees(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_path, audit_path = self._create_databases(directory)
