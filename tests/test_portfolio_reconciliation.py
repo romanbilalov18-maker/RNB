@@ -211,7 +211,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 directory, audit_commissions=3.0
             )
 
-            with self.assertRaisesRegex(PortfolioReconciliationError, "audit commissions"):
+            with self.assertRaisesRegex(PortfolioReconciliationError, "audit AAA commissions"):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
     def test_rejects_account_aggregate_that_differs_from_trade_ledger(self):
