@@ -39,6 +39,7 @@ class LiveScanResult:
     market_sample_count: int = 0
     market_context: object | None = None
     session_by_ticker: dict[str, dict] = field(default_factory=dict)
+    instrument_status_by_ticker: dict[str, dict] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
