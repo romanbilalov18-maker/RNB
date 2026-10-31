@@ -252,44 +252,7 @@ jobs:
 
       - name: Reconcile portfolio trades against decision audit
         if: always()
-        run: |
-          python - <<'PY'
-          import sqlite3
-          from pathlib import Path
-
-          portfolio_path = Path("data/virtual_portfolio.sqlite3")
-          audit_path = Path("data/decision_audit.sqlite")
-          if not portfolio_path.exists() or not audit_path.exists():
-              print(f"RECONCILIATION status=incomplete portfolio_exists={portfolio_path.exists()} audit_exists={audit_path.exists()}")
-              raise SystemExit(0)
-
-          with sqlite3.connect(portfolio_path) as db:
-              db.row_factory = sqlite3.Row
-              tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-              if "trades" not in tables or "portfolio" not in tables:
-                  print("RECONCILIATION status=schema_mismatch portfolio_tables=" + ",".join(sorted(tables)))
-                  raise SystemExit(0)
-              portfolio = dict(db.execute("SELECT * FROM portfolio WHERE id=1").fetchone())
-              trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
-              trade_count = db.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-              print(f"RECONCILIATION portfolio_trade_count={trade_count} portfolio_realized_pnl={portfolio.get('realized_pnl')} portfolio_commissions={portfolio.get('commissions')} cash={portfolio.get('cash')}")
-
-          with sqlite3.connect(audit_path) as db:
-              db.row_factory = sqlite3.Row
-              tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-              if "decision_audit" not in tables:
-                  print("RECONCILIATION status=audit_schema_mismatch")
-                  raise SystemExit(0)
-              audit_count, action_rows, audit_commissions, audit_realized = db.execute("""
-                  SELECT COUNT(*),
-                         SUM(CASE WHEN virtual_action != 'NO_TRADE' THEN 1 ELSE 0 END),
-                         COALESCE(SUM(virtual_commission), 0),
-                         COALESCE(SUM(realized_pnl), 0)
-                  FROM decision_audit
-              """).fetchone()
-              print(f"RECONCILIATION audit_rows={audit_count} action_rows={action_rows} audit_commissions={audit_commissions:.6f} audit_realized_pnl={audit_realized:.6f}")
-              print("RECONCILIATION note=action_rows count ticker-cycle observations, not individual portfolio trades; compare money totals and per-trade rows separately")
-          PY
+        run: python -m bot.portfolio_reconciliation --portfolio data/virtual_portfolio.sqlite3 --audit data/decision_audit.sqlite
 
       - name: Validate SQLite state before cache save
         if: always()
