@@ -141,7 +141,7 @@ class PortfolioReconciliationTests(unittest.TestCase):
                     "UPDATE positions SET quantity=4, average_price=20.0 WHERE ticker='AAA'"
                 )
                 db.execute(
-                    "UPDATE portfolio SET cash=925.25, protected_cash=9.35, "
+                    "UPDATE portfolio SET cash=925.45, protected_cash=9.35, "
                     "realized_pnl=15.4, commissions=5.4 WHERE id=1"
                 )
 
@@ -149,16 +149,14 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 db.execute("DELETE FROM decision_audit")
                 db.execute(
                     "INSERT INTO decision_audit VALUES "
-                    "('cycle-lifecycle', '2026-10-31T12:00:00+00:00', 'AAA', "
-                    "'BUY', '', NULL, NULL, NULL, 'BUY+BUY+SELL+SELL+BUY', "
-                    "44, 5.4, 15.4, 925.25, 925.25, 5.4, 1, NULL, NULL, '', 10.0, 20.0)"
+                    "('AAA', 'BUY+BUY+SELL+SELL+BUY', 44, 5.4, 15.4)"
                 )
 
             result = reconcile_portfolio_databases(portfolio_path, audit_path)
 
             self.assertEqual(result["trade_count"], 5)
             self.assertEqual(result["open_positions"], 1)
-            self.assertAlmostEqual(result["cash"], 925.25)
+            self.assertAlmostEqual(result["cash"], 925.45)
             self.assertAlmostEqual(result["protected_cash"], 9.35)
             self.assertAlmostEqual(result["realized_pnl"], 15.4)
             self.assertAlmostEqual(result["commissions"], 5.4)
