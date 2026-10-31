@@ -296,24 +296,25 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                 raise OSError("simulated process interruption before portfolio commit")
 
             portfolio_store.save = fail_before_portfolio_commit
-            with self.assertRaisesRegex(OSError, "simulated process interruption"):
-                _persist_cycle_safely(
-                    portfolio_store,
-                    audit_store,
-                    VirtualPortfolio(10_000.0),
-                    {"AAA": 100.0},
-                    cycle_id="sqlite-rollback-cycle",
-                    decisions={
-                        "AAA": SimpleNamespace(action="HOLD", reason="rollback test")
-                    },
-                    virtual_trades=[],
-                    equity=10_000.0,
-                    cash=10_000.0,
-                    total_commissions=0.0,
-                    current_prices={"AAA": 100.0},
-                    as_of=datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc),
-                )
-            finally:
+            try:
+                with self.assertRaisesRegex(OSError, "simulated process interruption"):
+                    _persist_cycle_safely(
+                        portfolio_store,
+                        audit_store,
+                        VirtualPortfolio(10_000.0),
+                        {"AAA": 100.0},
+                        cycle_id="sqlite-rollback-cycle",
+                        decisions={
+                            "AAA": SimpleNamespace(action="HOLD", reason="rollback test")
+                        },
+                        virtual_trades=[],
+                        equity=10_000.0,
+                        cash=10_000.0,
+                        total_commissions=0.0,
+                        current_prices={"AAA": 100.0},
+                        as_of=datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc),
+                    )
+                finally:
                 portfolio_store.save = original_save
 
             self.assertEqual(audit_store.cycle_ids(), set())
