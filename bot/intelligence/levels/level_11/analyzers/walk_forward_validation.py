@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
+
 from bot.intelligence.levels.level_11.analyzers.predictive_skill import (
     feature_predictive_metrics,
     proposed_weights,
@@ -71,17 +74,41 @@ def _calibrate(raw_scores: list[float], parameters: tuple[float, float]) -> list
     return [max(0.0, min(1.0, slope * score + intercept)) for score in raw_scores]
 
 
+def _parse_decision_time(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _prepare_chronological_observations(observations):
     observations = tuple(observations)
     timestamps = [getattr(item, "decision_time", None) for item in observations]
-    has_timestamps = [bool(value) for value in timestamps]
-    if any(has_timestamps) and not all(has_timestamps):
-        return observations, False, "decision timestamps are incomplete"
-    if all(has_timestamps) and timestamps:
-        return tuple(sorted(observations, key=lambda item: item.decision_time)), True, None
-    # Legacy/synthetic callers may not provide timestamps. Preserve their
-    # explicit order, but report that chronology could not be independently verified.
-    return observations, False, None
+    if not observations:
+        return observations, True, None
+    if any(not value for value in timestamps):
+        return observations, False, "decision timestamps are missing or incomplete"
+    parsed = [_parse_decision_time(value) for value in timestamps]
+    if any(value is None for value in parsed):
+        return observations, False, "decision timestamps must be valid timezone-aware ISO timestamps"
+    if len(set(parsed)) != len(parsed):
+        return observations, False, "duplicate decision timestamps make chronological ordering ambiguous"
+    ordered = tuple(
+        item for _, item in sorted(zip(parsed, observations), key=lambda pair: pair[0])
+    )
+    return ordered, True, None
+
+
+def _target_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except (TypeError, ValueError):
+        return None
 
 
 def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
@@ -111,13 +138,25 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
     # The features were recorded at decision time, but a 3-session label may
     # mature after a later holdout decision; that label is not yet knowable at
     # the holdout boundary and must not influence fitted weights/calibrators.
-    boundary = next((item.decision_time for item in test if item.decision_time), None)
+    boundary_time = _parse_decision_time(test[0].decision_time)
+    if boundary_time is None:
+        return {
+            "status": "insufficient_data",
+            "reason": "holdout boundary timestamp is invalid",
+            "train_count": 0,
+            "raw_train_count": len(raw_train),
+            "purged_train_count": len(raw_train),
+            "test_count": len(test),
+            "purging_applied": True,
+            "chronology_verified": False,
+            "weights_learned_on_train_only": True,
+            "calibrators_learned_on_train_only": True,
+        }
+    boundary_date = boundary_time.astimezone(ZoneInfo("Europe/Moscow")).date()
     train = tuple(
         item for item in raw_train
-        if not (
-            boundary and item.outcome_target_date
-            and item.outcome_target_date >= boundary[:10]
-        )
+        if (target := _target_date(item.outcome_target_date)) is not None
+        and target < boundary_date
     )
     purged_train_count = len(raw_train) - len(train)
     if len(train) < 20 or not test:
@@ -128,7 +167,7 @@ def evaluate_walk_forward(observations, train_fraction: float = 0.6) -> dict:
             "raw_train_count": len(raw_train),
             "purged_train_count": purged_train_count,
             "test_count": len(test),
-            "purging_applied": boundary is not None,
+            "purging_applied": True,
             "chronology_verified": chronology_verified,
             "weights_learned_on_train_only": True,
             "calibrators_learned_on_train_only": True,
