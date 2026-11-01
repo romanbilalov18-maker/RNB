@@ -120,8 +120,13 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
             active_trading_tickers={"HELD"},
             candle_history={
                 "HELD": [
-                    type("Candle", (), {"close": 100.0, "is_complete": True})()
-                    for _ in range(6)
+                    type("Candle", (), {
+                        "close": 100.0,
+                        "time": datetime(2026, 1, 1, tzinfo=timezone.utc)
+                        + timedelta(days=index),
+                        "is_complete": True,
+                    })()
+                    for index in range(6)
                 ]
             },
         )
