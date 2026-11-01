@@ -66,6 +66,28 @@ class ProblemPositionsSummaryTests(unittest.TestCase):
         self.assertIn("T-Invest сообщает, что продажа инструмента недоступна", report)
         self.assertIn("автоматическая продажа только из-за этих признаков запрещена", report)
 
+    def test_classifies_position_with_sell_restriction_as_exit_restricted(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("BLOCKED", 2, 100, datetime.now(timezone.utc))
+        portfolio.positions["BLOCKED"].quote_unavailable_cycles = 4
+        result = SimpleNamespace(
+            current_prices={},
+            instrument_status_by_ticker={
+                "BLOCKED": {
+                    "resolution": "RESOLVED",
+                    "api_trade_available": False,
+                    "sell_available": False,
+                    "status_check_succeeded": True,
+                }
+            },
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            _print_problem_positions_summary(portfolio, result)
+        report = output.getvalue()
+        self.assertIn("Сводное состояние: EXIT_RESTRICTED", report)
+        self.assertIn("T-Invest сообщает, что продажа инструмента недоступна", report)
+
     def test_does_not_flag_healthy_position_or_claim_missing_market_price(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("OK", 1, 50, datetime.now(timezone.utc))
