@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 
 FLAT_MOVE_TOLERANCE_PCT = 0.001  # 0.1% close-to-close
@@ -51,13 +52,33 @@ def assess_position_health(
     market_closed: bool = False,
 ) -> PositionHealth:
     """Flag stagnant holdings and quote gaps without treating either as a sell."""
-    completed = []
+    # Only count explicitly completed broker candles with an unambiguous,
+    # timezone-aware source timestamp. Sort by source time and reject duplicate
+    # timestamps so repeated API records cannot inflate the stagnation streak.
+    by_timestamp: dict[datetime, float] = {}
+    duplicate_timestamps: set[datetime] = set()
     for candle in candles or ():
-        if getattr(candle, "is_complete", True) is False:
+        if getattr(candle, "is_complete", None) is not True:
             continue
+        candle_time = getattr(candle, "time", None)
+        if (
+            not isinstance(candle_time, datetime)
+            or candle_time.tzinfo is None
+            or candle_time.utcoffset() is None
+        ):
+            continue
+        timestamp = candle_time.astimezone(timezone.utc)
         close = _price(getattr(candle, "close", None))
-        if close is not None:
-            completed.append(close)
+        if close is None:
+            continue
+        if timestamp in by_timestamp:
+            duplicate_timestamps.add(timestamp)
+        else:
+            by_timestamp[timestamp] = close
+    for timestamp in duplicate_timestamps:
+        by_timestamp.pop(timestamp, None)
+    ordered = sorted(by_timestamp.items())
+    completed = [close for _, close in ordered]
 
     flat_sessions = 0
     if completed:
