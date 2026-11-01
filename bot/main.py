@@ -379,6 +379,7 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
             reasons.append("T-Invest сообщает, что продажа инструмента недоступна")
         if not reasons:
             continue
+        condition_since = getattr(position, "health_condition_since", None)
         if broker.get("status_check_succeeded") and broker.get("sell_available") is False:
             condition = "EXIT_RESTRICTED"
         elif broker.get("resolution") == "UNRESOLVED" or (
@@ -410,7 +411,11 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
     if not review_items:
         print("Проблемных позиций по сохранённым health-счётчикам и последнему статусу T-Invest нет.")
     for ticker, position, broker, reasons, cost_basis, price_available, condition in review_items:
+        persisted_condition = getattr(position, "health_condition", None)
+        persisted_since = getattr(position, "health_condition_since", None)
+        condition = persisted_condition or condition
         print(f"  Сводное состояние: {condition}")
+        print(f"  Состояние активно с: {persisted_since or 'не зафиксировано'}")
         print(
             f"- {ticker}: quantity={getattr(position, 'quantity', 'unknown')}; "
             f"entry_price={getattr(position, 'average_price', 'unknown')}; "
