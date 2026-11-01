@@ -42,6 +42,29 @@ def _price(value: object) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
+def verified_completed_candles(
+    candles: list[object] | tuple[object, ...] | None,
+) -> list[object]:
+    """Return unique, valid, explicitly completed broker candles in time order."""
+    by_timestamp: dict[datetime, object] = {}
+    for candle in candles or ():
+        if getattr(candle, "is_complete", None) is not True:
+            continue
+        candle_time = getattr(candle, "time", None)
+        if (
+            not isinstance(candle_time, datetime)
+            or candle_time.tzinfo is None
+            or candle_time.utcoffset() is None
+            or _price(getattr(candle, "close", None)) is None
+        ):
+            continue
+        timestamp = candle_time.astimezone(timezone.utc)
+        # Preserve the first source record for a duplicated timestamp.
+        if timestamp not in by_timestamp:
+            by_timestamp[timestamp] = candle
+    return [candle for _, candle in sorted(by_timestamp.items())]
+
+
 def assess_position_health(
     ticker: str,
     candles: list[object] | tuple[object, ...] | None,
@@ -52,42 +75,21 @@ def assess_position_health(
     market_closed: bool = False,
 ) -> PositionHealth:
     """Flag stagnant holdings and quote gaps without treating either as a sell."""
-    # Only count explicitly completed broker candles with an unambiguous,
-    # timezone-aware source timestamp. Sort by source time and reject duplicate
-    # timestamps so repeated API records cannot inflate the stagnation streak.
-    by_timestamp: dict[datetime, float] = {}
-    duplicate_timestamps: set[datetime] = set()
-    for candle in candles or ():
-        if getattr(candle, "is_complete", None) is not True:
-            continue
-        candle_time = getattr(candle, "time", None)
-        if (
-            not isinstance(candle_time, datetime)
-            or candle_time.tzinfo is None
-            or candle_time.utcoffset() is None
-        ):
-            continue
-        timestamp = candle_time.astimezone(timezone.utc)
-        close = _price(getattr(candle, "close", None))
-        if close is None:
-            continue
-        if timestamp in by_timestamp:
-            duplicate_timestamps.add(timestamp)
-        else:
-            by_timestamp[timestamp] = close
-    for timestamp in duplicate_timestamps:
-        by_timestamp.pop(timestamp, None)
-    ordered = sorted(by_timestamp.items())
-    completed = [close for _, close in ordered]
+    completed_candles = verified_completed_candles(candles)
+    completed = [
+        _price(getattr(candle, "close", None))
+        for candle in completed_candles
+    ]
+    completed = [price for price in completed if price is not None]
 
+    # A flat session is a flat close-to-close transition. One candle alone
+    # cannot establish stagnation because there is no prior session to compare.
     flat_sessions = 0
-    if completed:
-        flat_sessions = 1
-        for newer, older in zip(reversed(completed), reversed(completed[:-1])):
-            if abs(newer / older - 1.0) <= FLAT_MOVE_TOLERANCE_PCT:
-                flat_sessions += 1
-            else:
-                break
+    for newer, older in zip(reversed(completed), reversed(completed[:-1])):
+        if abs(newer / older - 1.0) <= FLAT_MOVE_TOLERANCE_PCT:
+            flat_sessions += 1
+        else:
+            break
 
     recent = completed[-LOW_RANGE_REVIEW_SESSIONS:]
     recent_range_pct = (
