@@ -379,6 +379,19 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
             reasons.append("T-Invest сообщает, что продажа инструмента недоступна")
         if not reasons:
             continue
+        if broker.get("status_check_succeeded") and broker.get("sell_available") is False:
+            condition = "EXIT_RESTRICTED"
+        elif broker.get("resolution") == "UNRESOLVED" or (
+            broker.get("status_check_succeeded")
+            and broker.get("api_trade_available") is False
+        ):
+            condition = "BROKER_RESTRICTED"
+        elif unavailable_cycles >= 3 or health_status == "QUOTE_UNAVAILABLE":
+            condition = "QUOTE_DATA_PROBLEM"
+        elif health_status == "PROLONGED_STAGNATION":
+            condition = "PROLONGED_STAGNATION"
+        else:
+            condition = "REVIEW_REQUIRED"
 
         quantity = getattr(position, "quantity", None)
         average_price = getattr(position, "average_price", None)
@@ -389,14 +402,15 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
             else None
         )
         price_available = _is_valid_report_price(current_prices.get(ticker))
-        review_items.append((ticker, position, broker, reasons, cost_basis, price_available))
+        review_items.append((ticker, position, broker, reasons, cost_basis, price_available, condition))
 
     print()
     print("=" * 18 + " RNB — ПОЗИЦИИ, ТРЕБУЮЩИЕ ПРОВЕРКИ " + "=" * 18)
     print(f"Позиций требуют внимания: {len(review_items)} из {len(positions)}.")
     if not review_items:
         print("Проблемных позиций по сохранённым health-счётчикам и последнему статусу T-Invest нет.")
-    for ticker, position, broker, reasons, cost_basis, price_available in review_items:
+    for ticker, position, broker, reasons, cost_basis, price_available, condition in review_items:
+        print(f"  Сводное состояние: {condition}")
         print(
             f"- {ticker}: quantity={getattr(position, 'quantity', 'unknown')}; "
             f"entry_price={getattr(position, 'average_price', 'unknown')}; "
