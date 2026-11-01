@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import time
+from datetime import datetime, timezone
 from collections import Counter
 
 from bot.config import Config
@@ -351,6 +352,30 @@ def _print_end_of_run_report(
 
 
 
+def _format_health_duration(started_at: str | None, *, now=None) -> str:
+    """Format elapsed time for a persisted position condition without guessing."""
+    if not started_at:
+        return "длительность неизвестна"
+    try:
+        started = datetime.fromisoformat(started_at)
+        if started.tzinfo is None or started.utcoffset() is None:
+            return "длительность неизвестна"
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None or current.utcoffset() is None:
+            return "длительность неизвестна"
+        seconds = max(0, int((current - started).total_seconds()))
+    except (TypeError, ValueError, OverflowError):
+        return "длительность неизвестна"
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes = remainder // 60
+    if days:
+        return f"{days} дн. {hours} ч."
+    if hours:
+        return f"{hours} ч. {minutes} мин."
+    return f"{minutes} мин."
+
+
 def _print_problem_positions_summary(portfolio, last_result) -> None:
     """Summarize open holdings that require manual review without inventing prices."""
     positions = getattr(portfolio, "positions", {}) or {}
@@ -416,6 +441,7 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
         condition = persisted_condition or condition
         print(f"  Сводное состояние: {condition}")
         print(f"  Состояние активно с: {persisted_since or 'не зафиксировано'}")
+        print(f"  Продолжительность состояния: {_format_health_duration(persisted_since)}")
         print(
             f"- {ticker}: quantity={getattr(position, 'quantity', 'unknown')}; "
             f"entry_price={getattr(position, 'average_price', 'unknown')}; "
