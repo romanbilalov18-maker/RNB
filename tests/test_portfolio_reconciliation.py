@@ -331,5 +331,30 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
 
+    def test_rejects_protected_reserve_mismatch_against_explicit_trade_transfers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
+                db.execute(
+                    "UPDATE trades SET reserve_transfer=0 WHERE side='BUY'"
+                )
+                db.execute(
+                    "UPDATE trades SET reserve_transfer=9.35 WHERE side='SELL'"
+                )
+                # Keep cash consistent with the recorded transfer so this
+                # assertion specifically exercises the protected-reserve check.
+                db.execute(
+                    "UPDATE portfolio SET cash=842.7, protected_cash=8.0 WHERE id=1"
+                )
+
+            with self.assertRaisesRegex(
+                PortfolioReconciliationError,
+                "portfolio protected reserve vs trade ledger",
+            ):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+
+
 if __name__ == "__main__":
     unittest.main()
