@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionManager
-from bot.position_health import assess_position_health
+from bot.position_health import assess_position_health, verified_completed_candles
 from bot.position_sizer import PositionSizer
 from bot.virtual_portfolio import VirtualPortfolio
 
@@ -191,10 +191,9 @@ class PaperExecutor:
                 # show movement again.
                 position.stagnant_sessions = max(0, int(health.flat_sessions or 0))
                 position.last_health_status = health.status
-                completed_candles = [
-                    candle for candle in (getattr(scan, "candle_history", {}) or {}).get(ticker, ())
-                    if getattr(candle, "is_complete", True) is not False
-                ]
+                completed_candles = verified_completed_candles(
+                    (getattr(scan, "candle_history", {}) or {}).get(ticker, ())
+                )
                 if completed_candles:
                     candle_time = getattr(completed_candles[-1], "time", None)
                     if candle_time is not None:
