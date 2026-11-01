@@ -355,6 +355,27 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 reconcile_portfolio_databases(portfolio_path, audit_path)
 
 
+    def test_rejects_explicit_reserve_transfer_that_ignores_configured_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_path, audit_path = self._create_databases(directory)
+            with sqlite3.connect(portfolio_path) as db:
+                db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
+                db.execute("UPDATE trades SET reserve_transfer=0 WHERE side='BUY'")
+                # Correct reserve is 50% of the 18.70 net realized profit.
+                # Keep cash consistent with this incorrect 5.00 transfer so
+                # the check must reject the per-trade rate, not a cash mismatch.
+                db.execute("UPDATE trades SET reserve_transfer=5.0 WHERE side='SELL'")
+                db.execute(
+                    "UPDATE portfolio SET cash=847.05, protected_cash=5.0 WHERE id=1"
+                )
+
+            with self.assertRaisesRegex(
+                PortfolioReconciliationError,
+                "reserve transfer vs configured rate",
+            ):
+                reconcile_portfolio_databases(portfolio_path, audit_path)
+
+
 
 if __name__ == "__main__":
     unittest.main()
