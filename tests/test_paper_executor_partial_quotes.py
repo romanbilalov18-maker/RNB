@@ -1,7 +1,7 @@
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bot.live_runner import LiveScanResult
 from bot.paper_executor import PaperExecutor
