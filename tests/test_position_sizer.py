@@ -62,6 +62,17 @@ class TestPositionSizer(unittest.TestCase):
         )
         self.assertNotIn("A", {plan.ticker for plan in plans})
 
+    def test_does_not_plan_buy_when_spendable_cash_cannot_cover_lot(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plans = PositionSizer(commission_rate=0.0).plan(
+            cash=50.0,
+            analyses=analysis,
+            prices={"A": 10.0},
+            lot_sizes={"A": 6},
+            total_equity=150.0,
+        )
+        self.assertEqual(plans, [])
+
     def test_never_buys_fractional_lot(self):
         analysis = [SimpleNamespace(ticker="A", volatility=0.10)]
         plan = PositionSizer(commission_rate=0.001).plan(

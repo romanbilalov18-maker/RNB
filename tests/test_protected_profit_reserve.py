@@ -61,6 +61,56 @@ class ProtectedProfitReserveTests(unittest.TestCase):
             )
             self.assertEqual(created.profit_reserve_rate, 0.6)
 
+    def test_buy_cannot_spend_protected_cash_when_trading_cash_is_insufficient(self):
+        portfolio = VirtualPortfolio(
+            initial_balance=1_000.0,
+            commission_rate=0.0,
+            cash=50.0,
+            protected_cash=100.0,
+        )
+
+        with self.assertRaisesRegex(ValueError, "insufficient virtual cash"):
+            portfolio.buy("TEST", 6, 10.0, datetime.now(timezone.utc))
+
+        self.assertEqual(portfolio.cash, 50.0)
+        self.assertEqual(portfolio.protected_cash, 100.0)
+        self.assertEqual(portfolio.positions, {})
+        self.assertEqual(portfolio.trades, [])
+
+    def test_reserve_accumulates_across_wins_survives_loss_and_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            portfolio = VirtualPortfolio(
+                initial_balance=1_000.0,
+                commission_rate=0.0,
+                profit_reserve_rate=0.7,
+            )
+            now = datetime.now(timezone.utc)
+
+            portfolio.buy("WIN1", 10, 10.0, now)
+            first_win = portfolio.sell("WIN1", 10, 12.0, now, reason="first win")
+            self.assertEqual(first_win.reserve_transfer, 14.0)
+
+            portfolio.buy("WIN2", 10, 10.0, now)
+            second_win = portfolio.sell("WIN2", 10, 13.0, now, reason="second win")
+            self.assertEqual(second_win.reserve_transfer, 21.0)
+            self.assertEqual(portfolio.protected_cash, 35.0)
+
+            portfolio.buy("LOSS", 10, 10.0, now)
+            losing_trade = portfolio.sell("LOSS", 10, 9.0, now, reason="loss")
+            self.assertEqual(losing_trade.reserve_transfer, 0.0)
+            self.assertEqual(portfolio.protected_cash, 35.0)
+
+            store.save(portfolio)
+            restored = store.load_or_create(1_000.0, 0.0)
+
+            self.assertEqual(restored.protected_cash, 35.0)
+            self.assertEqual(restored.cash, portfolio.cash)
+            self.assertEqual(
+                [trade.reserve_transfer for trade in restored.trades if trade.side == "SELL"],
+                [14.0, 21.0, 0.0],
+            )
+
     def test_protected_reserve_persists_between_loads(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
