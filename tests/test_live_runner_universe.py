@@ -42,6 +42,35 @@ class LiveMarketRunnerUniverseTests(unittest.TestCase):
             [valid],
         )
 
+    def test_candle_history_requests_daily_tinvest_interval(self):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from t_tech.invest import CandleInterval
+
+        get_candles = Mock(return_value=object())
+        client = SimpleNamespace(
+            market_data=SimpleNamespace(get_candles=get_candles)
+        )
+        runner = LiveMarketRunner(client=client)
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2026, 1, 10, tzinfo=timezone.utc)
+
+        response = runner._get_candles_with_retry(
+            instrument_id="broker-instrument-id",
+            start=start,
+            end=end,
+            attempts=1,
+        )
+
+        self.assertIsNotNone(response)
+        get_candles.assert_called_once_with(
+            instrument_id="broker-instrument-id",
+            from_=start,
+            to=end,
+            interval=CandleInterval.CANDLE_INTERVAL_DAY,
+        )
+
     def test_default_analysis_universe_is_wider_than_previous_ten(self):
         with patch.dict(os.environ, {}, clear=True):
             runner = LiveMarketRunner(client=object())
