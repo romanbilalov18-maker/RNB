@@ -411,6 +411,47 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
             self.assertAlmostEqual(restored.protected_cash, expected_reserve)
             _reconcile_cycle_history(portfolio_store, audit_store)
 
+    def test_missing_audit_for_committed_profit_cycle_fails_closed_and_preserves_reserve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store, audit_store = self._create_sqlite_stores(directory)
+            timestamp = datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(
+                10_000.0, commission_rate=0.001, profit_reserve_rate=0.7
+            )
+            portfolio.buy("AAA", 10, 100.0, timestamp)
+            portfolio.sell("AAA", 10, 110.0, timestamp)
+            portfolio_store.save(
+                portfolio, cycle_id="committed-profit-without-audit"
+            )
+            cash_before = portfolio.cash
+            reserve_before = portfolio.protected_cash
+            trade_count_before = len(portfolio.trades)
+
+            with self.assertRaisesRegex(
+                CycleConsistencyError, "missing from decision audit"
+            ):
+                _reconcile_cycle_history(portfolio_store, audit_store)
+
+            restored = SQLitePortfolioStore(
+                Path(directory) / "portfolio.sqlite3"
+            ).load_or_create(1.0, 0.0)
+            self.assertAlmostEqual(restored.cash, cash_before)
+            self.assertAlmostEqual(restored.protected_cash, reserve_before)
+            self.assertEqual(len(restored.trades), trade_count_before)
+            self.assertEqual(
+                portfolio_store.committed_cycle_ids(),
+                {"committed-profit-without-audit"},
+            )
+            self.assertEqual(audit_store.cycle_ids(), set())
+            self.assertAlmostEqual(
+                restored.protected_cash,
+                sum(
+                    trade.reserve_transfer or 0.0
+                    for trade in restored.trades
+                    if trade.side == "SELL"
+                ),
+            )
+
     def test_real_sqlite_audit_rollback_is_atomic_when_parent_delete_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_store, audit_store = self._create_sqlite_stores(directory)
