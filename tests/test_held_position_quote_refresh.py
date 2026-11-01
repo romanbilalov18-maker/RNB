@@ -81,8 +81,14 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
                 self.assertFalse(accepted)
                 self.assertEqual(self.prices["uid-held-1"], 50.0)
 
-    def test_rejects_missing_timestamp_and_future_timestamp(self):
+    def test_rejects_missing_timezone_and_future_timestamps(self):
         self.assertFalse(self.merge(price=51.0, quote_time=None))
+        self.assertFalse(
+            self.merge(
+                price=51.0,
+                quote_time=self.now.replace(tzinfo=None),
+            )
+        )
         self.assertFalse(
             self.merge(
                 price=51.0,
@@ -90,6 +96,13 @@ class HeldPositionQuoteRefreshTests(unittest.TestCase):
             )
         )
         self.assertEqual(self.prices["uid-held-1"], 50.0)
+
+    def test_quote_freshness_does_not_assume_timezone_for_naive_timestamps(self):
+        age, reason = LiveMarketRunner._quote_freshness(
+            self.now.replace(tzinfo=None), self.now, 300.0
+        )
+        self.assertEqual(reason, "missing_timezone")
+        self.assertEqual(age, 0.0)
 
     def test_post_analysis_refresh_requests_all_analyzed_instruments(self):
         fresh_time = self.now - timedelta(seconds=20)
