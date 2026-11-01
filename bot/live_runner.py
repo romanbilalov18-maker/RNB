@@ -951,7 +951,6 @@ class LiveMarketRunner:
     def _verified_completed_candles(candles):
         """Keep only unique, timestamped, explicitly completed T-Invest candles."""
         by_timestamp = {}
-        duplicate_timestamps = set()
         for candle in candles or ():
             if getattr(candle, "is_complete", None) is not True:
                 continue
@@ -963,12 +962,11 @@ class LiveMarketRunner:
             ):
                 continue
             timestamp = candle_time.astimezone(timezone.utc)
+            # Keep the first broker candle for a timestamp; later duplicates
+            # must not inflate history or replace the original observation.
             if timestamp in by_timestamp:
-                duplicate_timestamps.add(timestamp)
                 continue
             by_timestamp[timestamp] = candle
-        for timestamp in duplicate_timestamps:
-            by_timestamp.pop(timestamp, None)
         return [
             candle for _, candle in sorted(by_timestamp.items(), key=lambda item: item[0])
         ]
