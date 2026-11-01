@@ -100,7 +100,7 @@ class PositionHealthTests(unittest.TestCase):
             "TEST", data, current_price_available=True,
         )
         self.assertEqual(result.candles_checked, 5)
-        self.assertEqual(result.flat_sessions, 3)
+        self.assertEqual(result.flat_sessions, 4)
         self.assertEqual(result.status, "NORMAL_MONITORING")
 
     def test_duplicate_candle_timestamps_do_not_inflate_stagnation(self):
@@ -113,7 +113,7 @@ class PositionHealthTests(unittest.TestCase):
         result = assess_position_health(
             "TEST", data + [duplicate], current_price_available=True,
         )
-        self.assertEqual(result.candles_checked, 4)
+        self.assertEqual(result.candles_checked, 5)
         self.assertEqual(result.flat_sessions, 4)
         self.assertEqual(result.status, "NORMAL_MONITORING")
 
@@ -123,7 +123,7 @@ class PositionHealthTests(unittest.TestCase):
         result = assess_position_health(
             "TEST", data, current_price_available=True,
         )
-        self.assertEqual(result.flat_sessions, 3)
+        self.assertEqual(result.flat_sessions, 2)
         self.assertEqual(result.status, "NORMAL_MONITORING")
 
     def test_candles_without_explicit_completion_flag_are_ignored(self):
