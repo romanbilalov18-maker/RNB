@@ -489,6 +489,22 @@ def _persist_cycle_safely(
     try:
         portfolio_store.save(portfolio, market_prices, cycle_id=cycle_id)
     except Exception as save_error:
+        # A database commit can succeed immediately before the process reports
+        # an error (or is interrupted). Never roll back its matching audit row
+        # until we have checked whether the portfolio cycle was committed.
+        committed_lookup = getattr(type(portfolio_store), "committed_cycle_ids", None)
+        audit_lookup = getattr(type(audit_store), "cycle_ids", None)
+        if callable(committed_lookup) and callable(audit_lookup):
+            committed_after_error = committed_lookup(portfolio_store)
+            audit_after_error = audit_lookup(audit_store)
+            if cycle_id in committed_after_error:
+                if cycle_id in audit_after_error:
+                    count_cycle = getattr(type(audit_store), "cycle_record_count", None)
+                    return count_cycle(audit_store, cycle_id) if callable(count_cycle) else audit_count
+                raise CycleConsistencyError(
+                    f"Portfolio cycle {cycle_id} committed but its audit row is missing; "
+                    "manual reconciliation is required."
+                ) from save_error
         try:
             audit_store.delete_cycle(cycle_id)
         except Exception as rollback_error:
