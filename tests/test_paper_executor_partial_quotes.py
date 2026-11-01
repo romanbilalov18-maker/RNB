@@ -172,6 +172,34 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertIn("health=QUOTE_UNAVAILABLE", log)
         self.assertIn("HELD", portfolio.positions)
 
+    def test_sell_unavailable_broker_status_requires_position_review(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+        scan = LiveScanResult(
+            selected_10=[], selected_3=[], buy_candidates=[], analyses={},
+            current_prices={}, previous_closes={}, lot_sizes={},
+            active_trading_tickers=set(),
+            instrument_status_by_ticker={
+                "HELD": {
+                    "resolution": "RESOLVED",
+                    "trading_status": "SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING",
+                    "api_trade_available": True,
+                    "sell_available": False,
+                    "status_check_succeeded": True,
+                }
+            },
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, buys = PaperExecutor().execute(
+                portfolio, scan, eligible_buy_tickers=set()
+            )
+        self.assertEqual(sells, [])
+        self.assertEqual(buys, [])
+        self.assertIn("sell_available=False", output.getvalue())
+        self.assertIn("review_required=True", output.getvalue())
+        self.assertIn("HELD", portfolio.positions)
+
     def test_held_position_can_be_evaluated_when_confirmed_active(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
