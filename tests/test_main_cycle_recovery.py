@@ -286,6 +286,76 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                 ),
             )
 
+    def test_interrupted_portfolio_commit_can_retry_without_losing_or_duplicating_reserve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store, audit_store = self._create_sqlite_stores(directory)
+            timestamp = datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(
+                10_000.0, commission_rate=0.001, profit_reserve_rate=0.7
+            )
+            portfolio.buy("AAA", 10, 100.0, timestamp)
+            portfolio.sell("AAA", 10, 110.0, timestamp)
+            expected_cash = portfolio.cash
+            expected_reserve = portfolio.protected_cash
+            expected_trade_count = len(portfolio.trades)
+            kwargs = {
+                "decisions": {
+                    "AAA": SimpleNamespace(action="HOLD", reason="interrupted commit retry")
+                },
+                "virtual_trades": list(portfolio.trades),
+                "equity": portfolio.cash + portfolio.protected_cash,
+                "cash": portfolio.cash,
+                "total_commissions": portfolio.commissions,
+                "current_prices": {},
+                "as_of": timestamp,
+            }
+
+            original_save = portfolio_store.save
+            attempts = {"count": 0}
+
+            def fail_once(*args, **save_kwargs):
+                attempts["count"] += 1
+                if attempts["count"] == 1:
+                    raise OSError("simulated interruption before portfolio commit")
+                return original_save(*args, **save_kwargs)
+
+            portfolio_store.save = fail_once
+            try:
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    _persist_cycle_safely(
+                        portfolio_store, audit_store, portfolio, {},
+                        cycle_id="reserve-retry-cycle", **kwargs,
+                    )
+            finally:
+                portfolio_store.save = original_save
+
+            self.assertEqual(audit_store.cycle_ids(), set())
+            self.assertEqual(portfolio_store.committed_cycle_ids(), set())
+
+            # Startup recovery must be safe after the orphan audit was rolled back.
+            _reconcile_cycle_history(portfolio_store, audit_store)
+            _persist_cycle_safely(
+                portfolio_store, audit_store, portfolio, {},
+                cycle_id="reserve-retry-cycle", **kwargs,
+            )
+
+            restored = SQLitePortfolioStore(
+                Path(directory) / "portfolio.sqlite3"
+            ).load_or_create(1.0, 0.0)
+            self.assertEqual(portfolio_store.committed_cycle_ids(), {"reserve-retry-cycle"})
+            self.assertEqual(audit_store.cycle_record_count("reserve-retry-cycle"), 1)
+            self.assertAlmostEqual(restored.cash, expected_cash)
+            self.assertAlmostEqual(restored.protected_cash, expected_reserve)
+            self.assertEqual(len(restored.trades), expected_trade_count)
+            self.assertAlmostEqual(
+                restored.protected_cash,
+                sum(
+                    trade.reserve_transfer or 0.0
+                    for trade in restored.trades
+                    if trade.side == "SELL"
+                ),
+            )
+
     def test_real_sqlite_audit_rollback_is_atomic_when_parent_delete_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_store, audit_store = self._create_sqlite_stores(directory)
