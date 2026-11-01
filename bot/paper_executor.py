@@ -164,6 +164,22 @@ class PaperExecutor:
                 f"status_check_succeeded={broker_status.get('status_check_succeeded', False)}"
             )
             if position is not None:
+                if broker_status.get("status_check_succeeded") and broker_status.get("sell_available") is False:
+                    health_condition = "EXIT_RESTRICTED"
+                elif broker_status.get("resolution") == "UNRESOLVED" or (
+                    broker_status.get("status_check_succeeded")
+                    and broker_status.get("api_trade_available") is False
+                ):
+                    health_condition = "BROKER_RESTRICTED"
+                elif not price_available:
+                    health_condition = "QUOTE_DATA_PROBLEM"
+                elif health.status == "PROLONGED_STAGNATION":
+                    health_condition = "PROLONGED_STAGNATION"
+                else:
+                    health_condition = None
+                if health_condition != getattr(position, "health_condition", None):
+                    position.health_condition = health_condition
+                    position.health_condition_since = datetime.now(timezone.utc).isoformat() if health_condition else None
                 if price_available:
                     position.quote_unavailable_cycles = 0
                 elif ticker not in market_closed_tickers:
