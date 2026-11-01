@@ -35,6 +35,32 @@ class ProtectedProfitReserveTests(unittest.TestCase):
         self.assertEqual(portfolio.protected_cash, 75.0)
         self.assertEqual(portfolio.realized_pnl, -100.0)
 
+    def test_existing_account_keeps_saved_reserve_rate_when_config_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            original = VirtualPortfolio(
+                initial_balance=10_000.0, profit_reserve_rate=0.7
+            )
+            store.save(original)
+
+            restored = store.load_or_create(
+                initial_balance=10_000.0,
+                commission_rate=0.0005,
+                profit_reserve_rate=0.25,
+            )
+
+            self.assertEqual(restored.profit_reserve_rate, 0.7)
+
+    def test_new_account_uses_configured_reserve_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")
+            created = store.load_or_create(
+                initial_balance=10_000.0,
+                commission_rate=0.0005,
+                profit_reserve_rate=0.6,
+            )
+            self.assertEqual(created.profit_reserve_rate, 0.6)
+
     def test_protected_reserve_persists_between_loads(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLitePortfolioStore(Path(directory) / "portfolio.sqlite3")

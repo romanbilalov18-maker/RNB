@@ -9,6 +9,7 @@ class Config:
     initial_virtual_balance: float = 10_000.0
     commission_rate: float = 0.0005
     take_profit_percent: float = 0.15
+    profit_reserve_rate: float = 0.7
     portfolio_db_path: str = "data/virtual_portfolio.sqlite3"
 
     @classmethod
@@ -21,6 +22,7 @@ class Config:
             balance = float(os.getenv("VIRTUAL_INITIAL_BALANCE", "10000"))
             commission = float(os.getenv("VIRTUAL_COMMISSION_RATE", "0.0005"))
             take_profit = float(os.getenv("TAKE_PROFIT_PERCENT", "0.15"))
+            reserve_rate = float(os.getenv("PROFIT_RESERVE_RATE", "0.7"))
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("Virtual portfolio numeric settings must be valid numbers") from exc
 
@@ -33,6 +35,7 @@ class Config:
             ("VIRTUAL_INITIAL_BALANCE", balance),
             ("VIRTUAL_COMMISSION_RATE", commission),
             ("TAKE_PROFIT_PERCENT", take_profit),
+            ("PROFIT_RESERVE_RATE", reserve_rate),
         ):
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be a finite number")
@@ -43,6 +46,8 @@ class Config:
             raise ValueError("VIRTUAL_COMMISSION_RATE must not be negative")
         if take_profit < 0.15:
             raise ValueError("TAKE_PROFIT_PERCENT must be at least 0.15%")
+        if not 0.0 <= reserve_rate <= 1.0:
+            raise ValueError("PROFIT_RESERVE_RATE must be between 0 and 1")
         if not db_path:
             raise ValueError("VIRTUAL_PORTFOLIO_DB must not be empty")
 
@@ -51,5 +56,6 @@ class Config:
             initial_virtual_balance=balance,
             commission_rate=commission,
             take_profit_percent=take_profit,
+            profit_reserve_rate=reserve_rate,
             portfolio_db_path=db_path,
         )

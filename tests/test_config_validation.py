@@ -12,6 +12,7 @@ class TestConfigValidation(unittest.TestCase):
             "VIRTUAL_INITIAL_BALANCE": "10000",
             "VIRTUAL_COMMISSION_RATE": "0.0005",
             "TAKE_PROFIT_PERCENT": "0.15",
+            "PROFIT_RESERVE_RATE": "0.7",
             "VIRTUAL_PORTFOLIO_DB": "data/test.sqlite3",
         }
         env.update(overrides)
@@ -23,12 +24,14 @@ class TestConfigValidation(unittest.TestCase):
         self.assertEqual(config.initial_virtual_balance, 10000)
         self.assertEqual(config.commission_rate, 0.0005)
         self.assertEqual(config.take_profit_percent, 0.15)
+        self.assertEqual(config.profit_reserve_rate, 0.7)
 
     def test_rejects_non_finite_numeric_settings(self):
         for key in (
             "VIRTUAL_INITIAL_BALANCE",
             "VIRTUAL_COMMISSION_RATE",
             "TAKE_PROFIT_PERCENT",
+            "PROFIT_RESERVE_RATE",
         ):
             for value in ("nan", "inf", "-inf"):
                 with self.subTest(key=key, value=value):
@@ -52,6 +55,16 @@ class TestConfigValidation(unittest.TestCase):
     def test_rejects_negative_commission(self):
         with self.assertRaisesRegex(ValueError, "must not be negative"):
             self._load(VIRTUAL_COMMISSION_RATE="-0.01")
+
+    def test_rejects_reserve_rate_outside_zero_to_one(self):
+        for value in ("-0.01", "1.01"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "PROFIT_RESERVE_RATE"):
+                    self._load(PROFIT_RESERVE_RATE=value)
+
+    def test_accepts_reserve_rate_boundaries(self):
+        self.assertEqual(self._load(PROFIT_RESERVE_RATE="0").profit_reserve_rate, 0.0)
+        self.assertEqual(self._load(PROFIT_RESERVE_RATE="1").profit_reserve_rate, 1.0)
 
     def test_rejects_take_profit_below_minimum(self):
         with self.assertRaisesRegex(ValueError, "at least 0.15%"):

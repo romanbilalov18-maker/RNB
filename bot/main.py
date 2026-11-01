@@ -53,6 +53,7 @@ def main() -> None:
     portfolio = store.load_or_create(
         initial_balance=config.initial_virtual_balance,
         commission_rate=config.commission_rate,
+        profit_reserve_rate=config.profit_reserve_rate,
     )
     _reconcile_cycle_history(store, audit_store)
 
@@ -247,6 +248,7 @@ def main() -> None:
                     portfolio = store.load_or_create(
                         initial_balance=config.initial_virtual_balance,
                         commission_rate=config.commission_rate,
+        profit_reserve_rate=config.profit_reserve_rate,
                     )
                 except Exception as restore_error:
                     print(
@@ -263,6 +265,7 @@ def main() -> None:
                 portfolio = store.load_or_create(
                     initial_balance=config.initial_virtual_balance,
                     commission_rate=config.commission_rate,
+        profit_reserve_rate=config.profit_reserve_rate,
                 )
                 remaining_after_error = deadline - time.monotonic()
                 if not _should_run_another_cycle(remaining_after_error, cycle_interval_minutes):
