@@ -43,6 +43,7 @@ class TestConfigValidation(unittest.TestCase):
             "VIRTUAL_INITIAL_BALANCE",
             "VIRTUAL_COMMISSION_RATE",
             "TAKE_PROFIT_PERCENT",
+            "PROFIT_RESERVE_RATE",
         ):
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
