@@ -23,6 +23,7 @@ class LiveMarketRunnerUniverseTests(unittest.TestCase):
             [later, incomplete, earlier, duplicate, missing_time]
         )
         self.assertEqual(result, [earlier, later])
+        self.assertIs(result[0], earlier)
 
     def test_verified_completed_candles_reject_naive_timestamps(self):
         from datetime import datetime, timezone
