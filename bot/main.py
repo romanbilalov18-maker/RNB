@@ -375,6 +375,8 @@ def _print_problem_positions_summary(portfolio, last_result) -> None:
             reasons.append("инструмент не найден/не разрешён в каталоге T-Invest")
         if broker.get("status_check_succeeded") and broker.get("api_trade_available") is False:
             reasons.append("T-Invest сообщает, что торговля через API недоступна")
+        if broker.get("status_check_succeeded") and broker.get("sell_available") is False:
+            reasons.append("T-Invest сообщает, что продажа инструмента недоступна")
         if not reasons:
             continue
 
