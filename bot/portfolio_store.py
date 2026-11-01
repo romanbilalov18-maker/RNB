@@ -81,7 +81,9 @@ class SQLitePortfolioStore:
                     quote_unavailable_cycles INTEGER NOT NULL DEFAULT 0,
                     stagnant_sessions INTEGER NOT NULL DEFAULT 0,
                     last_health_status TEXT,
-                    last_health_candle_timestamp TEXT
+                    last_health_candle_timestamp TEXT,
+                    health_condition TEXT,
+                    health_condition_since TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS trades (
@@ -137,6 +139,10 @@ class SQLitePortfolioStore:
                 db.execute("ALTER TABLE positions ADD COLUMN last_health_status TEXT")
             if "last_health_candle_timestamp" not in position_columns:
                 db.execute("ALTER TABLE positions ADD COLUMN last_health_candle_timestamp TEXT")
+            if "health_condition" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN health_condition TEXT")
+            if "health_condition_since" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN health_condition_since TEXT")
             trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
             if "reason" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
@@ -216,6 +222,8 @@ class SQLitePortfolioStore:
                     stagnant_sessions=position["stagnant_sessions"],
                     last_health_status=position["last_health_status"],
                     last_health_candle_timestamp=position["last_health_candle_timestamp"],
+                    health_condition=position["health_condition"],
+                    health_condition_since=position["health_condition_since"],
                 )
                 if not isinstance(position["ticker"], str) or not position["ticker"].strip():
                     raise ValueError("corrupt portfolio data: position ticker must not be empty")
@@ -373,16 +381,18 @@ class SQLitePortfolioStore:
                 INSERT INTO positions (
                     ticker, quantity, average_price, purchase_timestamp,
                     purchase_session, purchase_exchange, quote_unavailable_cycles,
-                    stagnant_sessions, last_health_status, last_health_candle_timestamp
+                    stagnant_sessions, last_health_status, last_health_candle_timestamp,
+                    health_condition, health_condition_since
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (p.ticker, p.quantity, p.average_price,
                      p.purchase_timestamp.isoformat() if p.purchase_timestamp else None,
                      p.purchase_session, p.purchase_exchange,
                      p.quote_unavailable_cycles, p.stagnant_sessions,
-                     p.last_health_status, p.last_health_candle_timestamp)
+                     p.last_health_status, p.last_health_candle_timestamp,
+                     p.health_condition, p.health_condition_since)
                     for p in portfolio.positions.values()
                 ],
             )
