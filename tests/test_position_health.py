@@ -19,6 +19,15 @@ def candles(closes):
 
 
 class PositionHealthTests(unittest.TestCase):
+
+    def test_single_completed_candle_is_not_a_flat_session(self):
+        result = assess_position_health(
+            "TEST", candles([10]), current_price_available=True,
+        )
+        self.assertEqual(result.candles_checked, 1)
+        self.assertEqual(result.flat_sessions, 0)
+        self.assertEqual(result.status, "NORMAL_MONITORING")
+
     def test_missing_fresh_price_triggers_market_data_verification_not_sell(self):
         result = assess_position_health(
             "TEST", candles([10, 10, 10, 10, 10, 10]),
@@ -33,7 +42,7 @@ class PositionHealthTests(unittest.TestCase):
             current_price_available=True,
         )
         self.assertEqual(result.status, "PROLONGED_STAGNATION")
-        self.assertEqual(result.flat_sessions, 6)
+        self.assertEqual(result.flat_sessions, 5)
         self.assertIn("REVIEW", result.recommendation)
 
     def test_stagnation_plus_bearish_momentum_escalates_exit_review(self):
@@ -91,8 +100,8 @@ class PositionHealthTests(unittest.TestCase):
             "TEST", data, current_price_available=True,
         )
         self.assertEqual(result.candles_checked, 5)
-        self.assertEqual(result.flat_sessions, 5)
-        self.assertEqual(result.status, "PROLONGED_STAGNATION")
+        self.assertEqual(result.flat_sessions, 3)
+        self.assertEqual(result.status, "NORMAL_MONITORING")
 
     def test_duplicate_candle_timestamps_do_not_inflate_stagnation(self):
         data = candles([10, 10, 10, 10, 10])
