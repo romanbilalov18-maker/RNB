@@ -6,6 +6,41 @@ from bot.live_runner import LiveMarketRunner
 
 
 class LiveMarketRunnerUniverseTests(unittest.TestCase):
+    def test_verified_completed_candles_are_sorted_and_deduplicated(self):
+        from datetime import datetime, timedelta, timezone
+        from types import SimpleNamespace
+
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        later = SimpleNamespace(time=start + timedelta(days=1), is_complete=True)
+        earlier = SimpleNamespace(time=start, is_complete=True)
+        duplicate = SimpleNamespace(time=start, is_complete=True)
+        incomplete = SimpleNamespace(
+            time=start + timedelta(days=2), is_complete=False
+        )
+        missing_time = SimpleNamespace(is_complete=True)
+
+        result = LiveMarketRunner._verified_completed_candles(
+            [later, incomplete, earlier, duplicate, missing_time]
+        )
+        self.assertEqual(result, [earlier, later])
+
+    def test_verified_completed_candles_reject_naive_timestamps(self):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        valid = SimpleNamespace(
+            time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            is_complete=True,
+        )
+        naive = SimpleNamespace(
+            time=datetime(2026, 1, 2),
+            is_complete=True,
+        )
+        self.assertEqual(
+            LiveMarketRunner._verified_completed_candles([valid, naive]),
+            [valid],
+        )
+
     def test_default_analysis_universe_is_wider_than_previous_ten(self):
         with patch.dict(os.environ, {}, clear=True):
             runner = LiveMarketRunner(client=object())
