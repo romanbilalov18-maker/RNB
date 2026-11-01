@@ -43,32 +43,43 @@ class LiveMarketRunnerUniverseTests(unittest.TestCase):
         )
 
     def test_candle_history_requests_daily_tinvest_interval(self):
+        import sys
         from datetime import datetime, timezone
-        from types import SimpleNamespace
+        from types import ModuleType, SimpleNamespace
         from unittest.mock import Mock
-        from t_tech.invest import CandleInterval
 
+        daily_interval = object()
+        t_tech_module = ModuleType("t_tech")
+        invest_module = ModuleType("t_tech.invest")
+        invest_module.CandleInterval = SimpleNamespace(
+            CANDLE_INTERVAL_DAY=daily_interval
+        )
+        t_tech_module.invest = invest_module
         get_candles = Mock(return_value=object())
         client = SimpleNamespace(
             market_data=SimpleNamespace(get_candles=get_candles)
         )
         runner = LiveMarketRunner(client=client)
-        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        start_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        end_time = datetime(2026, 1, 10, tzinfo=timezone.utc)
 
-        response = runner._get_candles_with_retry(
-            instrument_id="broker-instrument-id",
-            start=start,
-            end=end,
-            attempts=1,
-        )
+        with patch.dict(
+            sys.modules,
+            {"t_tech": t_tech_module, "t_tech.invest": invest_module},
+        ):
+            response = runner._get_candles_with_retry(
+                instrument_id="broker-instrument-id",
+                start=start_time,
+                end=end_time,
+                attempts=1,
+            )
 
         self.assertIsNotNone(response)
         get_candles.assert_called_once_with(
             instrument_id="broker-instrument-id",
-            from_=start,
-            to=end,
-            interval=CandleInterval.CANDLE_INTERVAL_DAY,
+            from_=start_time,
+            to=end_time,
+            interval=daily_interval,
         )
 
     def test_default_analysis_universe_is_wider_than_previous_ten(self):
