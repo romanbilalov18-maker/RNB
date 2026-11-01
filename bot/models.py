@@ -22,6 +22,8 @@ class VirtualPosition:
     stagnant_sessions: int = 0
     last_health_status: str | None = None
     last_health_candle_timestamp: str | None = None
+    health_condition: str | None = None
+    health_condition_since: str | None = None
 
 
 @dataclass(frozen=True)
