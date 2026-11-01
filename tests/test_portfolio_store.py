@@ -129,6 +129,27 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertAlmostEqual(restored.trades[1].realized_pnl, 39.16)
             self.assertAlmostEqual(restored.trades[1].reserve_transfer, 27.412)
             self.assertAlmostEqual(restored.equity({"TEST": 110.0}), 10098.56)
+    def test_position_health_condition_and_start_timestamp_survive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime(2026, 10, 31, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("HELD", 2, 100, timestamp)
+            position = portfolio.positions["HELD"]
+            position.health_condition = "QUOTE_DATA_PROBLEM"
+            position.health_condition_since = "2026-10-30T09:15:00+00:00"
+            store.save(portfolio)
+
+            restored = SQLitePortfolioStore(path).load_or_create(10_000, 0.0005)
+            self.assertEqual(
+                restored.positions["HELD"].health_condition, "QUOTE_DATA_PROBLEM"
+            )
+            self.assertEqual(
+                restored.positions["HELD"].health_condition_since,
+                "2026-10-30T09:15:00+00:00",
+            )
+
     def test_profit_reserve_rate_survives_restart_and_controls_next_sale(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
