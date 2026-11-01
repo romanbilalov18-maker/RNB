@@ -243,7 +243,17 @@ class LiveMarketRunner:
             )
             if response is None:
                 continue
-            histories[instrument_id] = list(response.candles)
+            raw_candles = list(response.candles)
+            verified_candles = self._verified_completed_candles(raw_candles)
+            histories[instrument_id] = verified_candles
+            rejected_candles = len(raw_candles) - len(verified_candles)
+            if rejected_candles:
+                print(
+                    f"CANDLE DATA GUARD: instrument_id={instrument_id} "
+                    f"received={len(raw_candles)} "
+                    f"verified_completed={len(verified_candles)} "
+                    f"rejected_incomplete_invalid_or_duplicate={rejected_candles}"
+                )
 
         analyses = {}
         for share in analysis_shares:
@@ -936,6 +946,32 @@ class LiveMarketRunner:
         if position_health_status == "PROLONGED_STAGNATION":
             return "prolonged_price_stagnation"
         return None
+
+    @staticmethod
+    def _verified_completed_candles(candles):
+        """Keep only unique, timestamped, explicitly completed T-Invest candles."""
+        by_timestamp = {}
+        duplicate_timestamps = set()
+        for candle in candles or ():
+            if getattr(candle, "is_complete", None) is not True:
+                continue
+            candle_time = getattr(candle, "time", None)
+            if (
+                not isinstance(candle_time, datetime)
+                or candle_time.tzinfo is None
+                or candle_time.utcoffset() is None
+            ):
+                continue
+            timestamp = candle_time.astimezone(timezone.utc)
+            if timestamp in by_timestamp:
+                duplicate_timestamps.add(timestamp)
+                continue
+            by_timestamp[timestamp] = candle
+        for timestamp in duplicate_timestamps:
+            by_timestamp.pop(timestamp, None)
+        return [
+            candle for _, candle in sorted(by_timestamp.items(), key=lambda item: item[0])
+        ]
 
     def _get_candles_with_retry(
         self,
