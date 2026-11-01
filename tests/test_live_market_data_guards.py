@@ -137,12 +137,12 @@ class LiveMarketDataGuardTests(unittest.TestCase):
         )
         self.assertEqual(reason, "quote_timestamp_in_future")
 
-    def test_naive_timestamps_are_treated_as_utc(self):
+    def test_naive_timestamps_are_rejected_as_timezone_ambiguous(self):
         now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
         quote = datetime(2026, 10, 17, 11, 59)
         age, reason = LiveMarketRunner._quote_freshness(quote, now, 300)
-        self.assertEqual(reason, "fresh")
-        self.assertEqual(age, 60)
+        self.assertEqual(reason, "missing_timezone")
+        self.assertEqual(age, 0.0)
 
 
 if __name__ == "__main__":
