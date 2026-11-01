@@ -5,7 +5,17 @@ from bot.position_health import assess_position_health
 
 
 def candles(closes):
-    return [SimpleNamespace(close=value, is_complete=True) for value in closes]
+    from datetime import datetime, timedelta, timezone
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return [
+        SimpleNamespace(
+            close=value,
+            time=start + timedelta(days=index),
+            is_complete=True,
+        )
+        for index, value in enumerate(closes)
+    ]
 
 
 class PositionHealthTests(unittest.TestCase):
@@ -71,6 +81,49 @@ class PositionHealthTests(unittest.TestCase):
         )
         self.assertEqual(result.candles_checked, 4)
 
+
+    def test_candles_without_timezone_aware_source_time_are_ignored(self):
+        from datetime import datetime
+
+        data = candles([10, 10, 10, 10, 10, 10])
+        data[-1].time = datetime(2026, 1, 7, 12, 0)
+        result = assess_position_health(
+            "TEST", data, current_price_available=True,
+        )
+        self.assertEqual(result.candles_checked, 5)
+        self.assertEqual(result.flat_sessions, 5)
+        self.assertEqual(result.status, "PROLONGED_STAGNATION")
+
+    def test_duplicate_candle_timestamps_do_not_inflate_stagnation(self):
+        data = candles([10, 10, 10, 10, 10])
+        duplicate = SimpleNamespace(
+            close=10,
+            time=data[-1].time,
+            is_complete=True,
+        )
+        result = assess_position_health(
+            "TEST", data + [duplicate], current_price_available=True,
+        )
+        self.assertEqual(result.candles_checked, 4)
+        self.assertEqual(result.flat_sessions, 4)
+        self.assertEqual(result.status, "NORMAL_MONITORING")
+
+    def test_candles_are_sorted_by_source_timestamp_before_stagnation_count(self):
+        data = candles([10, 10, 12, 10, 10, 10])
+        data[0], data[-1] = data[-1], data[0]
+        result = assess_position_health(
+            "TEST", data, current_price_available=True,
+        )
+        self.assertEqual(result.flat_sessions, 3)
+        self.assertEqual(result.status, "NORMAL_MONITORING")
+
+    def test_candles_without_explicit_completion_flag_are_ignored(self):
+        data = candles([10, 10, 10, 10, 10, 10])
+        data[-1] = SimpleNamespace(close=10, time=data[-1].time)
+        result = assess_position_health(
+            "TEST", data, current_price_available=True,
+        )
+        self.assertEqual(result.candles_checked, 5)
 
     def test_verified_market_closure_is_not_reported_as_quote_failure(self):
         result = assess_position_health(
