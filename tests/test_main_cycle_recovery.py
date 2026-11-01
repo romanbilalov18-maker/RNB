@@ -356,6 +356,61 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
                 ),
             )
 
+    def test_commit_then_raise_preserves_matching_audit_and_portfolio_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store, audit_store = self._create_sqlite_stores(directory)
+            portfolio = VirtualPortfolio(
+                10_000.0, commission_rate=0.001, profit_reserve_rate=0.7
+            )
+            timestamp = datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc)
+            portfolio.buy("AAA", 10, 100.0, timestamp)
+            portfolio.sell("AAA", 10, 110.0, timestamp)
+            expected_cash = portfolio.cash
+            expected_reserve = portfolio.protected_cash
+            kwargs = {
+                "decisions": {
+                    "AAA": SimpleNamespace(action="HOLD", reason="commit then raise")
+                },
+                "virtual_trades": list(portfolio.trades),
+                "equity": portfolio.cash + portfolio.protected_cash,
+                "cash": portfolio.cash,
+                "total_commissions": portfolio.commissions,
+                "current_prices": {},
+                "as_of": timestamp,
+            }
+
+            original_save = portfolio_store.save
+
+            def commit_then_raise(*args, **save_kwargs):
+                original_save(*args, **save_kwargs)
+                raise OSError("simulated interruption immediately after database commit")
+
+            portfolio_store.save = commit_then_raise
+            try:
+                result = _persist_cycle_safely(
+                    portfolio_store, audit_store, portfolio, {},
+                    cycle_id="commit-then-raise-cycle", **kwargs,
+                )
+            finally:
+                portfolio_store.save = original_save
+
+            self.assertEqual(result, 1)
+            self.assertEqual(
+                portfolio_store.committed_cycle_ids(), {"commit-then-raise-cycle"}
+            )
+            self.assertEqual(
+                audit_store.cycle_ids(), {"commit-then-raise-cycle"}
+            )
+            self.assertEqual(
+                audit_store.cycle_record_count("commit-then-raise-cycle"), 1
+            )
+            restored = SQLitePortfolioStore(
+                Path(directory) / "portfolio.sqlite3"
+            ).load_or_create(1.0, 0.0)
+            self.assertAlmostEqual(restored.cash, expected_cash)
+            self.assertAlmostEqual(restored.protected_cash, expected_reserve)
+            _reconcile_cycle_history(portfolio_store, audit_store)
+
     def test_real_sqlite_audit_rollback_is_atomic_when_parent_delete_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_store, audit_store = self._create_sqlite_stores(directory)
