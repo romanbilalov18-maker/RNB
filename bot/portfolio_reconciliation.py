@@ -134,6 +134,12 @@ def _reconcile_trade_ledger(
                 raise PortfolioReconciliationError(
                     f"trade #{index} reserve transfer is outside realized-profit bounds"
                 )
+            expected_transfer = max(calculated_pnl, 0.0) * reserve_rate
+            _assert_close(
+                f"trade #{index} reserve transfer vs configured rate",
+                reserve_transfer,
+                expected_transfer,
+            )
             reserve_transfer_for_cash = reserve_transfer
             expected_reserve += reserve_transfer
         expected_cash += quantity * price - commission - reserve_transfer_for_cash
