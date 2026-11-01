@@ -111,6 +111,34 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertEqual(portfolio.positions["HELD_B"].quote_unavailable_cycles, 0)
         self.assertEqual(portfolio.positions["HELD_A"].last_health_status, "MARKET_CLOSED")
 
+    def test_prolonged_stagnation_is_flagged_for_review_without_forced_sale(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
+        scan = LiveScanResult(
+            selected_10=[], selected_3=[], buy_candidates=[], analyses={},
+            current_prices={"HELD": 100.0}, previous_closes={}, lot_sizes={},
+            active_trading_tickers={"HELD"},
+            candle_history={
+                "HELD": [
+                    type("Candle", (), {"close": 100.0, "is_complete": True})()
+                    for _ in range(6)
+                ]
+            },
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, buys = PaperExecutor().execute(
+                portfolio, scan, eligible_buy_tickers=set()
+            )
+
+        self.assertEqual(sells, [])
+        self.assertEqual(buys, [])
+        self.assertIn("health=PROLONGED_STAGNATION", output.getvalue())
+        self.assertIn("review_required=True", output.getvalue())
+        self.assertIn("HELD", portfolio.positions)
+        self.assertEqual(len(portfolio.trades), 1)
+
     def test_broker_instrument_status_is_reported_for_held_position(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
