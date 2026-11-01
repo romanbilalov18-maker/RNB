@@ -88,6 +88,27 @@ class ProblemPositionsSummaryTests(unittest.TestCase):
         self.assertIn("Сводное состояние: EXIT_RESTRICTED", report)
         self.assertIn("T-Invest сообщает, что продажа инструмента недоступна", report)
 
+    def test_health_duration_formats_days_and_hours(self):
+        from bot.main import _format_health_duration
+
+        started = datetime(2026, 10, 29, 10, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 31, 13, 45, tzinfo=timezone.utc)
+        self.assertEqual(
+            _format_health_duration(started.isoformat(), now=now),
+            "2 дн. 3 ч.",
+        )
+
+    def test_health_duration_handles_missing_invalid_and_future_timestamps(self):
+        from bot.main import _format_health_duration
+
+        now = datetime(2026, 10, 31, 13, 45, tzinfo=timezone.utc)
+        self.assertEqual(_format_health_duration(None, now=now), "длительность неизвестна")
+        self.assertEqual(_format_health_duration("not-a-date", now=now), "длительность неизвестна")
+        self.assertEqual(
+            _format_health_duration("2026-10-31T14:00:00+00:00", now=now),
+            "0 мин.",
+        )
+
     def test_does_not_flag_healthy_position_or_claim_missing_market_price(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("OK", 1, 50, datetime.now(timezone.utc))
