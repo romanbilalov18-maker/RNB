@@ -233,6 +233,59 @@ class TestMainCycleRecoveryGuards(unittest.TestCase):
             self.assertEqual(portfolio_store.committed_cycle_ids(), {"idempotent-cycle"})
             self.assertEqual(audit_store.cycle_record_count("idempotent-cycle"), 1)
 
+    def test_real_sqlite_repeated_committed_cycle_does_not_duplicate_profit_reserve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio_store, audit_store = self._create_sqlite_stores(directory)
+            portfolio = VirtualPortfolio(
+                10_000.0, commission_rate=0.001, profit_reserve_rate=0.7
+            )
+            timestamp = datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc)
+            portfolio.buy("AAA", 10, 100.0, timestamp)
+            portfolio.sell("AAA", 10, 110.0, timestamp)
+            expected_cash = portfolio.cash
+            expected_reserve = portfolio.protected_cash
+            expected_trade_count = len(portfolio.trades)
+            kwargs = {
+                "decisions": {
+                    "AAA": SimpleNamespace(action="HOLD", reason="reserve idempotency test")
+                },
+                "virtual_trades": list(portfolio.trades),
+                "equity": portfolio.cash + portfolio.protected_cash,
+                "cash": portfolio.cash,
+                "total_commissions": portfolio.commissions,
+                "current_prices": {},
+                "as_of": timestamp,
+            }
+
+            first = _persist_cycle_safely(
+                portfolio_store, audit_store, portfolio, {},
+                cycle_id="profit-reserve-idempotent-cycle", **kwargs,
+            )
+            second = _persist_cycle_safely(
+                portfolio_store, audit_store, portfolio, {},
+                cycle_id="profit-reserve-idempotent-cycle", **kwargs,
+            )
+
+            restored = SQLitePortfolioStore(
+                Path(directory) / "portfolio.sqlite3"
+            ).load_or_create(1.0, 0.0)
+            self.assertEqual(first, 1)
+            self.assertEqual(second, 1)
+            self.assertAlmostEqual(restored.cash, expected_cash)
+            self.assertAlmostEqual(restored.protected_cash, expected_reserve)
+            self.assertEqual(len(restored.trades), expected_trade_count)
+            self.assertEqual(
+                audit_store.cycle_record_count("profit-reserve-idempotent-cycle"), 1
+            )
+            self.assertAlmostEqual(
+                restored.protected_cash,
+                sum(
+                    trade.reserve_transfer or 0.0
+                    for trade in restored.trades
+                    if trade.side == "SELL"
+                ),
+            )
+
     def test_real_sqlite_audit_rollback_is_atomic_when_parent_delete_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             portfolio_store, audit_store = self._create_sqlite_stores(directory)
