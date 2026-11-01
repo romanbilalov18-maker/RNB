@@ -42,6 +42,30 @@ class ProblemPositionsSummaryTests(unittest.TestCase):
         self.assertIn("ручная проверка инструмента", report)
         self.assertIn("автоматическая продажа только из-за этих признаков запрещена", report)
 
+    def test_reports_broker_sell_unavailable_as_manual_review_reason(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("BLOCKED", 2, 100, datetime.now(timezone.utc))
+        result = SimpleNamespace(
+            current_prices={"BLOCKED": 100.0},
+            instrument_status_by_ticker={
+                "BLOCKED": {
+                    "resolution": "RESOLVED",
+                    "trading_status": "NOT_AVAILABLE_FOR_TRADING",
+                    "api_trade_available": True,
+                    "sell_available": False,
+                    "status_check_succeeded": True,
+                }
+            },
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            _print_problem_positions_summary(portfolio, result)
+        report = output.getvalue()
+        self.assertIn("Позиций требуют внимания: 1 из 1", report)
+        self.assertIn("sell_available=False", report)
+        self.assertIn("T-Invest сообщает, что продажа инструмента недоступна", report)
+        self.assertIn("автоматическая продажа только из-за этих признаков запрещена", report)
+
     def test_does_not_flag_healthy_position_or_claim_missing_market_price(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("OK", 1, 50, datetime.now(timezone.utc))
