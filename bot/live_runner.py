@@ -1264,10 +1264,15 @@ class LiveMarketRunner:
         max_age_seconds: float,
     ) -> tuple[float, str]:
         """Return age and rejection reason for a source quote timestamp."""
-        if quote_time.tzinfo is None:
-            quote_time = quote_time.replace(tzinfo=timezone.utc)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+        # A naive broker timestamp has no unambiguous instant. Do not guess
+        # that it is UTC: an assumed timezone could make a stale quote look fresh.
+        if (
+            quote_time.tzinfo is None
+            or quote_time.utcoffset() is None
+            or now.tzinfo is None
+            or now.utcoffset() is None
+        ):
+            return 0.0, "missing_timezone"
         age = (now.astimezone(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds()
         if age < -60:
             return age, "quote_timestamp_in_future"
