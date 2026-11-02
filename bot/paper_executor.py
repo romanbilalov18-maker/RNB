@@ -427,26 +427,44 @@ class PaperExecutor:
                         f"costs {minimum_cost:.2f} RUB including commission."
                     )
                 else:
-                    minimum_lot_risk = (
-                        minimum_cost / (1.0 + portfolio.commission_rate)
-                        * (
-                            sizer.stop_loss_pct
-                            + 2.0 * sizer.commission_rate
-                            - sizer.stop_loss_pct * sizer.commission_rate
-                        )
+                    risk_inputs = (
+                        sizer.stop_loss_pct,
+                        sizer.commission_rate,
+                        sizer.risk_budget_pct,
+                        portfolio.commission_rate,
+                        total_equity,
                     )
-                    risk_budget = total_equity * sizer.risk_budget_pct
-                    if minimum_lot_risk > risk_budget + 1e-9:
-                        print(
-                            "POSITION SIZER REJECTED ALL: minimum whole-lot stop-loss risk "
-                            f"for {minimum_ticker} is {minimum_lot_risk:.2f} RUB, above "
-                            f"the configured risk budget {risk_budget:.2f} RUB "
-                            f"({sizer.risk_budget_pct * 100:.2f}% of equity); no order submitted."
+                    if all(
+                        isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                        and math.isfinite(value)
+                        for value in risk_inputs
+                    ):
+                        minimum_lot_risk = (
+                            minimum_cost / (1.0 + portfolio.commission_rate)
+                            * (
+                                sizer.stop_loss_pct
+                                + 2.0 * sizer.commission_rate
+                                - sizer.stop_loss_pct * sizer.commission_rate
+                            )
                         )
+                        risk_budget = total_equity * sizer.risk_budget_pct
+                        if minimum_lot_risk > risk_budget + 1e-9:
+                            print(
+                                "POSITION SIZER REJECTED ALL: minimum whole-lot stop-loss risk "
+                                f"for {minimum_ticker} is {minimum_lot_risk:.2f} RUB, above "
+                                f"the configured risk budget {risk_budget:.2f} RUB "
+                                f"({sizer.risk_budget_pct * 100:.2f}% of equity); no order submitted."
+                            )
+                        else:
+                            print(
+                                "POSITION SIZER REJECTED ALL: sufficient cash and per-lot risk, "
+                                "but no allocation satisfied cash/position-weight constraints."
+                            )
                     else:
                         print(
-                            "POSITION SIZER REJECTED ALL: sufficient cash and per-lot risk, "
-                            "but no allocation satisfied cash/position-weight constraints."
+                            "POSITION SIZER REJECTED ALL: no feasible allocation; "
+                            "risk diagnostic inputs are unavailable."
                         )
         elif plans:
             print(
