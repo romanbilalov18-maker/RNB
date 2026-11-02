@@ -204,7 +204,14 @@ class PositionSizer:
                     total_cost=gross + commission,
                     target_weight=targets[ticker],
                     actual_weight=weights[ticker],
-                    estimated_stop_loss_risk=(lots * unit_costs[ticker] * self.stop_loss_pct),
+                    estimated_stop_loss_risk=(
+                        lots * unit_costs[ticker] / (1.0 + self.commission_rate)
+                        * (
+                            self.stop_loss_pct
+                            + 2.0 * self.commission_rate
+                            - self.stop_loss_pct * self.commission_rate
+                        )
+                    ),
                 )
             )
 
@@ -221,7 +228,16 @@ class PositionSizer:
         if invested <= 0 or invested > cash + 1e-9:
             return None
 
-        estimated_stop_loss_risk = invested * self.stop_loss_pct
+        loss_rate_after_commission = (
+            self.stop_loss_pct
+            + 2.0 * self.commission_rate
+            - self.stop_loss_pct * self.commission_rate
+        )
+        estimated_stop_loss_risk = sum(
+            lots * unit_costs[ticker] / (1.0 + self.commission_rate)
+            * loss_rate_after_commission
+            for ticker, lots in zip(tickers, lot_counts)
+        )
         risk_budget = total_equity * self.risk_budget_pct if self.risk_budget_pct is not None else None
         if risk_budget is not None and estimated_stop_loss_risk > risk_budget + 1e-9:
             return None
