@@ -447,6 +447,22 @@ class TestPositionSizer(unittest.TestCase):
         )
         self.assertEqual(plans, [])
 
+    def test_risk_estimate_includes_both_commissions(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plan = PositionSizer(
+            commission_rate=0.01,
+            risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        ).plan(
+            cash=1_000.0,
+            analyses=analysis,
+            prices={"A": 100.0},
+            lot_sizes={"A": 1},
+            total_equity=1_000.0,
+        )
+        self.assertEqual(len(plan), 1)
+        self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 6.95)
+
     def test_rejects_invalid_risk_parameters(self):
         for risk_budget_pct in (0.0, -0.01, 1.1, True, float("nan")):
             with self.subTest(risk_budget_pct=risk_budget_pct):
