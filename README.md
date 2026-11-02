@@ -44,6 +44,7 @@ Linux/macOS:
 export INVEST_TOKEN="ваш_токен"
 export VIRTUAL_INITIAL_BALANCE="10000"
 export VIRTUAL_COMMISSION_RATE="0.0005"
+export VIRTUAL_RISK_BUDGET_PERCENT="1.0"
 export TAKE_PROFIT_PERCENT="0.15"
 export VIRTUAL_PORTFOLIO_DB="data/virtual_portfolio.sqlite3"
 ```
