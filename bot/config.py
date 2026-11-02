@@ -10,8 +10,8 @@ class Config:
     commission_rate: float = 0.0005
     take_profit_percent: float = 0.15
     profit_reserve_rate: float = 0.7
-    risk_budget_percent: float = 1.0
     portfolio_db_path: str = "data/virtual_portfolio.sqlite3"
+    risk_budget_percent: float = 1.0
 
     @classmethod
     def from_env(cls) -> "Config":
