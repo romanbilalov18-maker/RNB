@@ -50,9 +50,16 @@ class DecisionEngine:
         if intelligence is None:
             return None
         try:
-            score = float(intelligence.overall_score)
-            confidence = float(intelligence.overall_confidence)
-            consistency = float(intelligence.overall_consistency)
+            raw_values = (
+                intelligence.overall_score,
+                intelligence.overall_confidence,
+                intelligence.overall_consistency,
+            )
+            # bool is a subclass of int in Python (float(True) == 1.0).
+            # Treating a malformed boolean as a perfect metric could authorize BUY.
+            if any(isinstance(value, bool) for value in raw_values):
+                return None
+            score, confidence, consistency = (float(value) for value in raw_values)
         except (AttributeError, TypeError, ValueError, OverflowError):
             return None
         values = (score, confidence, consistency)
