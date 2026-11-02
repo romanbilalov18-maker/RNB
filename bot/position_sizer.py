@@ -170,7 +170,8 @@ class PositionSizer:
         if best is None:
             return []
 
-        _, _, lot_counts, weights = best
+        lot_counts = best[2]
+        weights = best[3]
         plans = []
         for analysis, lots in zip(analyses, lot_counts):
             if lots <= 0:
