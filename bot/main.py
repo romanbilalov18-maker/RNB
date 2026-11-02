@@ -93,6 +93,7 @@ def main() -> None:
             print(f"Runtime limit: {run_duration_minutes:g} min")
             print(f"Cycle interval: {cycle_interval_minutes:g} min")
             print(f"Take Profit: {config.take_profit_percent:g} %")
+            print(f"Virtual risk budget per cycle allocation: {config.risk_budget_percent:g} % of equity")
 
             try:
                 result = market_runner.run(
@@ -184,7 +185,8 @@ def main() -> None:
                 )
                 reserve_before_cycle = portfolio.protected_cash
                 sell_trades, buy_trades = PaperExecutor(
-                    take_profit=config.take_profit_percent / 100.0
+                    take_profit=config.take_profit_percent / 100.0,
+                    risk_budget_pct=config.risk_budget_percent / 100.0,
                 ).execute(
                     portfolio,
                     result,
