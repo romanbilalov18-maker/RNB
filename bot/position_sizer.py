@@ -17,6 +17,7 @@ class PositionPlan:
     total_cost: float
     target_weight: float
     actual_weight: float
+    estimated_stop_loss_risk: float
 
 
 class PositionSizer:
@@ -35,6 +36,8 @@ class PositionSizer:
         self,
         commission_rate: float,
         max_position_weight: float = 0.35,
+        risk_budget_pct: float = 0.01,
+        stop_loss_pct: float = 0.05,
     ):
         if (
             isinstance(commission_rate, bool)
@@ -53,8 +56,19 @@ class PositionSizer:
         if not 0 < max_position_weight <= 1:
             raise ValueError("max_position_weight must be in (0, 1]")
 
+        for name, value in (("risk_budget_pct", risk_budget_pct), ("stop_loss_pct", stop_loss_pct)):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"{name} must be a finite number")
+            if not 0 < value <= 1:
+                raise ValueError(f"{name} must be in (0, 1]")
         self.commission_rate = commission_rate
         self.max_position_weight = max_position_weight
+        self.risk_budget_pct = float(risk_budget_pct)
+        self.stop_loss_pct = float(stop_loss_pct)
 
     def plan(
         self,
@@ -181,6 +195,7 @@ class PositionSizer:
                     total_cost=gross + commission,
                     target_weight=targets[ticker],
                     actual_weight=weights[ticker],
+                    estimated_stop_loss_risk=(lots * unit_costs[ticker] * self.stop_loss_pct),
                 )
             )
 
@@ -195,6 +210,11 @@ class PositionSizer:
             for ticker, lots in zip(tickers, lot_counts)
         )
         if invested <= 0 or invested > cash + 1e-9:
+            return None
+
+        estimated_stop_loss_risk = invested * self.stop_loss_pct
+        risk_budget = total_equity * self.risk_budget_pct
+        if estimated_stop_loss_risk > risk_budget + 1e-9:
             return None
 
         weights = {
@@ -216,7 +236,7 @@ class PositionSizer:
             for ticker, lots in zip(tickers, lot_counts)
         )
         objective = invested / cash - 0.50 * deviation
-        return objective, invested, tuple(lot_counts), weights
+        return objective, invested, tuple(lot_counts), weights, estimated_stop_loss_risk
 
     def _exhaustive_best(
         self, tickers, ranges, unit_costs, existing_values, targets,
