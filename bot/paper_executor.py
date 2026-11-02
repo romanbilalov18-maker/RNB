@@ -25,9 +25,21 @@ class PaperExecutor:
             and lot_size > 0
         )
 
-    def __init__(self, max_position_weight: float = 0.35, take_profit: float = 0.0015):
+    def __init__(
+        self,
+        max_position_weight: float = 0.35,
+        take_profit: float = 0.0015,
+        risk_budget_pct: float = 0.01,
+    ):
+        if (
+            isinstance(risk_budget_pct, bool)
+            or not isinstance(risk_budget_pct, (int, float))
+            or not 0 < risk_budget_pct <= 1
+        ):
+            raise ValueError("risk_budget_pct must be in (0, 1]")
         self.position_manager = PositionManager(take_profit=take_profit)
         self.max_position_weight = max_position_weight
+        self.risk_budget_pct = float(risk_budget_pct)
 
     def execute(
         self,
@@ -334,6 +346,8 @@ class PaperExecutor:
         sizer = PositionSizer(
             commission_rate=portfolio.commission_rate,
             max_position_weight=self.max_position_weight,
+            risk_budget_pct=self.risk_budget_pct,
+            stop_loss_pct=abs(self.position_manager.stop_loss),
         )
         sizing_analyses = list(eligible_analyses)
         plans = sizer.plan(
@@ -421,7 +435,7 @@ class PaperExecutor:
             print(
                 f"POSITION SIZER PLANS: {len(plans)}; "
                 + ", ".join(
-                    f"{plan.ticker} qty={plan.quantity} cost={plan.total_cost:.2f} RUB"
+                    f"{plan.ticker} qty={plan.quantity} cost={plan.total_cost:.2f} RUB risk={plan.estimated_stop_loss_risk:.2f} RUB"
                     for plan in plans
                 )
             )
