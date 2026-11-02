@@ -43,6 +43,16 @@ class DecisionEngineTests(unittest.TestCase):
     def test_out_of_range_metrics_never_buy(self):
         self.assertEqual(self.engine.decide("AAA", result(score=1.1)).action, "WAIT")
 
+    def test_boolean_score_is_rejected_instead_of_becoming_one(self):
+        self.assertEqual(self.engine.decide("AAA", result(score=True)).action, "WAIT")
+
+    def test_boolean_confidence_is_rejected_instead_of_becoming_one(self):
+        self.assertEqual(self.engine.decide("AAA", result(confidence=True)).action, "WAIT")
+
+    def test_boolean_consistency_is_rejected_instead_of_becoming_one(self):
+        self.assertEqual(self.engine.decide("AAA", result(consistency=True)).action, "WAIT")
+
+
     def test_weak_held_position_gets_sell_recommendation_only(self):
         decision = self.engine.decide("AAA", result(score=0.2, confidence=0.7), is_held=True)
         self.assertEqual(decision.action, "SELL")
