@@ -36,7 +36,7 @@ class PositionSizer:
         self,
         commission_rate: float,
         max_position_weight: float = 0.35,
-        risk_budget_pct: float = 0.01,
+        risk_budget_pct: float | None = None,
         stop_loss_pct: float = 0.05,
     ):
         if (
@@ -56,18 +56,26 @@ class PositionSizer:
         if not 0 < max_position_weight <= 1:
             raise ValueError("max_position_weight must be in (0, 1]")
 
-        for name, value in (("risk_budget_pct", risk_budget_pct), ("stop_loss_pct", stop_loss_pct)):
+        if risk_budget_pct is not None:
             if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value)
+                isinstance(risk_budget_pct, bool)
+                or not isinstance(risk_budget_pct, (int, float))
+                or not math.isfinite(risk_budget_pct)
             ):
-                raise ValueError(f"{name} must be a finite number")
-            if not 0 < value <= 1:
-                raise ValueError(f"{name} must be in (0, 1]")
+                raise ValueError("risk_budget_pct must be a finite number")
+            if not 0 < risk_budget_pct <= 1:
+                raise ValueError("risk_budget_pct must be in (0, 1]")
+        if (
+            isinstance(stop_loss_pct, bool)
+            or not isinstance(stop_loss_pct, (int, float))
+            or not math.isfinite(stop_loss_pct)
+        ):
+            raise ValueError("stop_loss_pct must be a finite number")
+        if not 0 < stop_loss_pct <= 1:
+            raise ValueError("stop_loss_pct must be in (0, 1]")
         self.commission_rate = commission_rate
         self.max_position_weight = max_position_weight
-        self.risk_budget_pct = float(risk_budget_pct)
+        self.risk_budget_pct = float(risk_budget_pct) if risk_budget_pct is not None else None
         self.stop_loss_pct = float(stop_loss_pct)
 
     def plan(
@@ -214,8 +222,8 @@ class PositionSizer:
             return None
 
         estimated_stop_loss_risk = invested * self.stop_loss_pct
-        risk_budget = total_equity * self.risk_budget_pct
-        if estimated_stop_loss_risk > risk_budget + 1e-9:
+        risk_budget = total_equity * self.risk_budget_pct if self.risk_budget_pct is not None else None
+        if risk_budget is not None and estimated_stop_loss_risk > risk_budget + 1e-9:
             return None
 
         weights = {
