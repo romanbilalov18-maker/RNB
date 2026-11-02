@@ -412,5 +412,49 @@ class TestPositionSizer(unittest.TestCase):
                 lot_sizes={"A": 1},
             )
 
+    def test_enforces_total_stop_loss_risk_budget(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plans = PositionSizer(
+            commission_rate=0.0,
+            max_position_weight=0.35,
+            risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        ).plan(
+            cash=10_000.0,
+            analyses=analysis,
+            prices={"A": 100.0},
+            lot_sizes={"A": 1},
+            total_equity=10_000.0,
+        )
+
+        self.assertEqual(len(plans), 1)
+        self.assertAlmostEqual(plans[0].estimated_stop_loss_risk, 100.0)
+        self.assertLessEqual(plans[0].estimated_stop_loss_risk, 100.0 + 1e-9)
+        self.assertEqual(plans[0].lots, 20)
+
+    def test_rejects_order_when_minimum_lot_exceeds_risk_budget(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plans = PositionSizer(
+            commission_rate=0.0,
+            risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        ).plan(
+            cash=1_000.0,
+            analyses=analysis,
+            prices={"A": 250.0},
+            lot_sizes={"A": 1},
+            total_equity=1_000.0,
+        )
+        self.assertEqual(plans, [])
+
+    def test_rejects_invalid_risk_parameters(self):
+        for risk_budget_pct in (0.0, -0.01, 1.1, True, float("nan")):
+            with self.subTest(risk_budget_pct=risk_budget_pct):
+                with self.assertRaises(ValueError):
+                    PositionSizer(
+                        commission_rate=0.0,
+                        risk_budget_pct=risk_budget_pct,
+                    )
+
 if __name__ == "__main__":
     unittest.main()
