@@ -9,6 +9,49 @@ from bot.virtual_portfolio import VirtualPortfolio
 
 
 class PaperExecutorPartialQuoteTests(unittest.TestCase):
+    def test_existing_positions_reduce_remaining_portfolio_risk_budget(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.0)
+        portfolio.buy("HELD", 20, 100.0, datetime.now(timezone.utc))
+
+        remaining_pct, open_risk, risk_cap = PaperExecutor._remaining_risk_budget(
+            portfolio,
+            total_equity=10_000.0,
+            configured_risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        )
+
+        self.assertAlmostEqual(open_risk, 100.0)
+        self.assertAlmostEqual(risk_cap, 100.0)
+        self.assertAlmostEqual(remaining_pct, 0.0)
+
+    def test_partial_open_risk_leaves_only_remaining_budget_for_new_entries(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.0)
+        portfolio.buy("HELD", 10, 100.0, datetime.now(timezone.utc))
+
+        remaining_pct, open_risk, risk_cap = PaperExecutor._remaining_risk_budget(
+            portfolio,
+            total_equity=10_000.0,
+            configured_risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        )
+
+        self.assertAlmostEqual(open_risk, 50.0)
+        self.assertAlmostEqual(risk_cap, 100.0)
+        self.assertAlmostEqual(remaining_pct, 0.005)
+
+    def test_invalid_open_position_risk_inputs_fail_closed(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.positions["BROKEN"] = type(
+            "Position", (), {"quantity": 0, "average_price": 100.0}
+        )()
+        with self.assertRaisesRegex(ValueError, "invalid position"):
+            PaperExecutor._remaining_risk_budget(
+                portfolio,
+                total_equity=10_000.0,
+                configured_risk_budget_pct=0.01,
+                stop_loss_pct=0.05,
+            )
+
     def test_missing_quote_for_held_position_does_not_abort_cycle(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("HELD", 2, 100, datetime.now(timezone.utc))
