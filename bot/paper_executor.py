@@ -41,6 +41,50 @@ class PaperExecutor:
         self.max_position_weight = max_position_weight
         self.risk_budget_pct = float(risk_budget_pct)
 
+    @staticmethod
+    def _remaining_risk_budget(
+        portfolio: VirtualPortfolio,
+        total_equity: float,
+        configured_risk_budget_pct: float,
+        stop_loss_pct: float,
+    ) -> tuple[float, float, float]:
+        """Return (remaining budget pct, open-position risk, total risk cap).
+
+        Open risk is estimated from each holding's cost basis and the same
+        stop-loss/commission model used for proposed entries. Invalid position
+        state fails closed instead of authorizing new risk.
+        """
+        commission_rate = portfolio.commission_rate
+        loss_rate_after_commission = (
+            stop_loss_pct
+            + 2.0 * commission_rate
+            - stop_loss_pct * commission_rate
+        )
+        open_risk = 0.0
+        for ticker, position in portfolio.positions.items():
+            quantity = getattr(position, "quantity", None)
+            average_price = getattr(position, "average_price", None)
+            if (
+                isinstance(quantity, bool)
+                or not isinstance(quantity, int)
+                or quantity <= 0
+                or isinstance(average_price, bool)
+                or not isinstance(average_price, (int, float))
+                or not math.isfinite(average_price)
+                or average_price <= 0
+            ):
+                raise ValueError(
+                    f"cannot estimate open stop-loss risk for invalid position {ticker}"
+                )
+            open_risk += quantity * average_price * loss_rate_after_commission
+            if not math.isfinite(open_risk):
+                raise ValueError("open-position stop-loss risk is not finite")
+
+        total_risk_cap = total_equity * configured_risk_budget_pct
+        remaining_risk = max(0.0, total_risk_cap - open_risk)
+        remaining_pct = remaining_risk / total_equity
+        return remaining_pct, open_risk, total_risk_cap
+
     def execute(
         self,
         portfolio: VirtualPortfolio,
@@ -343,22 +387,48 @@ class PaperExecutor:
         if rejection_counts:
             print(f"EXECUTION REJECTION COUNTS: {rejection_counts}")
 
+        remaining_risk_budget_pct, open_position_risk, total_risk_cap = (
+            self._remaining_risk_budget(
+                portfolio,
+                total_equity,
+                self.risk_budget_pct,
+                abs(self.position_manager.stop_loss),
+            )
+        )
+        print(
+            "PORTFOLIO RISK BUDGET: "
+            f"open_stop_loss_risk={open_position_risk:.2f} RUB "
+            f"configured_cap={total_risk_cap:.2f} RUB "
+            f"remaining_for_new_entries={max(0.0, total_risk_cap - open_position_risk):.2f} RUB"
+        )
+        risk_budget_exhausted = remaining_risk_budget_pct <= 0.0
         sizer = PositionSizer(
             commission_rate=portfolio.commission_rate,
             max_position_weight=self.max_position_weight,
-            risk_budget_pct=self.risk_budget_pct,
+            risk_budget_pct=(
+                remaining_risk_budget_pct
+                if not risk_budget_exhausted
+                else self.risk_budget_pct
+            ),
             stop_loss_pct=abs(self.position_manager.stop_loss),
         )
         sizing_analyses = list(eligible_analyses)
-        plans = sizer.plan(
-            cash=portfolio.cash,
-            analyses=list(sizing_analyses),
-            prices=scan.current_prices,
-            lot_sizes=scan.lot_sizes,
-            existing_positions=set(portfolio.positions),
-            existing_values=existing_values,
-            total_equity=total_equity,
-        )
+        plans = []
+        if sizing_analyses and not risk_budget_exhausted:
+            plans = sizer.plan(
+                cash=portfolio.cash,
+                analyses=list(sizing_analyses),
+                prices=scan.current_prices,
+                lot_sizes=scan.lot_sizes,
+                existing_positions=set(portfolio.positions),
+                existing_values=existing_values,
+                total_equity=total_equity,
+            )
+        elif sizing_analyses and risk_budget_exhausted:
+            print(
+                "POSITION SIZER REJECTED ALL: existing open-position stop-loss risk "
+                "already meets or exceeds the configured portfolio risk budget."
+            )
 
         # If the ranked shortlist has no feasible allocation (often because its
         # cheapest whole lot exceeds remaining cash), retry with other analyzed
@@ -366,7 +436,7 @@ class PaperExecutor:
         # broker confirmed both a fresh quote and active trading eligibility.
         # This preserves every risk/cash/lot constraint and does not lower AI
         # thresholds or spend the protected profit reserve.
-        if not plans and eligible_buy_tickers is not None:
+        if not plans and eligible_buy_tickers is not None and not risk_budget_exhausted:
             ranked_tickers = {analysis.ticker for analysis in scan.buy_candidates}
             fresh_tickers = getattr(scan, "fresh_quote_tickers", None)
             fallback_tickers = getattr(scan, "active_trading_tickers", None)
@@ -448,7 +518,7 @@ class PaperExecutor:
                                 - sizer.stop_loss_pct * sizer.commission_rate
                             )
                         )
-                        risk_budget = total_equity * sizer.risk_budget_pct
+                        risk_budget = total_equity * remaining_risk_budget_pct
                         if minimum_lot_risk > risk_budget + 1e-9:
                             print(
                                 "POSITION SIZER REJECTED ALL: minimum whole-lot stop-loss risk "
