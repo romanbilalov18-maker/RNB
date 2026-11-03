@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 
 from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionManager
@@ -414,7 +415,7 @@ class PaperExecutor:
         )
         sizing_analyses = list(eligible_analyses)
         plans = []
-        if sizing_analyses and not risk_budget_exhausted:
+        if not risk_budget_exhausted:
             plans = sizer.plan(
                 cash=portfolio.cash,
                 analyses=list(sizing_analyses),
