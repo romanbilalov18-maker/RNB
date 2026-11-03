@@ -347,10 +347,22 @@ class PositionSizer:
     def _target_weights(analyses) -> dict[str, float]:
         inverse_risk = {}
         for analysis in analyses:
-            volatility = max(float(analysis.volatility), 1e-9)
+            raw_volatility = getattr(analysis, "volatility", None)
+            if (
+                isinstance(raw_volatility, bool)
+                or not isinstance(raw_volatility, (int, float))
+                or not math.isfinite(raw_volatility)
+                or raw_volatility < 0
+            ):
+                raise ValueError(
+                    f"volatility for {analysis.ticker} must be finite and non-negative"
+                )
+            volatility = max(float(raw_volatility), 1e-9)
             inverse_risk[analysis.ticker] = 1.0 / volatility
 
         total = sum(inverse_risk.values())
+        if not math.isfinite(total) or total <= 0:
+            raise ValueError("inverse-volatility target weights are not finite and positive")
         return {
             ticker: value / total
             for ticker, value in inverse_risk.items()
