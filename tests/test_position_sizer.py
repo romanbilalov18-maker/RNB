@@ -463,6 +463,27 @@ class TestPositionSizer(unittest.TestCase):
         self.assertEqual(len(plan), 1)
         self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 6.95)
 
+    def test_rejects_invalid_volatility_before_sizing(self):
+        sizer = PositionSizer(commission_rate=0.001)
+        for volatility in (float("nan"), float("inf"), -0.01, True, "0.1", None):
+            with self.subTest(volatility=volatility):
+                with self.assertRaisesRegex(ValueError, "volatility"):
+                    sizer.plan(
+                        cash=1_000.0,
+                        analyses=[SimpleNamespace(ticker="A", volatility=volatility)],
+                        prices={"A": 10.0},
+                        lot_sizes={"A": 1},
+                    )
+
+    def test_zero_volatility_uses_existing_floor(self):
+        plans = PositionSizer(commission_rate=0.0).plan(
+            cash=100.0,
+            analyses=[SimpleNamespace(ticker="A", volatility=0.0)],
+            prices={"A": 10.0},
+            lot_sizes={"A": 1},
+        )
+        self.assertTrue(plans)
+
     def test_rejects_invalid_risk_parameters(self):
         for risk_budget_pct in (0.0, -0.01, 1.1, True, float("nan")):
             with self.subTest(risk_budget_pct=risk_budget_pct):
