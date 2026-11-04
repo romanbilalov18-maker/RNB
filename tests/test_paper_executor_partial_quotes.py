@@ -445,5 +445,40 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
         self.assertNotIn("SELL_SKIPPED: ticker=HELD", log)
 
 
+    def test_remaining_risk_budget_rejects_invalid_global_inputs(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.0)
+        cases = [
+            (0.0, 0.01, 0.05),
+            (-1.0, 0.01, 0.05),
+            (float("nan"), 0.01, 0.05),
+            (10_000.0, 0.0, 0.05),
+            (10_000.0, 1.1, 0.05),
+            (10_000.0, 0.01, -0.01),
+            (10_000.0, 0.01, 1.1),
+            (True, 0.01, 0.05),
+        ]
+        for equity, risk_pct, stop_pct in cases:
+            with self.subTest(equity=equity, risk_pct=risk_pct, stop_pct=stop_pct):
+                with self.assertRaises(ValueError):
+                    PaperExecutor._remaining_risk_budget(
+                        portfolio,
+                        total_equity=equity,
+                        configured_risk_budget_pct=risk_pct,
+                        stop_loss_pct=stop_pct,
+                    )
+
+    def test_remaining_risk_budget_rejects_invalid_commission_rate(self):
+        portfolio = VirtualPortfolio(10_000)
+        for commission in (True, -0.01, 1.1, float("nan")):
+            with self.subTest(commission=commission):
+                portfolio.commission_rate = commission
+                with self.assertRaisesRegex(ValueError, "commission_rate"):
+                    PaperExecutor._remaining_risk_budget(
+                        portfolio,
+                        total_equity=10_000,
+                        configured_risk_budget_pct=0.01,
+                        stop_loss_pct=0.05,
+                    )
+
 if __name__ == "__main__":
     unittest.main()
