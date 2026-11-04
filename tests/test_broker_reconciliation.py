@@ -75,6 +75,45 @@ class BrokerReconciliationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reconcile_broker_snapshot(actual_snapshot(), expected_ledger(qty=-1))
 
+    def test_invalid_actual_snapshot_values_fail_closed(self):
+        for invalid_cash in (float("nan"), float("inf"), -1, True):
+            with self.subTest(cash=invalid_cash):
+                with self.assertRaises(ValueError):
+                    reconcile_broker_snapshot(
+                        actual_snapshot(cash=invalid_cash), expected_ledger()
+                    )
+
+        with self.assertRaisesRegex(ValueError, "open_orders_count"):
+            reconcile_broker_snapshot(
+                actual_snapshot(open_orders=-1), expected_ledger()
+            )
+
+    def test_duplicate_actual_position_uids_fail_closed(self):
+        snapshot = BrokerAccountSnapshot(
+            account_id="acct",
+            currency="RUB",
+            available_cash=1000,
+            blocked_cash=100,
+            positions=(
+                BrokerPosition("uid-a", "AAA", 3, 50, "RUB"),
+                BrokerPosition("uid-a", "AAA", 3, 50, "RUB"),
+            ),
+            open_orders_count=0,
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate actual position"):
+            reconcile_broker_snapshot(snapshot, expected_ledger())
+
+    def test_invalid_actual_or_expected_quantities_fail_closed(self):
+        invalid_actual = actual_snapshot(qty=float("nan"))
+        with self.assertRaisesRegex(ValueError, "actual quantity"):
+            reconcile_broker_snapshot(invalid_actual, expected_ledger())
+
+        invalid_expected = BrokerLedgerSnapshot(
+            "acct", "RUB", 1000, 100, {"uid-a": float("inf")}
+        )
+        with self.assertRaisesRegex(ValueError, "expected quantity"):
+            reconcile_broker_snapshot(actual_snapshot(), invalid_expected)
+
 
 if __name__ == "__main__":
     unittest.main()
