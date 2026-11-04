@@ -198,8 +198,17 @@ class BrokerSnapshotStore:
                 uid = str(item["instrument_uid"]).strip()
                 ticker = str(item["ticker"]).strip()
                 currency = str(item["currency"]).strip().upper()
-                quantity = float(item["quantity"])
-                current_price = float(item["current_price"])
+                raw_quantity = item["quantity"]
+                raw_current_price = item["current_price"]
+                if (
+                    isinstance(raw_quantity, bool)
+                    or not isinstance(raw_quantity, (int, float))
+                    or isinstance(raw_current_price, bool)
+                    or not isinstance(raw_current_price, (int, float))
+                ):
+                    raise ValueError("position quantity and price must be numeric")
+                quantity = float(raw_quantity)
+                current_price = float(raw_current_price)
                 if not uid or uid in seen_uids or not ticker or not currency:
                     raise ValueError("position identity is missing or duplicated")
                 if (
@@ -218,9 +227,20 @@ class BrokerSnapshotStore:
 
             account_id_value = str(row["account_id"]).strip()
             currency_value = str(row["currency"]).strip().upper()
-            available_cash = float(row["available_cash"])
-            blocked_cash = float(row["blocked_cash"])
-            open_orders_count = int(row["open_orders_count"])
+            raw_available_cash = row["available_cash"]
+            raw_blocked_cash = row["blocked_cash"]
+            raw_open_orders_count = row["open_orders_count"]
+            if (
+                isinstance(raw_available_cash, bool)
+                or isinstance(raw_blocked_cash, bool)
+                or isinstance(raw_open_orders_count, bool)
+            ):
+                raise ValueError("stored account values must not be boolean")
+            available_cash = float(raw_available_cash)
+            blocked_cash = float(raw_blocked_cash)
+            open_orders_count = int(raw_open_orders_count)
+            if not isinstance(raw_open_orders_count, int):
+                raise ValueError("stored open_orders_count must be an integer")
             if not account_id_value or not currency_value:
                 raise ValueError("account identity is missing")
             if (
