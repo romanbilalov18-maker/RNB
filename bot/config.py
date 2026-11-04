@@ -15,6 +15,15 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        # Live order execution is deliberately not implemented. Fail closed if an
+        # operator attempts to enable it through environment configuration.
+        live_trading_enabled = os.getenv("LIVE_TRADING_ENABLED", "false").strip().lower()
+        if live_trading_enabled not in {"false", "0", "no", "off", ""}:
+            raise ValueError(
+                "LIVE_TRADING_ENABLED is unsupported: live order execution is not implemented; "
+                "keep virtual trading only"
+            )
+
         token = os.getenv("INVEST_TOKEN", "").strip()
         if not token:
             raise ValueError("INVEST_TOKEN is not configured")
