@@ -367,5 +367,15 @@ class PortfolioReconciliationTests(unittest.TestCase):
                 ):
                     _number("financial field", value)
 
+    def test_audit_quantity_validation_rejects_fractional_and_negative_values(self):
+        from bot.portfolio_reconciliation import _integer
+
+        for value in (1.5, -1, True, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                with self.assertRaises(PortfolioReconciliationError):
+                    _integer("audit quantity", value)
+
+        self.assertEqual(_integer("audit quantity", 3.0), 3)
+
 if __name__ == "__main__":
     unittest.main()
