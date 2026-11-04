@@ -88,12 +88,20 @@ class BrokerSnapshotStore:
                 or position.current_price <= 0
             ):
                 raise ValueError(f"position {position.instrument_uid} has invalid quantity or price")
+            ticker = str(position.ticker or "").strip()
+            position_currency = str(position.currency or "").strip().upper()
+            if not ticker or not position_currency:
+                raise ValueError(f"position {position.instrument_uid} has missing identity")
+            if position_currency != snapshot.currency.strip().upper():
+                raise ValueError(
+                    f"position {position.instrument_uid} currency differs from account currency"
+                )
             position_rows.append({
-                "instrument_uid": position.instrument_uid,
-                "ticker": position.ticker,
+                "instrument_uid": position.instrument_uid.strip(),
+                "ticker": ticker,
                 "quantity": float(position.quantity),
                 "current_price": float(position.current_price),
-                "currency": position.currency,
+                "currency": position_currency,
             })
 
         with self._connect() as db:
@@ -201,6 +209,8 @@ class BrokerSnapshotStore:
                     or current_price <= 0
                 ):
                     raise ValueError("position quantity and price must be finite and positive")
+                if currency != str(row["currency"]).strip().upper():
+                    raise ValueError("position currency differs from account currency")
                 seen_uids.add(uid)
                 positions_list.append(
                     BrokerPosition(uid, ticker, quantity, current_price, currency)
