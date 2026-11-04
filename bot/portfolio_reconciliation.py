@@ -28,6 +28,8 @@ def _require_columns(db: sqlite3.Connection, table: str, required: set[str]) -> 
 
 
 def _number(label: str, value: object) -> float:
+    if isinstance(value, bool):
+        raise PortfolioReconciliationError(f"{label} is not numeric")
     try:
         result = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
