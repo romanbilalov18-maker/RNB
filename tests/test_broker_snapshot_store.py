@@ -87,5 +87,54 @@ class BrokerSnapshotStoreTests(unittest.TestCase):
             with self.assertRaises(BrokerSnapshotStoreError):
                 store.latest("account-1")
 
+    def test_latest_if_fresh_accepts_recent_snapshot_and_rejects_stale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BrokerSnapshotStore(Path(directory) / "broker.sqlite3")
+            now = datetime(2026, 11, 4, 10, 0, tzinfo=timezone.utc)
+            store.save(self.snapshot(), observed_at=now)
+            self.assertEqual(
+                store.latest_if_fresh("account-1", max_age_seconds=60, now=now),
+                self.snapshot(),
+            )
+            self.assertIsNone(
+                store.latest_if_fresh(
+                    "account-1",
+                    max_age_seconds=60,
+                    now=now.replace(minute=2),
+                )
+            )
+            self.assertIsNone(
+                store.latest_if_fresh(
+                    "account-1",
+                    max_age_seconds=60,
+                    now=now.replace(minute=1, second=1),
+                )
+            )
+
+    def test_latest_if_fresh_rejects_invalid_limits_and_clock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BrokerSnapshotStore(Path(directory) / "broker.sqlite3")
+            for invalid in (True, -1, float("nan"), float("inf")):
+                with self.subTest(max_age_seconds=invalid):
+                    with self.assertRaisesRegex(ValueError, "max_age_seconds"):
+                        store.latest_if_fresh(
+                            "account-1", max_age_seconds=invalid
+                        )
+            with self.assertRaisesRegex(ValueError, "timezone"):
+                store.latest_if_fresh(
+                    "account-1",
+                    max_age_seconds=60,
+                    now=datetime(2026, 11, 4),
+                )
+
+    def test_latest_if_fresh_returns_none_for_future_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BrokerSnapshotStore(Path(directory) / "broker.sqlite3")
+            now = datetime(2026, 11, 4, 10, 0, tzinfo=timezone.utc)
+            store.save(self.snapshot(), observed_at=now.replace(minute=1))
+            self.assertIsNone(
+                store.latest_if_fresh("account-1", max_age_seconds=60, now=now)
+            )
+
 if __name__ == "__main__":
     unittest.main()
