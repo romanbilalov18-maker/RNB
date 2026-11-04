@@ -43,10 +43,19 @@ class BrokerAccountSnapshot:
 
 def _number(value: Any, label: str, *, allow_zero: bool = True) -> float:
     """Convert SDK quotation/money values or plain numbers to finite floats."""
-    if hasattr(value, "units") and hasattr(value, "nano"):
-        value = float(value.units) + float(value.nano) / 1_000_000_000
-    elif value is None:
+    if value is None:
         raise BrokerSnapshotError(f"{label} is missing")
+    if isinstance(value, bool):
+        raise BrokerSnapshotError(f"{label} must be numeric, not boolean")
+    if hasattr(value, "units") and hasattr(value, "nano"):
+        units = getattr(value, "units")
+        nano = getattr(value, "nano")
+        if isinstance(units, bool) or isinstance(nano, bool):
+            raise BrokerSnapshotError(f"{label} must be numeric, not boolean")
+        try:
+            value = float(units) + float(nano) / 1_000_000_000
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise BrokerSnapshotError(f"{label} is not numeric") from exc
     try:
         result = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
