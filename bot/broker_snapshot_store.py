@@ -114,6 +114,58 @@ class BrokerSnapshotStore:
             )
             return int(cursor.lastrowid)
 
+    def latest_observed_at(self, account_id: str) -> datetime | None:
+        """Return the UTC timestamp for the latest stored snapshot, if present."""
+        account_id = account_id.strip()
+        if not account_id:
+            raise ValueError("account_id is required")
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT observed_at FROM broker_snapshots WHERE account_id = ?
+                   ORDER BY observed_at DESC, id DESC LIMIT 1""",
+                (account_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            timestamp = datetime.fromisoformat(str(row["observed_at"]))
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                raise ValueError("stored timestamp has no timezone")
+            return timestamp.astimezone(timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise BrokerSnapshotStoreError(
+                "latest stored broker snapshot has an invalid timestamp"
+            ) from exc
+
+    def latest_if_fresh(
+        self,
+        account_id: str,
+        *,
+        max_age_seconds: float,
+        now: datetime | None = None,
+    ) -> BrokerAccountSnapshot | None:
+        """Return latest snapshot only if its timestamp is within the freshness limit.
+
+        Missing snapshots return None. Invalid limits/timestamps fail closed.
+        """
+        if (
+            isinstance(max_age_seconds, bool)
+            or not isinstance(max_age_seconds, (int, float))
+            or not math.isfinite(max_age_seconds)
+            or max_age_seconds < 0
+        ):
+            raise ValueError("max_age_seconds must be finite and non-negative")
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("now must include a timezone")
+        observed_at = self.latest_observed_at(account_id)
+        if observed_at is None:
+            return None
+        age = (current.astimezone(timezone.utc) - observed_at).total_seconds()
+        if age < 0 or age > max_age_seconds:
+            return None
+        return self.latest(account_id)
+
     def latest(self, account_id: str) -> BrokerAccountSnapshot | None:
         account_id = account_id.strip()
         if not account_id:
