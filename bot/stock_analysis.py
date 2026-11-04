@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from statistics import mean, pstdev
 from typing import Sequence
 
@@ -51,13 +51,16 @@ class StockAnalyzer:
             )
 
         closes = [self._price(candle, "close") for candle in candles]
-        volumes = [
-            max(0.0, self._price(candle, "volume"))
-            for candle in candles
-        ]
+        volumes = [self._price(candle, "volume") for candle in candles]
 
-        if any(price <= 0 for price in closes):
-            raise ValueError(f"{ticker}: historical prices must be positive")
+        if any(not isfinite(price) or price <= 0 for price in closes):
+            raise ValueError(
+                f"{ticker}: historical prices must be finite and positive"
+            )
+        if any(not isfinite(volume) or volume < 0 for volume in volumes):
+            raise ValueError(
+                f"{ticker}: historical volumes must be finite and non-negative"
+            )
 
         last_price = closes[-1]
         start_price = closes[0]
