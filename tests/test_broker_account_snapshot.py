@@ -83,5 +83,18 @@ class BrokerAccountSnapshotTests(unittest.TestCase):
             reader.read_snapshot("acct")
 
 
+    def test_rejects_boolean_money_and_quotation_components(self):
+        portfolio = valid_portfolio()
+        portfolio.money[0].available = True
+        reader = TInvestAccountReader(client_fixture(portfolio=portfolio))
+        with self.assertRaisesRegex(BrokerSnapshotError, "not boolean"):
+            reader.read_snapshot("acct")
+
+        portfolio = valid_portfolio()
+        portfolio.securities[0].quantity = quotation(True)
+        reader = TInvestAccountReader(client_fixture(portfolio=portfolio))
+        with self.assertRaisesRegex(BrokerSnapshotError, "not boolean"):
+            reader.read_snapshot("acct")
+
 if __name__ == "__main__":
     unittest.main()
