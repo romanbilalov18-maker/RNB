@@ -467,6 +467,20 @@ class PaperExecutorPartialQuoteTests(unittest.TestCase):
                         stop_loss_pct=stop_pct,
                     )
 
+    def test_remaining_risk_budget_accepts_valid_positive_stop_loss(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.0)
+
+        remaining_pct, open_risk, risk_cap = PaperExecutor._remaining_risk_budget(
+            portfolio,
+            total_equity=10_000.0,
+            configured_risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        )
+
+        self.assertAlmostEqual(remaining_pct, 0.01)
+        self.assertAlmostEqual(open_risk, 0.0)
+        self.assertAlmostEqual(risk_cap, 100.0)
+
     def test_remaining_risk_budget_rejects_invalid_commission_rate(self):
         portfolio = VirtualPortfolio(10_000)
         for commission in (True, -0.01, 1.1, float("nan")):
