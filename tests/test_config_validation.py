@@ -19,6 +19,18 @@ class TestConfigValidation(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             return Config.from_env()
 
+    def test_live_trading_flag_is_disabled_by_default(self):
+        config = self._load()
+        self.assertFalse(hasattr(config, "live_trading_enabled"))
+
+    def test_rejects_attempt_to_enable_live_trading(self):
+        with self.assertRaisesRegex(ValueError, "live order execution is not implemented"):
+            self._load(LIVE_TRADING_ENABLED="true")
+
+    def test_accepts_explicit_false_live_trading_flag(self):
+        config = self._load(LIVE_TRADING_ENABLED="false")
+        self.assertEqual(config.initial_virtual_balance, 10000)
+
     def test_accepts_valid_numeric_configuration(self):
         config = self._load()
         self.assertEqual(config.initial_virtual_balance, 10000)
