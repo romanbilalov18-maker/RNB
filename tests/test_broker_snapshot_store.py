@@ -136,5 +136,26 @@ class BrokerSnapshotStoreTests(unittest.TestCase):
                 store.latest_if_fresh("account-1", max_age_seconds=60, now=now)
             )
 
+    def test_rejects_position_currency_mismatch_on_save_and_load(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker.sqlite3"
+            store = BrokerSnapshotStore(path)
+            invalid = BrokerAccountSnapshot(
+                "account-1", "RUB", 1000.0, 0.0,
+                (BrokerPosition("uid-a", "AAA", 2.0, 75.0, "USD"),), 0,
+            )
+            with self.assertRaisesRegex(ValueError, "currency differs"):
+                store.save(invalid)
+
+            store.save(self.snapshot())
+            with store._connect() as db:
+                db.execute(
+                    "UPDATE broker_snapshots SET positions_json = ?",
+                    ('[{"instrument_uid":"uid-a","ticker":"AAA","quantity":2,'
+                     '"current_price":75,"currency":"USD"}]',),
+                )
+            with self.assertRaises(BrokerSnapshotStoreError):
+                store.latest("account-1")
+
 if __name__ == "__main__":
     unittest.main()
