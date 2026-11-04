@@ -55,5 +55,37 @@ class BrokerSnapshotStoreTests(unittest.TestCase):
                 store.latest("account-1")
 
 
+    def test_rejects_malformed_but_valid_json_snapshot_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker.sqlite3"
+            store = BrokerSnapshotStore(path)
+            store.save(self.snapshot())
+            with store._connect() as db:
+                db.execute(
+                    "UPDATE broker_snapshots SET positions_json = ?",
+                    ('[{"instrument_uid":"uid-a","ticker":"AAA","quantity":NaN,"current_price":75,"currency":"RUB"}]',),
+                )
+            with self.assertRaises(BrokerSnapshotStoreError):
+                store.latest("account-1")
+
+    def test_rejects_duplicate_positions_in_stored_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker.sqlite3"
+            store = BrokerSnapshotStore(path)
+            store.save(self.snapshot())
+            duplicate = (
+                '{"instrument_uid":"uid-a","ticker":"AAA","quantity":2,'
+                '"current_price":75,"currency":"RUB"},'
+                '{"instrument_uid":"uid-a","ticker":"AAA","quantity":1,'
+                '"current_price":75,"currency":"RUB"}'
+            )
+            with store._connect() as db:
+                db.execute(
+                    "UPDATE broker_snapshots SET positions_json = ?",
+                    ("[" + duplicate + "]",),
+                )
+            with self.assertRaises(BrokerSnapshotStoreError):
+                store.latest("account-1")
+
 if __name__ == "__main__":
     unittest.main()
