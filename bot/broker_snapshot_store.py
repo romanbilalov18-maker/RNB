@@ -130,23 +130,53 @@ class BrokerSnapshotStore:
             raw_positions = json.loads(row["positions_json"])
             if not isinstance(raw_positions, list):
                 raise ValueError("positions_json must contain a list")
-            positions = tuple(
-                BrokerPosition(
-                    instrument_uid=str(item["instrument_uid"]),
-                    ticker=str(item["ticker"]),
-                    quantity=float(item["quantity"]),
-                    current_price=float(item["current_price"]),
-                    currency=str(item["currency"]),
+            positions_list: list[BrokerPosition] = []
+            seen_uids: set[str] = set()
+            for item in raw_positions:
+                if not isinstance(item, dict):
+                    raise ValueError("position row must be an object")
+                uid = str(item["instrument_uid"]).strip()
+                ticker = str(item["ticker"]).strip()
+                currency = str(item["currency"]).strip().upper()
+                quantity = float(item["quantity"])
+                current_price = float(item["current_price"])
+                if not uid or uid in seen_uids or not ticker or not currency:
+                    raise ValueError("position identity is missing or duplicated")
+                if (
+                    not math.isfinite(quantity)
+                    or quantity <= 0
+                    or not math.isfinite(current_price)
+                    or current_price <= 0
+                ):
+                    raise ValueError("position quantity and price must be finite and positive")
+                seen_uids.add(uid)
+                positions_list.append(
+                    BrokerPosition(uid, ticker, quantity, current_price, currency)
                 )
-                for item in raw_positions
-            )
+
+            account_id_value = str(row["account_id"]).strip()
+            currency_value = str(row["currency"]).strip().upper()
+            available_cash = float(row["available_cash"])
+            blocked_cash = float(row["blocked_cash"])
+            open_orders_count = int(row["open_orders_count"])
+            if not account_id_value or not currency_value:
+                raise ValueError("account identity is missing")
+            if (
+                not math.isfinite(available_cash)
+                or available_cash < 0
+                or not math.isfinite(blocked_cash)
+                or blocked_cash < 0
+                or open_orders_count < 0
+            ):
+                raise ValueError("stored account values are invalid")
+            positions = tuple(positions_list)
             return BrokerAccountSnapshot(
-                account_id=str(row["account_id"]),
-                currency=str(row["currency"]),
-                available_cash=float(row["available_cash"]),
-                blocked_cash=float(row["blocked_cash"]),
+                account_id=account_id_value,
+                currency=currency_value,
+                available_cash=available_cash,
+                blocked_cash=blocked_cash,
                 positions=positions,
-                open_orders_count=int(row["open_orders_count"]),
+                open_orders_count=open_orders_count,
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise BrokerSnapshotStoreError(
