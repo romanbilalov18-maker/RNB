@@ -55,19 +55,26 @@ class PaperExecutor:
         stop-loss/commission model used for proposed entries. Invalid position
         state fails closed instead of authorizing new risk.
         """
-        for label, value, lower, upper, lower_inclusive in (
-            ("total_equity", total_equity, 0.0, float("inf"), False),
-            ("configured_risk_budget_pct", configured_risk_budget_pct, 0.0, 1.0, False),
-            ("stop_loss_pct", stop_loss_pct, 0.0, 1.0, True),
+        # Keep each bound explicit: the stop-loss rate is strictly positive,
+        # while equity and the configured risk budget have their own bounds.
+        for label, value in (
+            ("total_equity", total_equity),
+            ("configured_risk_budget_pct", configured_risk_budget_pct),
+            ("stop_loss_pct", stop_loss_pct),
         ):
             if (
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
                 or not math.isfinite(value)
-                or (value < lower if lower_inclusive else value <= lower)
-                or value > upper
             ):
                 raise ValueError(f"{label} is outside valid range")
+
+        if total_equity <= 0:
+            raise ValueError("total_equity is outside valid range")
+        if not 0 < configured_risk_budget_pct <= 1:
+            raise ValueError("configured_risk_budget_pct is outside valid range")
+        if not 0 < stop_loss_pct <= 1:
+            raise ValueError("stop_loss_pct is outside valid range")
 
         commission_rate = portfolio.commission_rate
         if (
