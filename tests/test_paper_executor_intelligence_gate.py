@@ -33,6 +33,7 @@ class PaperExecutorIntelligenceGateTests(unittest.TestCase):
         ) as sizer_cls:
             manager = manager_cls.return_value
             manager.stop_loss = -0.05
+            manager.stop_loss = -0.05
             manager.evaluate.return_value = []
             manager.execute_sales.return_value = []
             sizer_cls.return_value.plan.return_value = []
@@ -49,6 +50,7 @@ class PaperExecutorIntelligenceGateTests(unittest.TestCase):
             "bot.paper_executor.PositionSizer"
         ) as sizer_cls:
             manager = manager_cls.return_value
+            manager.stop_loss = -0.05
             manager.evaluate.return_value = []
             manager.execute_sales.return_value = []
             sizer_cls.return_value.plan.return_value = []
@@ -75,6 +77,7 @@ class PaperExecutorIntelligenceGateTests(unittest.TestCase):
             "bot.paper_executor.PositionSizer"
         ) as sizer_cls:
             manager = manager_cls.return_value
+            manager.stop_loss = -0.05
             manager.evaluate.return_value = []
             manager.execute_sales.return_value = []
             sizer_cls.return_value.plan.return_value = []
@@ -110,6 +113,7 @@ class PaperExecutorIntelligenceGateTests(unittest.TestCase):
             "bot.paper_executor.PositionSizer"
         ) as sizer_cls:
             manager = manager_cls.return_value
+            manager.stop_loss = -0.05
             manager.evaluate.return_value = []
             manager.execute_sales.return_value = []
             sizer_cls.return_value.plan.return_value = []
@@ -130,6 +134,7 @@ class PaperExecutorIntelligenceGateTests(unittest.TestCase):
             "bot.paper_executor.PositionSizer"
         ) as sizer_cls:
             manager = manager_cls.return_value
+            manager.stop_loss = -0.05
             manager.evaluate.return_value = []
             manager.execute_sales.return_value = []
             sizer_cls.return_value.plan.return_value = []
