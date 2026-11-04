@@ -357,5 +357,15 @@ class PortfolioReconciliationTests(unittest.TestCase):
 
 
 
+    def test_numeric_validator_rejects_boolean_values(self):
+        from bot.portfolio_reconciliation import _number
+
+        for value in (True, False):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    PortfolioReconciliationError, "not numeric"
+                ):
+                    _number("financial field", value)
+
 if __name__ == "__main__":
     unittest.main()
