@@ -2,7 +2,7 @@
 
 This is intentionally independent from the RNB virtual portfolio: a virtual balance
 must never be treated as the expected real-broker balance. The result is diagnostic
-only and never authorizes orders.
+only and never authorizes trading.
 """
 from __future__ import annotations
 
@@ -38,6 +38,16 @@ class BrokerReconciliationReport:
     blockers: tuple[str, ...]
 
 
+def _validate_non_negative_number(value: object, label: str) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"{label} must be finite and non-negative")
+
+
 def reconcile_broker_snapshot(
     actual: BrokerAccountSnapshot,
     expected: BrokerLedgerSnapshot,
@@ -45,15 +55,38 @@ def reconcile_broker_snapshot(
     cash_tolerance: float = 0.01,
     quantity_tolerance: float = 1e-8,
 ) -> BrokerReconciliationReport:
-    """Report differences; fail closed on invalid tolerances or account mismatch."""
+    """Report differences; reject malformed snapshots rather than compare partial data."""
     for label, tolerance in (
         ("cash_tolerance", cash_tolerance),
         ("quantity_tolerance", quantity_tolerance),
     ):
-        if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
-            raise ValueError(f"{label} must be a finite non-negative number")
-        if not math.isfinite(tolerance) or tolerance < 0:
-            raise ValueError(f"{label} must be a finite non-negative number")
+        _validate_non_negative_number(tolerance, label)
+
+    for label, value in (
+        ("actual available_cash", actual.available_cash),
+        ("actual blocked_cash", actual.blocked_cash),
+        ("expected available_cash", expected.available_cash),
+        ("expected blocked_cash", expected.blocked_cash),
+    ):
+        _validate_non_negative_number(value, label)
+
+    if not isinstance(actual.open_orders_count, int) or isinstance(actual.open_orders_count, bool) or actual.open_orders_count < 0:
+        raise ValueError("actual open_orders_count must be a non-negative integer")
+
+    actual_positions: dict[str, float] = {}
+    for position in actual.positions:
+        uid = str(position.instrument_uid or "").strip()
+        if not uid:
+            raise ValueError("actual position instrument_uid must be non-empty")
+        if uid in actual_positions:
+            raise ValueError(f"duplicate actual position instrument_uid: {uid}")
+        _validate_non_negative_number(position.quantity, f"actual quantity for {uid}")
+        actual_positions[uid] = position.quantity
+
+    if not str(actual.account_id or "").strip() or not str(expected.account_id or "").strip():
+        raise ValueError("account_id must be non-empty")
+    if not str(actual.currency or "").strip() or not str(expected.currency or "").strip():
+        raise ValueError("currency must be non-empty")
 
     differences: list[ReconciliationDifference] = []
     blockers: list[str] = []
@@ -72,31 +105,21 @@ def reconcile_broker_snapshot(
     for field in ("available_cash", "blocked_cash"):
         expected_value = getattr(expected, field)
         actual_value = getattr(actual, field)
-        if (
-            isinstance(expected_value, bool)
-            or not isinstance(expected_value, (int, float))
-            or not math.isfinite(expected_value)
-            or expected_value < 0
-        ):
-            raise ValueError(f"expected {field} must be finite and non-negative")
         if abs(actual_value - expected_value) > cash_tolerance:
             differences.append(ReconciliationDifference(
                 field, float(expected_value), float(actual_value),
                 f"difference exceeds tolerance {cash_tolerance}",
             ))
 
-    actual_positions = {position.instrument_uid: position.quantity for position in actual.positions}
     expected_positions = dict(expected.positions_by_uid)
+    for uid, quantity in expected_positions.items():
+        if not str(uid or "").strip():
+            raise ValueError("expected position instrument_uid must be non-empty")
+        _validate_non_negative_number(quantity, f"expected quantity for {uid}")
+
     for uid in sorted(set(actual_positions) | set(expected_positions)):
         expected_quantity = expected_positions.get(uid, 0.0)
         actual_quantity = actual_positions.get(uid, 0.0)
-        if (
-            isinstance(expected_quantity, bool)
-            or not isinstance(expected_quantity, (int, float))
-            or not math.isfinite(expected_quantity)
-            or expected_quantity < 0
-        ):
-            raise ValueError(f"expected quantity for {uid} must be finite and non-negative")
         if abs(actual_quantity - expected_quantity) > quantity_tolerance:
             differences.append(ReconciliationDifference(
                 f"position:{uid}", float(expected_quantity), float(actual_quantity),
