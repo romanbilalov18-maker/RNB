@@ -39,6 +39,19 @@ def _number(label: str, value: object) -> float:
     return result
 
 
+def _integer(label: str, value: object, *, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PortfolioReconciliationError(f"{label} is not an integer")
+    if not math.isfinite(value) or not float(value).is_integer():
+        raise PortfolioReconciliationError(f"{label} is not an integer")
+    result = int(value)
+    if result < minimum:
+        raise PortfolioReconciliationError(
+            f"{label} must be greater than or equal to {minimum}"
+        )
+    return result
+
+
 def _assert_close(label: str, actual: float, expected: float) -> None:
     if not math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-6):
         raise PortfolioReconciliationError(
@@ -289,7 +302,9 @@ def reconcile_portfolio_databases(
 
     audit_ticker_totals = {
         str(row["ticker"]): {
-            "quantity": int(row["quantity"] or 0),
+            "quantity": _integer(
+                f"audit {row['ticker']} quantity", row["quantity"] or 0
+            ),
             "commissions": _number(
                 f"audit {row['ticker']} commissions", row["commissions"]
             ),
