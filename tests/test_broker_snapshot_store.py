@@ -157,5 +157,32 @@ class BrokerSnapshotStoreTests(unittest.TestCase):
             with self.assertRaises(BrokerSnapshotStoreError):
                 store.latest("account-1")
 
+    def test_rejects_boolean_values_when_loading_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker.sqlite3"
+            store = BrokerSnapshotStore(path)
+            store.save(self.snapshot())
+            with store._connect() as db:
+                db.execute(
+                    "UPDATE broker_snapshots SET available_cash = 1",
+                )
+                db.execute(
+                    "UPDATE broker_snapshots SET positions_json = ?",
+                    ('[{"instrument_uid":"uid-a","ticker":"AAA","quantity":true,'
+                     '"current_price":75,"currency":"RUB"}]',),
+                )
+            with self.assertRaises(BrokerSnapshotStoreError):
+                store.latest("account-1")
+
+    def test_rejects_fractional_open_order_count_in_stored_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broker.sqlite3"
+            store = BrokerSnapshotStore(path)
+            store.save(self.snapshot())
+            with store._connect() as db:
+                db.execute("UPDATE broker_snapshots SET open_orders_count = 1.5")
+            with self.assertRaises(BrokerSnapshotStoreError):
+                store.latest("account-1")
+
 if __name__ == "__main__":
     unittest.main()
