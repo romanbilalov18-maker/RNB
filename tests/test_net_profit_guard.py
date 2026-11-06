@@ -1,4 +1,3 @@
-import math
 import unittest
 
 from bot.net_profit_guard import assess_net_profit
@@ -13,8 +12,9 @@ class NetProfitGuardTests(unittest.TestCase):
             slippage_bps=5,
             minimum_net_return=.01,
         )
+        # Round-trip commission .001 + full spread .002 + round-trip slippage .001
         self.assertTrue(result.allowed)
-        self.assertAlmostEqual(result.expected_net_return, .015)
+        self.assertAlmostEqual(result.expected_net_return, .016)
 
     def test_costs_block_profitable_gross_signal(self):
         result = assess_net_profit(
