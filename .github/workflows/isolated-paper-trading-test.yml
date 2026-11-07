@@ -13,6 +13,16 @@ on:
         required: true
         default: "1"
         type: string
+      risk_budget_percent:
+        description: "Maximum combined portfolio stop-loss risk (%)"
+        required: true
+        default: "1.0"
+        type: string
+      take_profit_percent:
+        description: "Take Profit threshold (%) — minimum 0.15"
+        required: true
+        default: "0.15"
+        type: string
 
 jobs:
   paper-trading:
@@ -25,7 +35,8 @@ jobs:
       CYCLE_INTERVAL_MINUTES: ${{ inputs.interval_minutes }}
       VIRTUAL_INITIAL_BALANCE: "10000"
       VIRTUAL_COMMISSION_RATE: "0.0005"
-      TAKE_PROFIT_PERCENT: "0.15"
+      VIRTUAL_RISK_BUDGET_PERCENT: ${{ inputs.risk_budget_percent }}
+      TAKE_PROFIT_PERCENT: ${{ inputs.take_profit_percent }}
       VIRTUAL_PORTFOLIO_DB: data/paper_test/virtual_portfolio.sqlite3
       DECISION_AUDIT_DB: data/paper_test/decision_audit.sqlite
 
@@ -54,15 +65,36 @@ jobs:
       - name: Validate short test settings
         run: |
           python - <<'PY'
+          import math
           import os
-          duration = float(os.environ["RUN_DURATION_MINUTES"])
-          interval = float(os.environ["CYCLE_INTERVAL_MINUTES"])
+
+          def read_number(name):
+              try:
+                  value = float(os.environ[name])
+              except (TypeError, ValueError, OverflowError) as exc:
+                  raise SystemExit(f"{name} must be a valid number") from exc
+              if not math.isfinite(value):
+                  raise SystemExit(f"{name} must be finite")
+              return value
+
+          duration = read_number("RUN_DURATION_MINUTES")
+          interval = read_number("CYCLE_INTERVAL_MINUTES")
+          risk_budget = read_number("VIRTUAL_RISK_BUDGET_PERCENT")
+          take_profit = read_number("TAKE_PROFIT_PERCENT")
+
           if not (0 < duration <= 5):
               raise SystemExit("duration_minutes must be between 0 and 5")
           if not (0 < interval <= duration):
               raise SystemExit("interval_minutes must be positive and no greater than duration_minutes")
+          if not (0 < risk_budget <= 100):
+              raise SystemExit("risk_budget_percent must be in (0, 100]")
+          if not (0.15 <= take_profit <= 100):
+              raise SystemExit("take_profit_percent must be in [0.15, 100]")
+
           print(f"TEST_RUNTIME_MINUTES={duration:g}")
           print(f"CYCLE_INTERVAL_MINUTES={interval:g}")
+          print(f"PORTFOLIO_RISK_BUDGET_PERCENT={risk_budget:g}")
+          print(f"TAKE_PROFIT_PERCENT={take_profit:g}")
           print("EXECUTION_MODE=PAPER_ONLY")
           print(f"PORTFOLIO_DB={os.environ['VIRTUAL_PORTFOLIO_DB']}")
           print(f"DECISION_AUDIT_DB={os.environ['DECISION_AUDIT_DB']}")
