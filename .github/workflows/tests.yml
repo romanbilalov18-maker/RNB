@@ -22,6 +22,16 @@ on:
         required: true
         default: "5"
         type: number
+      risk_budget_percent:
+        description: "Maximum portfolio risk budget (%)"
+        required: true
+        default: "1.0"
+        type: string
+      take_profit_percent:
+        description: "Take Profit threshold (%)"
+        required: true
+        default: "0.15"
+        type: string
 
 jobs:
   unit-tests:
@@ -144,15 +154,46 @@ jobs:
           fi
           echo "INVEST_TOKEN_CONFIGURED=1"
 
-      - name: Run live T-Invest test
+      - name: Validate and run live T-Invest test
         env:
           INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
           RUN_LIVE_TINVEST_TEST: "1"
           RUN_DURATION_MINUTES: ${{ inputs.run_duration_minutes }}
           CYCLE_INTERVAL_MINUTES: ${{ inputs.cycle_interval_minutes }}
+          VIRTUAL_RISK_BUDGET_PERCENT: ${{ inputs.risk_budget_percent }}
+          TAKE_PROFIT_PERCENT: ${{ inputs.take_profit_percent }}
         run: |
+          python - <<'PY'
+          import math
+          import os
+
+          def number(name):
+              try:
+                  value = float(os.environ[name])
+              except (TypeError, ValueError, OverflowError) as exc:
+                  raise SystemExit(f"{name} must be a valid number") from exc
+              if not math.isfinite(value):
+                  raise SystemExit(f"{name} must be finite")
+              return value
+
+          duration = number("RUN_DURATION_MINUTES")
+          interval = number("CYCLE_INTERVAL_MINUTES")
+          risk = number("VIRTUAL_RISK_BUDGET_PERCENT")
+          tp = number("TAKE_PROFIT_PERCENT")
+          if duration <= 0:
+              raise SystemExit("run_duration_minutes must be positive")
+          if interval <= 0 or interval > duration:
+              raise SystemExit("cycle_interval_minutes must be positive and <= runtime")
+          if not 0 < risk <= 100:
+              raise SystemExit("risk_budget_percent must be in (0, 100]")
+          if not 0.15 <= tp <= 100:
+              raise SystemExit("take_profit_percent must be in [0.15, 100]")
+          print(f"RISK_BUDGET_PERCENT={risk:g}")
+          print(f"TAKE_PROFIT_PERCENT={tp:g}")
+          print("EXECUTION_MODE=VIRTUAL_ONLY")
+          PY
           set -o pipefail
-          python -m bot.main 2>&1 | tee data/live_tinvest.log
+          python -u -m bot.main 2>&1 | tee data/live_tinvest.log
 
       - name: Upload live test log
         if: always()
