@@ -14,7 +14,7 @@ class PositionExitReportConsistencyTests(unittest.TestCase):
         )
 
     def test_report_uses_net_take_profit_after_entry_and_exit_commissions(self):
-        result = SimpleNamespace(analyses={}, current_prices={"AAA": 100.26})
+        result = SimpleNamespace(analyses={}, current_prices={"AAA": 100.36})
 
         decisions = _evaluate_position_exit_decisions(
             self.portfolio, result, take_profit_percent=0.15
@@ -24,7 +24,7 @@ class PositionExitReportConsistencyTests(unittest.TestCase):
         self.assertIn("Take Profit", decisions[0].reason)
 
     def test_report_holds_below_net_take_profit_threshold(self):
-        result = SimpleNamespace(analyses={}, current_prices={"AAA": 100.25})
+        result = SimpleNamespace(analyses={}, current_prices={"AAA": 100.35})
 
         decisions = _evaluate_position_exit_decisions(
             self.portfolio, result, take_profit_percent=0.15
