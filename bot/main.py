@@ -12,6 +12,7 @@ from bot.intelligence.decision_engine import DecisionEngine
 from bot.intelligence.integration import analyze_scan
 from bot.live_runner import LiveMarketRunner
 from bot.paper_executor import PaperExecutor
+from bot.position_manager import PositionManager
 from bot.position_health import assess_position_health
 from bot.portfolio_store import SQLitePortfolioStore
 
@@ -673,6 +674,16 @@ def _format_selected_analysis_line(analysis, current_prices, lot_sizes) -> str:
     )
 
 
+
+def _evaluate_position_exit_decisions(portfolio, result, *, take_profit_percent: float):
+    """Use the same exit rules as PaperExecutor when rendering the cycle report."""
+    manager = PositionManager(take_profit=take_profit_percent / 100.0)
+    return manager.evaluate(
+        portfolio,
+        getattr(result, "analyses", {}) or {},
+        getattr(result, "current_prices", {}) or {},
+    )
+
 def _evaluate_decisions(intelligence_results, portfolio):
     """Convert L1-L15 aggregate results into cycle recommendations."""
     return DecisionEngine().evaluate(
@@ -765,29 +776,14 @@ def _print_cycle_result(
     else:
         print("- рекомендаций нет")
 
-    print("Position decisions (existing execution rules):")
-    for ticker, position in portfolio.positions.items():
-        analysis = result.analyses.get(ticker)
-        price = result.current_prices.get(ticker)
-        if analysis is None or price is None:
-            action = "HOLD"
-            reason = "нет свежего анализа"
-        elif price / position.average_price - 1.0 >= take_profit_percent / 100.0:
-            action = "SELL"
-            reason = f"достигнут Take Profit +{take_profit_percent:g}%"
-        elif (
-            price / position.average_price - 1.0 - portfolio.commission_rate
-            <= -0.05
-        ):
-            action = "SELL"
-            reason = "достигнут лимит убытка -5%"
-        elif analysis.momentum <= -0.02 and analysis.trend_strength < 0:
-            action = "SELL"
-            reason = "моментум и тренд стали отрицательными"
-        else:
-            action = "HOLD"
-            reason = "сигнал продажи отсутствует"
-        print(f"- {ticker}: {action} — {reason}")
+    print("Position decisions (same rules as virtual execution):")
+    exit_decisions = _evaluate_position_exit_decisions(
+        portfolio,
+        result,
+        take_profit_percent=take_profit_percent,
+    )
+    for decision in exit_decisions:
+        print(f"- {decision.ticker}: {decision.action} — {decision.reason}")
 
     print("Open-position health review (all holdings):")
     for ticker in sorted(portfolio.positions):
