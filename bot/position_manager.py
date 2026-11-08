@@ -81,7 +81,7 @@ class PositionManager:
             # or below its decimal value).
             if net_return <= self.stop_loss + 1e-12:
                 decisions.append(
-                    PositionDecision(ticker, "SELL", "достигнут лимит убытка -5%")
+                    PositionDecision(\n                        ticker,\n                        "SELL",\n                        f"достигнут лимит убытка {self.stop_loss * 100:g}%",\n                    )
                 )
                 continue
 

@@ -165,6 +165,21 @@ class TestPositionManager(unittest.TestCase):
 
         self.assertEqual(decisions[0].action, "HOLD")
 
+    def test_stop_loss_reason_reports_configured_threshold(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
+
+        manager = PositionManager(stop_loss=-0.10)
+        decisions = manager.evaluate(
+            portfolio,
+            {},
+            {"AAA": 89},
+        )
+
+        self.assertEqual(decisions[0].action, "SELL")
+        self.assertIn("-10%", decisions[0].reason)
+        self.assertNotIn("-5%", decisions[0].reason)
+
     def test_sells_on_negative_momentum_and_trend(self):
         portfolio = VirtualPortfolio(10_000)
         portfolio.buy("AAA", 10, 100, datetime.now(timezone.utc))
