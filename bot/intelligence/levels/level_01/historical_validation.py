@@ -15,6 +15,7 @@ from pathlib import Path
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import aggregate, analyze
+from bot.intelligence.levels.level_01.session_gap_diagnostics import find_missing_trading_dates
 
 
 def load_rows(path: Path):
@@ -98,6 +99,35 @@ def _load_dataset_provenance(path: Path) -> dict:
     }
 
 
+
+def load_official_trading_dates(path: Path) -> list[str]:
+    """Load a verified exchange-calendar CSV with a required date column."""
+    dates = []
+    with path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if "date" not in (reader.fieldnames or ()):
+            raise ValueError("official calendar CSV must contain a 'date' column")
+        for line, row in enumerate(reader, start=2):
+            value = (row.get("date") or "").strip()
+            if not value:
+                raise ValueError(f"official calendar line {line}: date is required")
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                try:
+                    from datetime import date
+                    dates.append(date.fromisoformat(value).isoformat())
+                    continue
+                except ValueError as exc:
+                    raise ValueError(f"official calendar line {line}: invalid date") from exc
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            dates.append(parsed.astimezone(timezone.utc).date().isoformat())
+    if len(dates) != len(set(dates)):
+        raise ValueError("official calendar contains duplicate dates")
+    return sorted(dates)
+
+
 def _metrics(rows):
     if not rows:
         return {"observations": 0, "mean_net_return": None, "score_return_correlation": None,
@@ -127,7 +157,7 @@ def _metrics(rows):
 
 def evaluate(path: Path, window: int = 20, horizon: int = 5,
              data_source: str = "user_supplied_csv", cost_bps: float = 0.0,
-             max_gap_days: int = 7):
+             max_gap_days: int = 7, official_calendar_path: Path | None = None):
     if window < 3 or horizon < 1:
         raise ValueError("window must be >= 3 and horizon must be >= 1")
     if not math.isfinite(cost_bps) or cost_bps < 0:
@@ -211,6 +241,19 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             holdout.extend(symbol_rows[split:])
 
     dataset_provenance = _load_dataset_provenance(path)
+    calendar_diagnostics = None
+    if official_calendar_path is not None:
+        official_dates = load_official_trading_dates(official_calendar_path)
+        calendar_diagnostics = {
+            "calendar_file": official_calendar_path.name,
+            "calendar_dates": len(official_dates),
+            "missing_dates_by_symbol": {
+                symbol: find_missing_trading_dates(
+                    official_dates, [row["timestamp"] for row in rows]
+                )
+                for symbol, rows in sorted(grouped.items())
+            },
+        }
     report = {
         "status": "completed",
         "data_source": data_source,
@@ -227,6 +270,7 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         "input_rows": sum(len(rows) for rows in grouped.values()),
         "evaluated_observations": len(predictions),
         "skipped_outcomes_due_to_data_gaps": skipped_gap_outcomes,
+        "official_calendar_gap_diagnostics": calendar_diagnostics,
         "maximum_allowed_observation_gap_days": max_gap_days,
         "lookback_window": window,
         "forward_horizon_rows": horizon,
@@ -267,9 +311,10 @@ def main():
     parser.add_argument("--data-source", default="user_supplied_csv")
     parser.add_argument("--cost-bps", type=float, default=0.0,
                         help="Assumed one-way cost in basis points; deducted twice per round trip")
+    parser.add_argument("--official-calendar-csv", type=Path, help="Verified official trading calendar CSV with a date column; never generated from weekdays")
     parser.add_argument("--output", type=Path, default=Path("level_01_historical_report.json"))
     args = parser.parse_args()
-    report = evaluate(args.csv, args.window, args.horizon, args.data_source, args.cost_bps)
+    report = evaluate(args.csv, args.window, args.horizon, args.data_source, args.cost_bps, official_calendar_path=args.official_calendar_csv)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, ensure_ascii=False))
