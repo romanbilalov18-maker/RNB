@@ -58,6 +58,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: intelligence-market-monitor
-          path: data/intelligence_monitor.jsonl
+          path: |
+            data/intelligence_monitor.jsonl
+            data/intelligence_monitor.universe.jsonl
           if-no-files-found: error
           retention-days: 30
