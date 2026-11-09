@@ -123,6 +123,26 @@ class MarketMonitorTests(unittest.TestCase):
         self.assertIsNone(decoded["confidence"])
         self.assertIsNone(decoded["level_02_score"])
 
+    def test_monitor_records_empty_scan_instead_of_dropping_cycle(self):
+        def fake_run(token, limit):
+            return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "monitor.jsonl"
+            universe = Path(directory) / "universe.jsonl"
+            records = run_monitor(
+                "token", duration_minutes=1, interval_minutes=1, limit=2,
+                output_path=str(output), universe_output_path=str(universe),
+                sleep_fn=lambda _: None, run_fn=fake_run,
+            )
+            self.assertEqual(records, 0)
+            self.assertFalse(output.exists() or output.read_text(encoding="utf-8") if output.exists() else False)
+            snapshot = json.loads(universe.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(snapshot["scan_status"], "no_eligible_instruments")
+            self.assertEqual(snapshot["symbols"], [])
+            self.assertEqual(snapshot["instrument_count"], 0)
+            self.assertEqual(snapshot["monitor_analyzed_count"], 0)
+
     def test_monitor_appends_one_record_per_instrument(self):
         class Analysis:
             ticker = "TEST"
