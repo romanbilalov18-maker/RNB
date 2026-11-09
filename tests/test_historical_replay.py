@@ -102,5 +102,51 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertIsNone(result.total_return_pct)
 
 
+    def test_build_cycles_passes_only_decision_engine_approved_buy_tickers(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(
+                    ticker=ticker, score=0.9, momentum=0.1, volatility=0.1
+                )
+
+        def fake_intelligence(scan):
+            return {
+                ticker: SimpleNamespace(
+                    overall_score=0.9,
+                    overall_confidence=0.8,
+                    overall_consistency=0.8,
+                )
+                for ticker in scan.analyses
+            }
+
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan", fake_intelligence
+        ):
+            start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+            bars = [
+                SimpleNamespace(time=start + timedelta(days=i), close=100 + i)
+                for i in range(2)
+            ]
+            cycles = build_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+            )
+
+        self.assertEqual(len(cycles), 2)
+        self.assertEqual(cycles[-1].eligible_buy_tickers, {"AAA"})
+        self.assertIn("AAA", cycles[-1].eligible_buy_reasons)
+
+
 if __name__ == "__main__":
     unittest.main()
