@@ -48,6 +48,38 @@ def load_rows(path: Path):
     return grouped
 
 
+def _load_dataset_provenance(path: Path) -> dict:
+    """Read the exporter sidecar when present; never infer historical universe coverage."""
+    manifest_path = path.with_suffix(path.suffix + ".manifest.json")
+    if not manifest_path.is_file():
+        return {
+            "status": "unknown",
+            "manifest_file": None,
+            "historical_universe_reconstructed": None,
+            "warnings": [
+                "Dataset provenance manifest is missing; instrument-universe selection cannot be verified.",
+                "Do not interpret results as an unbiased full-market backtest.",
+            ],
+        }
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid dataset provenance manifest: {manifest_path}") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError(f"dataset provenance manifest must contain a JSON object: {manifest_path}")
+    return {
+        "status": "provided",
+        "manifest_file": manifest_path.name,
+        "data_source": manifest.get("data_source"),
+        "selection_method": manifest.get("selection_method"),
+        "historical_universe_reconstructed": manifest.get("historical_universe_reconstructed"),
+        "sample_start": manifest.get("sample_start"),
+        "sample_end": manifest.get("sample_end"),
+        "symbol_count": manifest.get("symbol_count"),
+        "limitations": list(manifest.get("limitations") or []),
+    }
+
+
 def _metrics(rows):
     if not rows:
         return {"observations": 0, "mean_net_return": None, "score_return_correlation": None,
@@ -141,6 +173,7 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         "status": "completed",
         "data_source": data_source,
         "input_file": path.name,
+        "dataset_provenance": _load_dataset_provenance(path),
         "symbols": sorted(grouped),
         "input_rows": sum(len(rows) for rows in grouped.values()),
         "evaluated_observations": len(predictions),
