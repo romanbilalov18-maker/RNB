@@ -63,4 +63,12 @@ The manifest now additionally reports:
 - duplicate (symbol, timestamp) count and a data-integrity status;
 - an explicit warning if duplicate observations are present.
 
-These diagnostics identify duplicate rows; they do not repair, fabricate, or silently remove observations. Historical gaps still need careful interpretation because exchange holidays, instrument-specific schedules, listing dates, and API coverage can all affect candle presence. The next historical-data task is to investigate whether T-Invest provides sufficient historical instrument metadata to build a defensible point-in-time universe; until confirmed, the bias remains an explicit limitation.
+These diagnostics identify duplicate rows; they do not repair, fabricate, or silently remove observations. Historical gaps still need careful interpretation because exchange holidays, instrument-specific schedules, listing dates, and API coverage can all affect candle presence.
+
+### T-Invest historical metadata finding
+
+The official T-Invest documentation confirms that instrument metadata can expose `first_1day_candle_date` and `first_1min_candle_date`. It also documents `GetHistory` as a year-by-year archive of minute candles for a specified `instrument_id` or FIGI. This supports researching longer candle histories for known IDs, but does **not** provide a documented point-in-time list of all listed, delisted, suspended, or eligible instruments. Current instrument metadata cannot by itself reconstruct historical universe membership.
+
+Sources checked: [historical quotes](https://developer.tbank.ru/invest/intro/intro/load_history), [historical archive method](https://developer.tbank-online.com/invest/services/quotes/get_history), and [market-data FAQ](https://developer.tbank.ru/invest/services/quotes/faq_marketdata).
+
+Therefore, a complete point-in-time universe remains unverified from the available documented API. The next reliable route is to build an explicitly labeled historical coverage registry from verified instrument metadata and available broker candle records, preserve missing/unavailable cases, and avoid calling the result an unbiased full-market backtest unless independent historical listing/suspension records are available.
