@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -9,16 +10,26 @@ from pathlib import Path
 from bot.intelligence.tinvest_runner import run_real_market_intelligence
 
 
+def _finite_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _level_metrics(result) -> dict[str, float | None]:
     metrics: dict[str, float | None] = {}
     for number in range(1, 16):
         level = getattr(result, f"level_{number:02d}", None)
         metrics[f"level_{number:02d}_score"] = (
-            float(getattr(level, "score")) if level is not None and getattr(level, "score", None) is not None else None
+            _finite_or_none(getattr(level, "score", None)) if level is not None else None
         )
         metrics[f"level_{number:02d}_confidence"] = (
-            float(getattr(level, "confidence"))
-            if level is not None and getattr(level, "confidence", None) is not None
+            _finite_or_none(getattr(level, "confidence", None))
+            if level is not None
             else None
         )
     return metrics
@@ -33,6 +44,9 @@ def _monitor_parts(item):
 
 
 def _record(analysis, result, current_price: float, timestamp: str) -> dict:
+    price = _finite_or_none(current_price)
+    if price is None or price <= 0:
+        raise ValueError(f"monitor price must be finite and positive for {analysis.ticker}")
     level_01 = result.level_01
     change = None
     analyzer_results = getattr(level_01, "analyzer_results", ())
@@ -42,14 +56,14 @@ def _record(analysis, result, current_price: float, timestamp: str) -> dict:
     record = {
         "timestamp": timestamp,
         "symbol": analysis.ticker,
-        "price": float(current_price),
+        "price": price,
         # Backward-compatible field name; this is the change from the
         # snapshot's previous_price, not necessarily the exchange's daily change.
-        "daily_change": float(change) if change is not None else None,
-        "price_change_from_previous": float(change) if change is not None else None,
-        "intelligence": float(result.overall_score),
-        "confidence": float(result.overall_confidence),
-        "consistency": float(result.overall_consistency),
+        "daily_change": _finite_or_none(change),
+        "price_change_from_previous": _finite_or_none(change),
+        "intelligence": _finite_or_none(result.overall_score),
+        "confidence": _finite_or_none(result.overall_confidence),
+        "consistency": _finite_or_none(result.overall_consistency),
         "warnings": list(result.warnings),
     }
     record.update(_level_metrics(result))
@@ -99,7 +113,7 @@ def run_monitor(
             "scope": "instruments returned by current read-only monitor scan; not the full historical market universe",
         }
         with universe_path.open("a", encoding="utf-8") as universe_handle:
-            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True) + "\n")
+            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n")
 
         with path.open("a", encoding="utf-8") as handle:
             for analysis, result, current_price in normalized_results:
@@ -108,6 +122,7 @@ def run_monitor(
                         _record(analysis, result, current_price, timestamp),
                         ensure_ascii=False,
                         sort_keys=True,
+                        allow_nan=False,
                     )
                     + "\n"
                 )
