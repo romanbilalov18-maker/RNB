@@ -148,5 +148,77 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertIn("AAA", cycles[-1].eligible_buy_reasons)
 
 
+    def test_replay_runs_real_paper_executor_buy_sell_commission_and_profit_reserve(self):
+        from bot.paper_executor import PaperExecutor
+        from bot.stock_analysis import StockAnalysis
+
+        initial_balance = 100_000.0
+        portfolio = VirtualPortfolio(initial_balance, commission_rate=0.001)
+        first = datetime(2025, 1, 2, 10, tzinfo=timezone.utc)
+        second = datetime(2025, 1, 2, 11, tzinfo=timezone.utc)
+        analysis = StockAnalysis(
+            instrument_id="instrument-aaa",
+            ticker="AAA",
+            last_price=100.0,
+            return_period=0.02,
+            volatility=0.01,
+            momentum=0.03,
+            average_volume=1000.0,
+            volume_ratio=1.2,
+            trend_strength=0.02,
+            score=0.9,
+        )
+        entry_scan = SimpleNamespace(
+            analyses={"AAA": analysis},
+            buy_candidates=[analysis],
+            current_prices={"AAA": 100.0},
+            previous_closes={"AAA": 99.0},
+            lot_sizes={"AAA": 1},
+            active_trading_tickers={"AAA"},
+            fresh_quote_tickers={"AAA"},
+            sellable_quote_tickers={"AAA"},
+            session_by_ticker={
+                "AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}
+            },
+            candle_history={},
+            market_closed_tickers=set(),
+        )
+        exit_scan = SimpleNamespace(
+            analyses={},
+            buy_candidates=[],
+            current_prices={"AAA": 110.0},
+            previous_closes={"AAA": 100.0},
+            lot_sizes={},
+            active_trading_tickers={"AAA"},
+            fresh_quote_tickers={"AAA"},
+            sellable_quote_tickers={"AAA"},
+            session_by_ticker={
+                "AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}
+            },
+            candle_history={},
+            market_closed_tickers=set(),
+        )
+
+        result = HistoricalReplay(portfolio, PaperExecutor()).run([
+            HistoricalReplayCycle(first, entry_scan, {"AAA"}, {"AAA": "approved"}),
+            HistoricalReplayCycle(second, exit_scan, set(), {}),
+        ])
+
+        self.assertEqual(result.buy_trades, 1)
+        self.assertEqual(result.sell_trades, 1)
+        self.assertEqual(result.total_trades, 2)
+        self.assertEqual(result.equity_curve[0].open_positions, 1)
+        self.assertEqual(result.equity_curve[1].open_positions, 0)
+        self.assertGreater(result.realized_pnl, 0.0)
+        self.assertGreater(result.commissions, 0.0)
+        self.assertGreater(result.protected_cash, 0.0)
+        self.assertAlmostEqual(
+            result.final_equity,
+            portfolio.cash + portfolio.protected_cash,
+        )
+        self.assertEqual(portfolio.trades[0].timestamp, first)
+        self.assertEqual(portfolio.trades[1].timestamp, second)
+
+
 if __name__ == "__main__":
     unittest.main()
