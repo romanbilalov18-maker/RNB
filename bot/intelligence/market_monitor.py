@@ -121,21 +121,28 @@ def run_monitor(
             "monitor_limit": scan_metadata.get("monitor_limit", limit),
             "scope": scan_metadata.get("scope", "instruments returned by current read-only monitor scan; not the full historical market universe"),
         }
-        with universe_path.open("a", encoding="utf-8") as universe_handle:
-            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n")
+        # Validate and serialize the entire cycle before appending either file.
+        # This prevents an invalid later instrument from leaving a partial cycle.
+        encoded_records = [
+            json.dumps(
+                _record(analysis, result, current_price, timestamp),
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            for analysis, result, current_price, _ in normalized_results
+        ]
+        encoded_universe = json.dumps(
+            universe_record, ensure_ascii=False, sort_keys=True, allow_nan=False
+        )
 
-        with path.open("a", encoding="utf-8") as handle:
-            for analysis, result, current_price, _ in normalized_results:
-                handle.write(
-                    json.dumps(
-                        _record(analysis, result, current_price, timestamp),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        allow_nan=False,
-                    )
-                    + "\n"
-                )
-                total_records += 1
+        with universe_path.open("a", encoding="utf-8") as universe_handle:
+            universe_handle.write(encoded_universe + "\n")
+
+        if encoded_records:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(encoded_records) + "\n")
+            total_records += len(encoded_records)
 
         print(
             f"Monitor cycle {cycle + 1}/{cycles}: "
