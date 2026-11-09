@@ -214,7 +214,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
             for index in range(20)
         ])
         calendar_path = Path(path.parent) / "duplicate_calendar.csv"
-        calendar_path.write_text("date\\n2026-01-01\\n2026-01-01\\n", encoding="utf-8")
+        calendar_path.write_text("date\n2026-01-01\n2026-01-01\n", encoding="utf-8")
         self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
         with self.assertRaisesRegex(ValueError, "duplicate dates"):
             evaluate(path, window=5, horizon=2, official_calendar_path=calendar_path)
