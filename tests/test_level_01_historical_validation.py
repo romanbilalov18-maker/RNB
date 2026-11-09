@@ -4,7 +4,11 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from bot.intelligence.levels.level_01.historical_validation import evaluate, load_rows
+from bot.intelligence.levels.level_01.historical_validation import (
+    evaluate,
+    load_rows,
+    load_official_trading_dates,
+)
 
 
 class Level01HistoricalValidationTests(unittest.TestCase):
@@ -206,6 +210,25 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         gaps = report["official_calendar_gap_diagnostics"]
         self.assertEqual(gaps["calendar_dates"], 40)
         self.assertEqual(gaps["missing_dates_by_symbol"]["AAA"], ["2026-01-15"])
+
+    def test_official_calendar_timestamp_is_normalized_to_moscow_date(self):
+        calendar_path = Path(tempfile.mktemp(suffix=".csv"))
+        calendar_path.write_text(
+            "date\\n2026-01-05T21:30:00Z\\n", encoding="utf-8"
+        )
+        self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
+
+        self.assertEqual(load_official_trading_dates(calendar_path), ["2026-01-06"])
+
+    def test_official_calendar_rejects_duplicates_after_timezone_normalization(self):
+        calendar_path = Path(tempfile.mktemp(suffix=".csv"))
+        calendar_path.write_text(
+            "date\\n2026-01-05T21:30:00Z\\n2026-01-06T00:30:00+03:00\\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
+        with self.assertRaisesRegex(ValueError, "duplicate dates"):
+            load_official_trading_dates(calendar_path)
 
     def test_official_calendar_rejects_duplicate_dates(self):
         path = self.write_csv([
