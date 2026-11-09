@@ -121,6 +121,38 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         self.assertTrue(any("manifest is missing" in warning
                             for warning in report["dataset_provenance"]["warnings"]))
 
+    def test_skips_outcomes_that_cross_long_data_gaps(self):
+        rows = []
+        dates = [
+            date(2026, 1, 1) + timedelta(days=index) if index < 15
+            else date(2026, 3, 1) + timedelta(days=index - 15)
+            for index in range(35)
+        ]
+        for index, stamp in enumerate(dates):
+            rows.append({
+                "timestamp": stamp.isoformat(),
+                "symbol": "AAA",
+                "close": 100.0 + index,
+                "volume": 1000 + index,
+            })
+        path = self.write_csv(rows)
+
+        report = evaluate(path, window=5, horizon=2, max_gap_days=7)
+
+        self.assertGreater(report["skipped_outcomes_due_to_data_gaps"], 0)
+        self.assertEqual(report["maximum_allowed_observation_gap_days"], 7)
+        self.assertLess(report["evaluated_observations"], 14)
+
+    def test_rejects_invalid_max_gap_days(self):
+        rows = [
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+             "symbol": "AAA", "close": 100 + index, "volume": 1000}
+            for index in range(20)
+        ]
+        path = self.write_csv(rows)
+        with self.assertRaisesRegex(ValueError, "max_gap_days"):
+            evaluate(path, window=5, horizon=2, max_gap_days=0)
+
     def test_assumed_cost_reduces_net_return(self):
         rows = []
         for index in range(50):
