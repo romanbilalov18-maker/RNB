@@ -24,6 +24,14 @@ def _level_metrics(result) -> dict[str, float | None]:
     return metrics
 
 
+def _monitor_parts(item):
+    """Normalize the monitor's read-only runner result; extra diagnostics are ignored."""
+    if not isinstance(item, (tuple, list)) or len(item) < 3:
+        raise ValueError("monitor runner results must contain analysis, intelligence, and price")
+    analysis, result, current_price = item[:3]
+    return analysis, result, current_price
+
+
 def _record(analysis, result, current_price: float, timestamp: str) -> dict:
     level_01 = result.level_01
     change = None
@@ -54,6 +62,7 @@ def run_monitor(
     interval_minutes: int = 5,
     limit: int = 10,
     output_path: str = "data/intelligence_monitor.jsonl",
+    universe_output_path: str | None = None,
     sleep_fn=time.sleep,
     run_fn=run_real_market_intelligence,
     clock_fn=time.monotonic,
@@ -69,6 +78,8 @@ def run_monitor(
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    universe_path = Path(universe_output_path) if universe_output_path else path.with_name(path.stem + ".universe.jsonl")
+    universe_path.parent.mkdir(parents=True, exist_ok=True)
 
     cycles = max(1, (duration_minutes + interval_minutes - 1) // interval_minutes)
     total_records = 0
@@ -80,8 +91,18 @@ def run_monitor(
         if not results:
             raise RuntimeError("No instruments were successfully analyzed")
 
+        normalized_results = [_monitor_parts(item) for item in results]
+        universe_record = {
+            "timestamp": timestamp,
+            "symbols": sorted({str(analysis.ticker) for analysis, _, _ in normalized_results}),
+            "instrument_count": len({str(analysis.ticker) for analysis, _, _ in normalized_results}),
+            "scope": "instruments returned by current read-only monitor scan; not the full historical market universe",
+        }
+        with universe_path.open("a", encoding="utf-8") as universe_handle:
+            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True) + "\\n")
+
         with path.open("a", encoding="utf-8") as handle:
-            for analysis, result, current_price in results:
+            for analysis, result, current_price in normalized_results:
                 handle.write(
                     json.dumps(
                         _record(analysis, result, current_price, timestamp),
