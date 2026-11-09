@@ -86,15 +86,22 @@ def build_coverage_registry(catalog: list[object], candle_history: dict[str, lis
         str(item.get("ticker") or ""),
         str(item.get("uid") or item.get("figi") or ""),
     ))
-    with_candles = sum(item["daily_candle_rows"] > 0 for item in instruments)
+    catalog_records = [
+        item for item in instruments
+        if item["catalog_snapshot_status"] == "present_in_current_TInvest_shares_catalog"
+    ]
+    catalog_with_candles = sum(item["daily_candle_rows"] > 0 for item in catalog_records)
+    records_with_candles = sum(item["daily_candle_rows"] > 0 for item in instruments)
     return {
         "data_source": "T-Invest API",
         "snapshot_as_of": as_of,
         "registry_type": "current_catalog_and_observed_candle_coverage",
         "historical_universe_reconstructed": False,
-        "catalog_instrument_count": len(instruments),
-        "instruments_with_received_daily_candles": with_candles,
-        "instruments_without_received_daily_candles": len(instruments) - with_candles,
+        "catalog_instrument_count": len(catalog_records),
+        "registry_instrument_record_count": len(instruments),
+        "catalog_instruments_with_received_daily_candles": catalog_with_candles,
+        "catalog_instruments_without_received_daily_candles": len(catalog_records) - catalog_with_candles,
+        "registry_records_with_received_daily_candles": records_with_candles,
         "instrument_records": instruments,
         "limitations": [
             "This is a snapshot of the current T-Invest shares catalog, not a point-in-time historical listing universe.",
