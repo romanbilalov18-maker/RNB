@@ -42,6 +42,38 @@ class MarketMonitorTests(unittest.TestCase):
             self.assertIn(f"level_{number:02d}_score", record)
             self.assertIn(f"level_{number:02d}_confidence", record)
 
+    def test_monitor_accepts_extended_intelligence_runner_tuple_and_records_universe(self):
+        class Analysis:
+            ticker = "XYZ"
+
+        class Result:
+            overall_score = 0.6
+            overall_confidence = 0.7
+            overall_consistency = 0.8
+            warnings = ()
+            level_01 = type("L", (), {"score": 0.5, "confidence": 0.6, "analyzer_results": ()})()
+
+        for number in range(2, 16):
+            setattr(Result, f"level_{number:02d}", type("L", (), {"score": 0.5, "confidence": 0.6})())
+
+        def fake_run(token, limit):
+            return [(Analysis(), Result(), 100.0, {"backtest": True}, {"walk_forward": True}, {}, {}, {})]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "monitor.jsonl"
+            universe = Path(directory) / "universe.jsonl"
+            records = run_monitor(
+                "token", duration_minutes=1, interval_minutes=1, limit=1,
+                output_path=str(output), universe_output_path=str(universe),
+                sleep_fn=lambda _: None, run_fn=fake_run,
+            )
+            self.assertEqual(records, 1)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8").splitlines()[0])["symbol"], "XYZ")
+            snapshot = json.loads(universe.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(snapshot["symbols"], ["XYZ"])
+            self.assertEqual(snapshot["instrument_count"], 1)
+            self.assertIn("not the full historical market universe", snapshot["scope"])
+
     def test_monitor_appends_one_record_per_instrument(self):
         class Analysis:
             ticker = "TEST"
