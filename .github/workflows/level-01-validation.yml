@@ -100,7 +100,8 @@ jobs:
           name: level-01-historical-validation-${{ github.run_id }}
           path: |
             ${{ inputs.dataset_path }}
-            ${{ inputs.dataset_path }}.manifest.json
+${{ inputs.dataset_path }}.manifest.json
+            ${{ inputs.dataset_path }}.coverage.json
             data/level_01_historical_report.json
           if-no-files-found: warn
           retention-days: 30
