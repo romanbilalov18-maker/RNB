@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from bot.live_runner import LiveMarketRunner
@@ -38,14 +38,31 @@ def export(path: Path, days: int = 180) -> int:
     rows = []
     for ticker, candles in scan.candle_history.items():
         for candle in candles:
-            close = number(candle.close)
-            volume = float(candle.volume)
-            timestamp = candle.time
-            if close <= 0:
+            # Keep the full bar required for realistic historical execution.
+            # Missing/invalid OHLC values are skipped rather than synthesized.
+            try:
+                open_price, high, low, close = (
+                    number(getattr(candle, field))
+                    for field in ("open", "high", "low", "close")
+                )
+                volume = float(candle.volume)
+            except (AttributeError, TypeError, ValueError, OverflowError):
                 continue
+            if (
+                not all(math.isfinite(value) for value in (open_price, high, low, close, volume))
+                or min(open_price, high, low, close) <= 0
+                or volume < 0
+                or high < max(open_price, low, close)
+                or low > min(open_price, high, close)
+            ):
+                continue
+            timestamp = candle.time
             rows.append({
                 "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
                 "symbol": ticker,
+                "open": open_price,
+                "high": high,
+                "low": low,
                 "close": close,
                 "volume": volume,
             })
@@ -56,7 +73,9 @@ def export(path: Path, days: int = 180) -> int:
     rows.sort(key=lambda row: (row["symbol"], row["timestamp"]))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=("timestamp", "symbol", "close", "volume"))
+        writer = csv.DictWriter(
+            handle, fieldnames=("timestamp", "symbol", "open", "high", "low", "close", "volume")
+        )
         writer.writeheader()
         writer.writerows(rows)
 
