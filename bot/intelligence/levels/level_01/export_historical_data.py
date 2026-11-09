@@ -26,10 +26,23 @@ def number(value) -> float:
 def build_manifest(rows: list[dict], days: int) -> dict:
     """Describe the exported sample and its known selection limitations."""
     by_symbol = {}
+    timestamp_keys = set()
+    duplicate_symbol_timestamps = 0
     for row in rows:
-        by_symbol.setdefault(row["symbol"], []).append(row["timestamp"])
+        symbol = str(row["symbol"])
+        timestamp = str(row["timestamp"])
+        by_symbol.setdefault(symbol, []).append(timestamp)
+        key = (symbol, timestamp)
+        if key in timestamp_keys:
+            duplicate_symbol_timestamps += 1
+        else:
+            timestamp_keys.add(key)
     return {
         "data_source": "T-Invest API",
+        "row_count": len(rows),
+        "unique_symbol_timestamp_count": len(timestamp_keys),
+        "duplicate_symbol_timestamp_count": duplicate_symbol_timestamps,
+        "data_integrity_status": "duplicates_detected" if duplicate_symbol_timestamps else "unique_symbol_timestamps",
         "candle_interval": "daily",
         "requested_lookback_days": days,
         "sample_start": min(row["timestamp"] for row in rows),
@@ -45,6 +58,10 @@ def build_manifest(rows: list[dict], days: int) -> dict:
         },
         "selection_method": "current LiveMarketRunner scanner universe",
         "historical_universe_reconstructed": False,
+        "data_quality_warnings": (
+            ["Duplicate (symbol, timestamp) rows were present in the exported sample."]
+            if duplicate_symbol_timestamps else []
+        ),
         "limitations": [
             "Current scanner selection is not a point-in-time historical instrument universe.",
             "Survivorship and selection bias may affect historical performance metrics.",
