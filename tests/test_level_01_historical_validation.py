@@ -83,6 +83,8 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         self.assertEqual(provenance["data_source"], "T-Invest API")
         self.assertFalse(provenance["historical_universe_reconstructed"])
         self.assertIn("Survivorship bias may affect metrics.", provenance["limitations"])
+        self.assertEqual(report["bias_assessment"], "known_current_universe_selection_bias")
+        self.assertIn("Survivorship bias may affect metrics.", report["limitations"])
 
     def test_report_marks_missing_manifest_as_unknown_provenance(self):
         rows = [
@@ -95,6 +97,9 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         report = evaluate(path, window=10, horizon=3)
 
         self.assertEqual(report["dataset_provenance"]["status"], "unknown")
+        self.assertEqual(report["bias_assessment"], "unknown")
+        self.assertTrue(any("manifest is missing" in warning
+                            for warning in report["limitations"]))
         self.assertTrue(any("manifest is missing" in warning
                             for warning in report["dataset_provenance"]["warnings"]))
 
