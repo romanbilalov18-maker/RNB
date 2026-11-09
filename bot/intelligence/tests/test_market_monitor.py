@@ -74,6 +74,45 @@ class MarketMonitorTests(unittest.TestCase):
             self.assertEqual(snapshot["instrument_count"], 1)
             self.assertIn("not the full historical market universe", snapshot["scope"])
 
+    def test_monitor_rejects_nonfinite_or_nonpositive_price(self):
+        class Analysis:
+            ticker = "BAD"
+
+        class Result:
+            overall_score = 0.5
+            overall_confidence = 0.5
+            overall_consistency = 0.5
+            warnings = ()
+            level_01 = type("L", (), {"analyzer_results": ()})()
+
+        for number in range(2, 16):
+            setattr(Result, f"level_{number:02d}", type("L", (), {"score": 0.5, "confidence": 0.5})())
+
+        for price in (float("nan"), float("inf"), 0.0, -1.0):
+            with self.subTest(price=price), self.assertRaisesRegex(ValueError, "finite and positive"):
+                _record(Analysis(), Result(), price, "2026-01-01T00:00:00+00:00")
+
+    def test_nonfinite_intelligence_metrics_are_serialized_as_null(self):
+        class Analysis:
+            ticker = "TEST"
+
+        class Result:
+            overall_score = float("nan")
+            overall_confidence = float("inf")
+            overall_consistency = 0.5
+            warnings = ()
+            level_01 = type("L", (), {"analyzer_results": ()})()
+
+        for number in range(2, 16):
+            setattr(Result, f"level_{number:02d}", type("L", (), {"score": float("nan"), "confidence": 0.5})())
+
+        record = _record(Analysis(), Result(), 10.0, "2026-01-01T00:00:00+00:00")
+        encoded = json.dumps(record, allow_nan=False)
+        decoded = json.loads(encoded)
+        self.assertIsNone(decoded["intelligence"])
+        self.assertIsNone(decoded["confidence"])
+        self.assertIsNone(decoded["level_02_score"])
+
     def test_monitor_appends_one_record_per_instrument(self):
         class Analysis:
             ticker = "TEST"
