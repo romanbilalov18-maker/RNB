@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import statistics
+from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import Path
 
@@ -34,15 +35,32 @@ def load_rows(path: Path):
                 raise ValueError(f"line {line}: close and volume must be numeric") from exc
             if not symbol or not timestamp:
                 raise ValueError(f"line {line}: timestamp and symbol are required")
+            try:
+                parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(f"line {line}: timestamp must be ISO-8601") from exc
+            # Date-only/naive timestamps are retained as UTC for compatibility
+            # with user-supplied daily CSVs. Offset-aware values are normalized
+            # to UTC so lexicographic timezone strings cannot reorder candles.
+            if parsed_timestamp.tzinfo is None:
+                parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
+            timestamp_order = parsed_timestamp.astimezone(timezone.utc)
             if not math.isfinite(close) or close <= 0:
                 raise ValueError(f"line {line}: close must be finite and > 0")
             if not math.isfinite(volume) or volume < 0:
                 raise ValueError(f"line {line}: volume must be finite and >= 0")
-            grouped[symbol].append({"timestamp": timestamp, "close": close, "volume": volume})
+            grouped[symbol].append({
+                "timestamp": timestamp,
+                "_timestamp_order": timestamp_order,
+                "close": close,
+                "volume": volume,
+            })
     for symbol, rows in grouped.items():
-        rows.sort(key=lambda row: row["timestamp"])
-        if len({row["timestamp"] for row in rows}) != len(rows):
+        rows.sort(key=lambda row: row["_timestamp_order"])
+        if len({row["_timestamp_order"] for row in rows}) != len(rows):
             raise ValueError(f"{symbol}: duplicate timestamps are not allowed")
+        for row in rows:
+            row.pop("_timestamp_order")
     if not grouped:
         raise ValueError("CSV contains no market rows")
     return grouped
