@@ -51,6 +51,14 @@ def _field(candle, name: str) -> float | None:
     return _number(getattr(candle, name, None))
 
 
+def _reject_duplicate_dates(dates: Iterable[str], *, context: str) -> None:
+    seen = set()
+    for day in dates:
+        if day in seen:
+            raise ValueError(f"{context}: duplicate candle timestamps are not allowed")
+        seen.add(day)
+
+
 def evaluate_pressure_history(
     candles: Iterable[object],
     *,
@@ -89,6 +97,7 @@ def evaluate_pressure_history(
             "close": close, "volume": volume if volume is not None and volume >= 0 else None,
         })
     bars.sort(key=lambda item: item["date"])
+    _reject_duplicate_dates((item["date"] for item in bars), context=symbol)
     if len(bars) < max(horizons) + 2:
         return {
             "symbol": symbol, "bars": len(bars), "signals": 0, "outcomes": [],
@@ -327,6 +336,7 @@ def evaluate_pressure_walk_forward(
         if close is not None and close > 0:
             bars.append((_date(candle, index), close))
     bars.sort()
+    _reject_duplicate_dates((item[0] for item in bars), context=symbol)
     if len(bars) < max(horizons) + 12:
         return {
             "symbol": symbol,
@@ -532,6 +542,7 @@ def evaluate_pressure_rolling_walk_forward(
         if close is not None and close > 0:
             bars.append((_date(candle, index), close))
     bars.sort()
+    _reject_duplicate_dates((item[0] for item in bars), context=symbol)
     n = len(bars)
     initial_train_end = int(n * train_fraction)
     holdout_size = max(max(horizons) + 1, int(n * holdout_fraction))
