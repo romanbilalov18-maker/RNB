@@ -59,6 +59,45 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         self.assertIn("limitations", report)
         self.assertIn("price", report["analyzers"])
 
+    def test_report_includes_export_manifest_and_its_selection_warning(self):
+        rows = [
+            {"timestamp": f"2026-01-{index + 1:02d}", "symbol": "AAA",
+             "close": 100 + index, "volume": 1000}
+            for index in range(40)
+        ]
+        path = self.write_csv(rows)
+        manifest_path = path.with_suffix(path.suffix + ".manifest.json")
+        manifest_path.write_text(
+            '{"data_source":"T-Invest API","selection_method":"current scanner",'
+            '"historical_universe_reconstructed":false,"symbol_count":1,'
+            '"sample_start":"2026-01-01","sample_end":"2026-02-09",'
+            '"limitations":["Survivorship bias may affect metrics."]}',
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: manifest_path.unlink(missing_ok=True))
+
+        report = evaluate(path, window=10, horizon=3)
+
+        provenance = report["dataset_provenance"]
+        self.assertEqual(provenance["status"], "provided")
+        self.assertEqual(provenance["data_source"], "T-Invest API")
+        self.assertFalse(provenance["historical_universe_reconstructed"])
+        self.assertIn("Survivorship bias may affect metrics.", provenance["limitations"])
+
+    def test_report_marks_missing_manifest_as_unknown_provenance(self):
+        rows = [
+            {"timestamp": f"2026-01-{index + 1:02d}", "symbol": "AAA",
+             "close": 100 + index, "volume": 1000}
+            for index in range(40)
+        ]
+        path = self.write_csv(rows)
+
+        report = evaluate(path, window=10, horizon=3)
+
+        self.assertEqual(report["dataset_provenance"]["status"], "unknown")
+        self.assertTrue(any("manifest is missing" in warning
+                            for warning in report["dataset_provenance"]["warnings"]))
+
     def test_assumed_cost_reduces_net_return(self):
         rows = []
         for index in range(50):
