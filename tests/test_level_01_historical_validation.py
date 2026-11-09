@@ -180,5 +180,44 @@ class Level01HistoricalValidationTests(unittest.TestCase):
             evaluate(path, window=5, horizon=2, cost_bps=-1)
 
 
+
+    def test_report_includes_missing_dates_from_explicit_official_calendar(self):
+        rows = [
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+             "symbol": "AAA", "close": 100 + index, "volume": 1000}
+            for index in range(40)
+        ]
+        path = self.write_csv(rows)
+        calendar_path = Path(path.parent) / "official_calendar.csv"
+        with calendar_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["date"])
+            writer.writeheader()
+            writer.writerows({"date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
+                             for index in range(40))
+        self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
+
+        # Omit one official session in observed data; don't assume weekdays or
+        # holidays. The test explicitly supplies the authoritative calendar.
+        rows = [row for row in rows if row["timestamp"] != "2026-01-15"]
+        path.unlink(missing_ok=True)
+        path = self.write_csv(rows)
+        report = evaluate(path, window=10, horizon=3, official_calendar_path=calendar_path)
+
+        gaps = report["official_calendar_gap_diagnostics"]
+        self.assertEqual(gaps["calendar_dates"], 40)
+        self.assertEqual(gaps["missing_dates_by_symbol"]["AAA"], ["2026-01-15"])
+
+    def test_official_calendar_rejects_duplicate_dates(self):
+        path = self.write_csv([
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+             "symbol": "AAA", "close": 100 + index, "volume": 1000}
+            for index in range(20)
+        ])
+        calendar_path = Path(path.parent) / "duplicate_calendar.csv"
+        calendar_path.write_text("date\\n2026-01-01\\n2026-01-01\\n", encoding="utf-8")
+        self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
+        with self.assertRaisesRegex(ValueError, "duplicate dates"):
+            evaluate(path, window=5, horizon=2, official_calendar_path=calendar_path)
+
 if __name__ == "__main__":
     unittest.main()
