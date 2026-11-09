@@ -52,7 +52,7 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertIn("incomplete_mark_to_market_due_to_missing_quotes", result.warnings)
         self.assertEqual(result.equity_curve[0].unpriced_tickers, ("AAA",))
 
-    def test_build_cycles_never_forward_fills_prices_and_uses_only_visible_history(self):
+    def test_build_cycles_uses_prior_closed_bars_and_current_open_for_execution(self):
         import bot.stock_analysis as analysis_module
         import bot.intelligence.integration as integration_module
 
@@ -75,7 +75,7 @@ class HistoricalReplayTests(unittest.TestCase):
         ):
             start = datetime(2025, 1, 1, tzinfo=timezone.utc)
             bars = [
-                SimpleNamespace(time=start + timedelta(days=i), close=100 + i)
+                SimpleNamespace(time=start + timedelta(days=i), open=200 + i, close=100 + i)
                 for i in range(3)
             ]
             cycles = build_historical_cycles(
@@ -90,9 +90,11 @@ class HistoricalReplayTests(unittest.TestCase):
 
         self.assertEqual(len(cycles), 3)
         self.assertNotIn("AAA", cycles[0].scan.current_prices)
-        self.assertEqual([len(c.scan.candle_history["AAA"]) for c in cycles[1:]], [2, 3])
-        self.assertEqual([c.scan.current_prices["AAA"] for c in cycles[1:]], [101, 102])
-        self.assertEqual(seen_lengths, [2, 3])
+        self.assertNotIn("AAA", cycles[1].scan.current_prices)
+        self.assertEqual(cycles[2].scan.candle_history["AAA"], bars[:2])
+        self.assertEqual(cycles[2].scan.current_prices["AAA"], 202)
+        self.assertEqual(cycles[2].scan.previous_closes["AAA"], 101)
+        self.assertEqual(seen_lengths, [2])
         self.assertLess(cycles[0].timestamp, cycles[1].timestamp)
         self.assertLess(cycles[1].timestamp, cycles[2].timestamp)
 
@@ -130,8 +132,8 @@ class HistoricalReplayTests(unittest.TestCase):
         ):
             start = datetime(2025, 1, 1, tzinfo=timezone.utc)
             bars = [
-                SimpleNamespace(time=start + timedelta(days=i), close=100 + i)
-                for i in range(2)
+                SimpleNamespace(time=start + timedelta(days=i), open=100 + i, close=100 + i)
+                for i in range(3)
             ]
             cycles = build_historical_cycles(
                 {"AAA": bars},
@@ -143,10 +145,9 @@ class HistoricalReplayTests(unittest.TestCase):
                 momentum_period=1,
             )
 
-        self.assertEqual(len(cycles), 2)
+        self.assertEqual(len(cycles), 3)
         self.assertEqual(cycles[-1].eligible_buy_tickers, {"AAA"})
         self.assertIn("AAA", cycles[-1].eligible_buy_reasons)
-
 
     def test_replay_runs_real_paper_executor_buy_sell_commission_and_profit_reserve(self):
         from bot.paper_executor import PaperExecutor
