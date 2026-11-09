@@ -214,7 +214,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
     def test_official_calendar_timestamp_is_normalized_to_moscow_date(self):
         calendar_path = Path(tempfile.mktemp(suffix=".csv"))
         calendar_path.write_text(
-            "date\\n2026-01-05T21:30:00Z\\n", encoding="utf-8"
+            "date\n2026-01-05T21:30:00Z\\n", encoding="utf-8"
         )
         self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
 
@@ -223,7 +223,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
     def test_official_calendar_rejects_duplicates_after_timezone_normalization(self):
         calendar_path = Path(tempfile.mktemp(suffix=".csv"))
         calendar_path.write_text(
-            "date\\n2026-01-05T21:30:00Z\\n2026-01-06T00:30:00+03:00\\n",
+            "date\n2026-01-05T21:30:00Z\n2026-01-06T00:30:00+03:00\n",
             encoding="utf-8",
         )
         self.addCleanup(lambda: calendar_path.unlink(missing_ok=True))
