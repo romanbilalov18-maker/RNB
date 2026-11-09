@@ -122,7 +122,13 @@ class PaperExecutor:
         scan: LiveScanResult,
         eligible_buy_tickers: set[str] | None = None,
         eligible_buy_reasons: dict[str, str] | None = None,
+        *,
+        as_of: datetime | None = None,
     ) -> tuple[list, list]:
+        # as_of pins execution to historical time; otherwise use wall clock.
+        execution_time = as_of or datetime.now(timezone.utc)
+        if execution_time.tzinfo is None or execution_time.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
         active_tickers = getattr(scan, "active_trading_tickers", None)
         active_analyses = {
             ticker: analysis
@@ -266,7 +272,7 @@ class PaperExecutor:
                     health_condition = None
                 if health_condition != getattr(position, "health_condition", None):
                     position.health_condition = health_condition
-                    position.health_condition_since = datetime.now(timezone.utc).isoformat() if health_condition else None
+                    position.health_condition_since = execution_time.isoformat() if health_condition else None
                 if price_available:
                     position.quote_unavailable_cycles = 0
                 elif ticker not in market_closed_tickers:
@@ -313,6 +319,7 @@ class PaperExecutor:
             portfolio,
             decisions,
             execution_prices,
+            timestamp=execution_time,
         )
         executed_sell_tickers = {trade.ticker for trade in sell_trades}
         for decision in decisions:
@@ -584,7 +591,7 @@ class PaperExecutor:
                 or plan.ticker in sell_decision_tickers
             ):
                 continue
-            purchase_time = datetime.now(timezone.utc)
+            purchase_time = execution_time
             trade = portfolio.buy(
                 ticker=plan.ticker,
                 quantity=plan.quantity,

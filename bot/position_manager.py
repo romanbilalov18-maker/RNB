@@ -113,9 +113,13 @@ class PositionManager:
         portfolio: VirtualPortfolio,
         decisions: list[PositionDecision],
         prices: dict[str, float],
+        *,
+        timestamp: datetime | None = None,
     ) -> list:
         trades = []
-        timestamp = datetime.now(timezone.utc)
+        timestamp = timestamp or datetime.now(timezone.utc)
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
 
         for decision in decisions:
             if decision.action != "SELL":
