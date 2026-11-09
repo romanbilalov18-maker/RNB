@@ -99,7 +99,7 @@ def run_monitor(
             "scope": "instruments returned by current read-only monitor scan; not the full historical market universe",
         }
         with universe_path.open("a", encoding="utf-8") as universe_handle:
-            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True) + "\\n")
+            universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True) + "\n")
 
         with path.open("a", encoding="utf-8") as handle:
             for analysis, result, current_price in normalized_results:
