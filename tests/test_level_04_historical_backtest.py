@@ -76,6 +76,19 @@ class Level4HistoricalBacktestTests(unittest.TestCase):
         ]
         self.assertEqual(signal_fields(before), signal_fields(after))
 
+    def test_duplicate_candle_timestamps_are_rejected(self):
+        candles = make_candles([100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0])
+        candles[2] = SimpleNamespace(
+            time=candles[1].time,
+            open=candles[2].open,
+            high=candles[2].high,
+            low=candles[2].low,
+            close=candles[2].close,
+            volume=candles[2].volume,
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate candle timestamps"):
+            evaluate_pressure_history(candles, horizons=(1,))
+
     def test_insufficient_history_returns_warning_without_signals(self):
         report = evaluate_pressure_history(make_candles([100.0, 101.0, 102.0]), horizons=(1, 3, 5))
         self.assertEqual(report["signals"], 0)
