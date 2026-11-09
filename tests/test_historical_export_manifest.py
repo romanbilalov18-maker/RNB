@@ -51,6 +51,14 @@ class HistoricalExportManifestTests(unittest.TestCase):
         self.assertEqual(records["BBB"]["delisted_date"], "2024-09-01")
         self.assertTrue(any("does not prove" in limitation for limitation in registry["limitations"]))
 
+    def test_coverage_registry_retains_candle_symbol_missing_from_catalog(self):
+        registry = build_coverage_registry([], {"LEGACY": [object()]}, "2026-11-08T00:00:00+00:00")
+        self.assertEqual(registry["catalog_instrument_count"], 1)
+        record = registry["instrument_records"][0]
+        self.assertEqual(record["ticker"], "LEGACY")
+        self.assertEqual(record["catalog_snapshot_status"], "not_found_in_current_TInvest_shares_catalog")
+        self.assertEqual(record["daily_candle_rows"], 1)
+
     def test_coverage_registry_handles_empty_candle_map_without_fabrication(self):
         class Instrument:
             ticker = "AAA"
