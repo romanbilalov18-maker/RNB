@@ -123,6 +123,36 @@ class MarketMonitorTests(unittest.TestCase):
         self.assertIsNone(decoded["confidence"])
         self.assertIsNone(decoded["level_02_score"])
 
+    def test_invalid_later_price_does_not_append_partial_cycle(self):
+        class Analysis:
+            def __init__(self, ticker):
+                self.ticker = ticker
+
+        class Result:
+            overall_score = 0.5
+            overall_confidence = 0.5
+            overall_consistency = 0.5
+            warnings = ()
+            level_01 = type("L", (), {"analyzer_results": ()})()
+
+        for number in range(2, 16):
+            setattr(Result, f"level_{number:02d}", type("L", (), {"score": 0.5, "confidence": 0.5})())
+
+        def fake_run(token, limit):
+            return [(Analysis("GOOD"), Result(), 10.0), (Analysis("BAD"), Result(), float("nan"))]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "monitor.jsonl"
+            universe = Path(directory) / "universe.jsonl"
+            with self.assertRaisesRegex(ValueError, "finite and positive"):
+                run_monitor(
+                    "token", duration_minutes=1, interval_minutes=1, limit=2,
+                    output_path=str(output), universe_output_path=str(universe),
+                    sleep_fn=lambda _: None, run_fn=fake_run,
+                )
+            self.assertFalse(output.exists())
+            self.assertFalse(universe.exists())
+
     def test_monitor_records_empty_scan_instead_of_dropping_cycle(self):
         def fake_run(token, limit):
             return []
