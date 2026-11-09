@@ -41,8 +41,9 @@ class HistoricalExportManifestTests(unittest.TestCase):
         self.assertEqual(registry["registry_type"], "current_catalog_and_observed_candle_coverage")
         self.assertFalse(registry["historical_universe_reconstructed"])
         self.assertEqual(registry["catalog_instrument_count"], 2)
-        self.assertEqual(registry["instruments_with_received_daily_candles"], 1)
-        self.assertEqual(registry["instruments_without_received_daily_candles"], 1)
+        self.assertEqual(registry["catalog_instruments_with_received_daily_candles"], 1)
+        self.assertEqual(registry["catalog_instruments_without_received_daily_candles"], 1)
+        self.assertEqual(registry["registry_records_with_received_daily_candles"], 1)
         records = {row["ticker"]: row for row in registry["instrument_records"]}
         self.assertEqual(records["AAA"]["daily_candle_rows"], 2)
         self.assertEqual(records["AAA"]["daily_candle_export_status"], "received")
@@ -53,7 +54,9 @@ class HistoricalExportManifestTests(unittest.TestCase):
 
     def test_coverage_registry_retains_candle_symbol_missing_from_catalog(self):
         registry = build_coverage_registry([], {"LEGACY": [object()]}, "2026-11-08T00:00:00+00:00")
-        self.assertEqual(registry["catalog_instrument_count"], 1)
+        self.assertEqual(registry["catalog_instrument_count"], 0)
+        self.assertEqual(registry["registry_instrument_record_count"], 1)
+        self.assertEqual(registry["registry_records_with_received_daily_candles"], 1)
         record = registry["instrument_records"][0]
         self.assertEqual(record["ticker"], "LEGACY")
         self.assertEqual(record["catalog_snapshot_status"], "not_found_in_current_TInvest_shares_catalog")
@@ -65,7 +68,7 @@ class HistoricalExportManifestTests(unittest.TestCase):
             uid = "uid-a"
 
         registry = build_coverage_registry([Instrument()], {}, "2026-11-08")
-        self.assertEqual(registry["instruments_without_received_daily_candles"], 1)
+        self.assertEqual(registry["catalog_instruments_without_received_daily_candles"], 1)
         self.assertEqual(registry["instrument_records"][0]["daily_candle_rows"], 0)
 
     def test_manifest_describes_real_sample_and_warns_current_universe_bias(self):
