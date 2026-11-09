@@ -40,7 +40,8 @@ def _monitor_parts(item):
     if not isinstance(item, (tuple, list)) or len(item) < 3:
         raise ValueError("monitor runner results must contain analysis, intelligence, and price")
     analysis, result, current_price = item[:3]
-    return analysis, result, current_price
+    metadata = item[8] if len(item) > 8 and isinstance(item[8], dict) else {}
+    return analysis, result, current_price, metadata
 
 
 def _record(analysis, result, current_price: float, timestamp: str) -> dict:
@@ -106,17 +107,24 @@ def run_monitor(
             raise RuntimeError("No instruments were successfully analyzed")
 
         normalized_results = [_monitor_parts(item) for item in results]
+        scan_metadata = next((metadata for _, _, _, metadata in normalized_results if metadata), {})
         universe_record = {
             "timestamp": timestamp,
-            "symbols": sorted({str(analysis.ticker) for analysis, _, _ in normalized_results}),
-            "instrument_count": len({str(analysis.ticker) for analysis, _, _ in normalized_results}),
-            "scope": "instruments returned by current read-only monitor scan; not the full historical market universe",
+            "symbols": sorted({str(analysis.ticker) for analysis, _, _, _ in normalized_results}),
+            "instrument_count": len({str(analysis.ticker) for analysis, _, _, _ in normalized_results}),
+            "scanner_shortlist_count": scan_metadata.get("scanner_shortlist_count"),
+            "buy_candidate_count": scan_metadata.get("buy_candidate_count"),
+            "fresh_quote_count": scan_metadata.get("fresh_quote_count"),
+            "active_session_count": scan_metadata.get("active_session_count"),
+            "monitor_analyzed_count": scan_metadata.get("monitor_analyzed_count", len(normalized_results)),
+            "monitor_limit": scan_metadata.get("monitor_limit", limit),
+            "scope": scan_metadata.get("scope", "instruments returned by current read-only monitor scan; not the full historical market universe"),
         }
         with universe_path.open("a", encoding="utf-8") as universe_handle:
             universe_handle.write(json.dumps(universe_record, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n")
 
         with path.open("a", encoding="utf-8") as handle:
-            for analysis, result, current_price in normalized_results:
+            for analysis, result, current_price, _ in normalized_results:
                 handle.write(
                     json.dumps(
                         _record(analysis, result, current_price, timestamp),
