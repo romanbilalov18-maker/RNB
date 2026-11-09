@@ -169,11 +169,19 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             development.extend(symbol_rows[:split])
             holdout.extend(symbol_rows[split:])
 
+    dataset_provenance = _load_dataset_provenance(path)
     report = {
         "status": "completed",
         "data_source": data_source,
         "input_file": path.name,
-        "dataset_provenance": _load_dataset_provenance(path),
+        "dataset_provenance": dataset_provenance,
+        "bias_assessment": (
+            "known_current_universe_selection_bias"
+            if dataset_provenance.get("historical_universe_reconstructed") is False
+            else "unknown"
+            if dataset_provenance.get("status") == "unknown"
+            else "not_assessed"
+        ),
         "symbols": sorted(grouped),
         "input_rows": sum(len(rows) for rows in grouped.values()),
         "evaluated_observations": len(predictions),
@@ -194,6 +202,8 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             } for name, values in sorted(analyzer_totals.items())
         },
         "limitations": [
+            *dataset_provenance.get("limitations", []),
+            *dataset_provenance.get("warnings", []),
             "Diagnostic only; it does not establish profitability or statistical significance.",
             "Holdout is chronological but small datasets may not provide a meaningful holdout.",
             "Cost is an explicit assumed round-trip basis-point deduction; actual spread, fees and slippage may differ.",
