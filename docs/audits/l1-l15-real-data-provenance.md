@@ -63,6 +63,10 @@ The manifest now additionally reports:
 - duplicate (symbol, timestamp) count and a data-integrity status;
 - an explicit warning if duplicate observations are present.
 
+The export also writes a sibling `.coverage.json` file from the complete current T-Invest shares catalog fetched during that export. Each catalog entry preserves available instrument identifiers and metadata (including first daily/minute candle dates, IPO/delisting dates, exchange, and buy/sell/API flags where returned), along with a separate count of candles actually received by the current scanner. Instruments with returned candles but absent from the current catalog are retained as unmatched records. The artifact is uploaded by the Level 1 workflow alongside the CSV and manifest.
+
+This registry is a **current catalog snapshot**, not historical universe reconstruction. Zero received candles means only that this run did not receive/request candles for that symbol; it does not prove that the instrument had no historical trading.
+
 These diagnostics identify duplicate rows; they do not repair, fabricate, or silently remove observations. Historical gaps still need careful interpretation because exchange holidays, instrument-specific schedules, listing dates, and API coverage can all affect candle presence.
 
 ### T-Invest historical metadata finding
