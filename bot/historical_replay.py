@@ -140,11 +140,13 @@ def build_historical_cycles(
     min_history: int = 20,
     momentum_period: int = 10,
 ) -> list[HistoricalReplayCycle]:
-    """Prepare historical scan snapshots and L1-L15 BUY decisions.
+    """Build point-in-time scans and execute at the next bar's opening price.
 
-    The universe, lot sizes, sessions and instrument IDs are point-in-time inputs
-    supplied by the caller. Each cycle's prices are only bars timestamped at that
-    exact cycle; a symbol without a bar is not forward-filled into the quote map.
+    A cycle's strategy analysis sees only bars completed before that cycle.
+    Current-cycle OHLC is used solely for the execution open, never as input to
+    that cycle's signal. Missing opens are not replaced with closes or prior
+    prices. Universe and instrument metadata remain caller-supplied point-in-time
+    inputs; this function cannot reconstruct delisted/suspended historical names.
     """
     from bot.live_runner import LiveScanResult
     from bot.stock_analysis import StockAnalyzer
@@ -166,34 +168,35 @@ def build_historical_cycles(
             if previous is not None and stamp <= previous:
                 raise ValueError(f"{ticker}: candles must be strictly chronological")
             previous = stamp
-            bars_by_time.setdefault(stamp, {})[ticker] = bar
+            if ticker in bars_by_time.setdefault(stamp, {}):
+                raise ValueError(f"{ticker}: duplicate candle timestamp")
+            bars_by_time[stamp][ticker] = bar
 
     analyzer = StockAnalyzer(min_history=min_history, momentum_period=momentum_period)
     history: dict[str, list[object]] = {ticker: [] for ticker in candles_by_ticker}
     cycles = []
     for stamp in sorted(bars_by_time):
         current_bars = bars_by_time[stamp]
-        for ticker, bar in current_bars.items():
-            history[ticker].append(bar)
 
+        # Analyze only completed bars from before this execution timestamp.
         analyses, prices, previous_closes, visible_history, latest = {}, {}, {}, {}, {}
         for ticker, bar in current_bars.items():
             bars = history[ticker]
             if len(bars) < min_history:
                 continue
-            current_close = _number(getattr(bar, "close", None))
-            prior_close = _number(getattr(bars[-2], "close", None))
-            if current_close is None or prior_close is None or current_close <= 0 or prior_close <= 0:
+            execution_open = _number(getattr(bar, "open", None))
+            prior_close = _number(getattr(bars[-1], "close", None))
+            if execution_open is None or prior_close is None or execution_open <= 0 or prior_close <= 0:
                 continue
             try:
                 result = analyzer.analyze(instrument_ids.get(ticker, ticker), ticker, bars)
             except (TypeError, ValueError, ArithmeticError):
                 continue
             analyses[ticker] = result
-            prices[ticker] = current_close
+            prices[ticker] = execution_open
             previous_closes[ticker] = prior_close
             visible_history[ticker] = list(bars)
-            latest[ticker] = bar
+            latest[ticker] = bars[-1]
 
         ranked = sorted(analyses.values(), key=lambda item: (
             -float(item.score), -float(item.momentum), float(item.volatility), item.ticker
@@ -230,8 +233,12 @@ def build_historical_cycles(
         }
         reasons = {ticker: decisions[ticker].reason for ticker in approved}
         cycles.append(HistoricalReplayCycle(stamp, scan, approved, reasons))
-    return cycles
 
+        # Only after decisions for this timestamp are formed does its candle
+        # become available to the analyzer in the following cycle.
+        for ticker, bar in current_bars.items():
+            history[ticker].append(bar)
+    return cycles
 
 def _number(value: object) -> float | None:
     if value is None:
