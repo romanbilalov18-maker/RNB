@@ -24,6 +24,23 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         rows = load_rows(path)
         self.assertEqual(rows["AAA"][0]["timestamp"], "2026-01-01")
 
+    def test_sorts_offset_timestamps_by_instant_not_string(self):
+        path = self.write_csv([
+            {"timestamp": "2026-01-01T08:00:00+00:00", "symbol": "AAA", "close": 102, "volume": 100},
+            {"timestamp": "2026-01-01T09:00:00+02:00", "symbol": "AAA", "close": 100, "volume": 90},
+        ])
+        rows = load_rows(path)
+        self.assertEqual(rows["AAA"][0]["timestamp"], "2026-01-01T09:00:00+02:00")
+        self.assertEqual(rows["AAA"][1]["timestamp"], "2026-01-01T08:00:00+00:00")
+
+    def test_rejects_same_instant_with_different_timezone_offsets(self):
+        path = self.write_csv([
+            {"timestamp": "2026-01-01T09:00:00+02:00", "symbol": "AAA", "close": 100, "volume": 90},
+            {"timestamp": "2026-01-01T07:00:00+00:00", "symbol": "AAA", "close": 101, "volume": 100},
+        ])
+        with self.assertRaisesRegex(ValueError, "duplicate timestamps"):
+            load_rows(path)
+
     def test_rejects_invalid_price(self):
         path = self.write_csv([
             {"timestamp": "2026-01-01", "symbol": "AAA", "close": 0, "volume": 100},
