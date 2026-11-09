@@ -23,6 +23,72 @@ def number(value) -> float:
     return float(units) + float(nano or 0) / 1_000_000_000
 
 
+def _metadata_value(value):
+    """Serialize broker metadata without inventing defaults."""
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "name"):
+        return str(value.name)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def build_coverage_registry(catalog: list[object], candle_history: dict[str, list[object]],
+                            as_of: str) -> dict:
+    """Build a point-in-time snapshot of current catalog and observed candle coverage.
+
+    This is deliberately not a historical listing/universe reconstruction.
+    """
+    candle_counts = {
+        str(ticker): len(candles)
+        for ticker, candles in candle_history.items()
+    }
+    fields = (
+        "uid", "figi", "ticker", "isin", "name", "class_code", "currency",
+        "exchange", "sector", "instrument_type", "api_trade_available_flag",
+        "buy_available_flag", "sell_available_flag", "ipo_date",
+        "first_1day_candle_date", "first_1min_candle_date", "delisted_date",
+    )
+    instruments = []
+    for item in catalog:
+        ticker = str(getattr(item, "ticker", "") or "")
+        metadata = {
+            field: _metadata_value(getattr(item, field, None))
+            for field in fields
+        }
+        metadata["catalog_snapshot_status"] = "present_in_current_TInvest_shares_catalog"
+        metadata["daily_candle_export_status"] = (
+            "received" if candle_counts.get(ticker, 0) > 0
+            else "not_received_or_not_requested"
+        )
+        metadata["daily_candle_rows"] = candle_counts.get(ticker, 0)
+        instruments.append(metadata)
+
+    instruments.sort(key=lambda item: (
+        str(item.get("ticker") or ""),
+        str(item.get("uid") or item.get("figi") or ""),
+    ))
+    with_candles = sum(item["daily_candle_rows"] > 0 for item in instruments)
+    return {
+        "data_source": "T-Invest API",
+        "snapshot_as_of": as_of,
+        "registry_type": "current_catalog_and_observed_candle_coverage",
+        "historical_universe_reconstructed": False,
+        "catalog_instrument_count": len(instruments),
+        "instruments_with_received_daily_candles": with_candles,
+        "instruments_without_received_daily_candles": len(instruments) - with_candles,
+        "instrument_records": instruments,
+        "limitations": [
+            "This is a snapshot of the current T-Invest shares catalog, not a point-in-time historical listing universe.",
+            "A missing candle count means candles were not received or not requested by this export; it does not prove the instrument had no historical trading.",
+            "Historical delistings, suspensions, and past eligibility are not reconstructed.",
+        ],
+    }
+
+
 def build_manifest(rows: list[dict], days: int) -> dict:
     """Describe the exported sample and its known selection limitations."""
     by_symbol = {}
@@ -82,6 +148,10 @@ def export(path: Path, days: int = 180) -> int:
     # retrieves real daily candles. No synthetic fallback and no order API.
     client = TInvestClient(token)
     with client._client() as raw_client:
+        # Preserve the full current broker shares catalog as a separate,
+        # read-only coverage snapshot; the scanner candle set is a shortlist.
+        catalog_response = raw_client.instruments.shares()
+        current_catalog = list(catalog_response.instruments)
         scan = LiveMarketRunner(raw_client, history_days=days).run()
 
     rows = []
@@ -140,6 +210,19 @@ def export(path: Path, days: int = 180) -> int:
     print(f"SYMBOLS={','.join(symbols)}")
     print(f"CANDLE_ROWS={len(rows)}")
     print(f"DATASET_MANIFEST={manifest_path}")
+    coverage_path = path.with_suffix(path.suffix + ".coverage.json")
+    coverage = build_coverage_registry(
+        current_catalog,
+        scan.candle_history,
+        manifest["sample_end"],
+    )
+    coverage_path.write_text(
+        json.dumps(coverage, indent=2, ensure_ascii=False) + "\\n",
+        encoding="utf-8",
+    )
+    print(f"CURRENT_CATALOG_COVERAGE={coverage_path}")
+    print(f"CURRENT_CATALOG_INSTRUMENTS={coverage['catalog_instrument_count']}")
+    print(f"CATALOG_INSTRUMENTS_WITH_CANDLES={coverage['instruments_with_received_daily_candles']}")
     print("HISTORICAL_UNIVERSE_RECONSTRUCTED=False")
     print("WARNING=SURVIVORSHIP_AND_SELECTION_BIAS_POSSIBLE")
     return len(rows)
