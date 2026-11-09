@@ -88,11 +88,13 @@ class HistoricalReplayTests(unittest.TestCase):
                 momentum_period=1,
             )
 
-        self.assertEqual(len(cycles), 2)
-        self.assertEqual([len(c.scan.candle_history["AAA"]) for c in cycles], [2, 3])
-        self.assertEqual([c.scan.current_prices["AAA"] for c in cycles], [101, 102])
+        self.assertEqual(len(cycles), 3)
+        self.assertNotIn("AAA", cycles[0].scan.current_prices)
+        self.assertEqual([len(c.scan.candle_history["AAA"]) for c in cycles[1:]], [2, 3])
+        self.assertEqual([c.scan.current_prices["AAA"] for c in cycles[1:]], [101, 102])
         self.assertEqual(seen_lengths, [2, 3])
         self.assertLess(cycles[0].timestamp, cycles[1].timestamp)
+        self.assertLess(cycles[1].timestamp, cycles[2].timestamp)
 
     def test_empty_replay_has_no_fabricated_final_equity(self):
         result = HistoricalReplay(VirtualPortfolio(initial_balance=1000), CapturingExecutor()).run([])
