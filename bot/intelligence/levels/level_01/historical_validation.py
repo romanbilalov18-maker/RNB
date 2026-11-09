@@ -15,7 +15,10 @@ from pathlib import Path
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.level_01_engine import aggregate, analyze
-from bot.intelligence.levels.level_01.session_gap_diagnostics import find_missing_trading_dates
+from bot.intelligence.levels.level_01.session_gap_diagnostics import (
+    find_missing_trading_dates,
+    trading_session_date,
+)
 
 
 def load_rows(path: Path):
@@ -112,17 +115,9 @@ def load_official_trading_dates(path: Path) -> list[str]:
             if not value:
                 raise ValueError(f"official calendar line {line}: date is required")
             try:
-                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                try:
-                    from datetime import date
-                    dates.append(date.fromisoformat(value).isoformat())
-                    continue
-                except ValueError as exc:
-                    raise ValueError(f"official calendar line {line}: invalid date") from exc
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            dates.append(parsed.astimezone(timezone.utc).date().isoformat())
+                dates.append(trading_session_date(value).isoformat())
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"official calendar line {line}: invalid date") from exc
     if len(dates) != len(set(dates)):
         raise ValueError("official calendar contains duplicate dates")
     return sorted(dates)
