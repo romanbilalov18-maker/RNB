@@ -244,7 +244,7 @@ def export(path: Path, days: int = 180) -> int:
     )
     print(f"CURRENT_CATALOG_COVERAGE={coverage_path}")
     print(f"CURRENT_CATALOG_INSTRUMENTS={coverage['catalog_instrument_count']}")
-    print(f"CATALOG_INSTRUMENTS_WITH_CANDLES={coverage['instruments_with_received_daily_candles']}")
+    print(f"CATALOG_INSTRUMENTS_WITH_CANDLES={coverage['catalog_instruments_with_received_daily_candles']}")
     print("HISTORICAL_UNIVERSE_RECONSTRUCTED=False")
     print("WARNING=SURVIVORSHIP_AND_SELECTION_BIAS_POSSIBLE")
     return len(rows)
