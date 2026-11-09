@@ -86,7 +86,16 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         )
         results.append((analysis, intelligence, current_price, backtest, walk_forward, rolling_walk_forward, risk_backtest, anomaly_backtest))
 
-    return results
+    scan_metadata = {
+        "scanner_shortlist_count": len(getattr(scan, "selected_10", ()) or ()),
+        "buy_candidate_count": len(getattr(scan, "buy_candidates", ()) or ()),
+        "fresh_quote_count": len(getattr(scan, "fresh_quote_tickers", ()) or ()),
+        "active_session_count": len(getattr(scan, "active_trading_tickers", ()) or ()),
+        "monitor_analyzed_count": len(results),
+        "monitor_limit": limit,
+        "scope": "counts from current T-Invest scan; monitor analyzes only buy_candidates up to limit",
+    }
+    return [(*item, scan_metadata) for item in results]
 
 
 def _print_read_only_status() -> None:
