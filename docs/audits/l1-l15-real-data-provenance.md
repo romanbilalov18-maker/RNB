@@ -52,3 +52,15 @@ The production scan path reads market data from T-Invest. This audit does not in
 ## Verification approach
 
 The PR runs the existing unit and Intelligence Pipeline checks plus a read-only smoke run against actual T-Invest data. Unit fixtures validate isolated logic; they are not used as production market inputs. No broker orders are submitted, and L11 shadow weights are not activated.
+
+
+## Historical export audit (current status)
+
+The Level 1 historical exporter uses the current `LiveMarketRunner` shortlist and exports broker-provided completed daily OHLCV bars. It records this selection limitation in the sidecar manifest; it does **not** reconstruct the market's historical listing universe. Consequently, current-candidate backtests can omit delisted, suspended, or previously eligible instruments and are not a point-in-time full-market performance estimate.
+
+The manifest now additionally reports:
+- exported row count and unique (symbol, timestamp) count;
+- duplicate (symbol, timestamp) count and a data-integrity status;
+- an explicit warning if duplicate observations are present.
+
+These diagnostics identify duplicate rows; they do not repair, fabricate, or silently remove observations. Historical gaps still need careful interpretation because exchange holidays, instrument-specific schedules, listing dates, and API coverage can all affect candle presence. The next historical-data task is to investigate whether T-Invest provides sufficient historical instrument metadata to build a defensible point-in-time universe; until confirmed, the bias remains an explicit limitation.
