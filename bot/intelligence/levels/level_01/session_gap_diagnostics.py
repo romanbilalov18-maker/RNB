@@ -7,14 +7,17 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Iterable
+from zoneinfo import ZoneInfo
+
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
-def _calendar_date(value: str | date | datetime) -> date:
-    """Normalize a date or ISO timestamp to its calendar date.
+def trading_session_date(value: str | date | datetime) -> date:
+    """Normalize a date/timestamp to its Moscow trading-session date.
 
-    Date-only values remain unchanged. Offset-aware timestamps are normalized
-    to UTC before extracting their date, matching the historical validator's
-    timestamp normalization policy.
+    Date-only values remain unchanged. Naive timestamps are treated as UTC,
+    matching the historical CSV ingestion contract; aware timestamps are
+    converted to Europe/Moscow before extracting the session date.
     """
     if isinstance(value, datetime):
         parsed = value
@@ -37,7 +40,7 @@ def _calendar_date(value: str | date | datetime) -> date:
 
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).date()
+    return parsed.astimezone(MOSCOW).date()
 
 
 def find_missing_trading_dates(
@@ -50,6 +53,6 @@ def find_missing_trading_dates(
     naturally excluded when absent from ``official_trading_dates``. No market
     prices or candle rows are fabricated by this diagnostic.
     """
-    expected = {_calendar_date(value) for value in official_trading_dates}
-    observed = {_calendar_date(value) for value in observed_candle_timestamps}
+    expected = {trading_session_date(value) for value in official_trading_dates}
+    observed = {trading_session_date(value) for value in observed_candle_timestamps}
     return [day.isoformat() for day in sorted(expected - observed)]
