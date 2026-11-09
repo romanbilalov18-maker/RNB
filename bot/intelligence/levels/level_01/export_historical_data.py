@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bot.live_runner import LiveMarketRunner
@@ -66,6 +67,20 @@ def build_coverage_registry(catalog: list[object], candle_history: dict[str, lis
         )
         metadata["daily_candle_rows"] = candle_counts.get(ticker, 0)
         instruments.append(metadata)
+
+    catalog_tickers = {
+        str(getattr(item, "ticker", "") or "")
+        for item in catalog
+    }
+    for ticker, count in sorted(candle_counts.items()):
+        if ticker in catalog_tickers:
+            continue
+        instruments.append({
+            "ticker": ticker,
+            "catalog_snapshot_status": "not_found_in_current_TInvest_shares_catalog",
+            "daily_candle_export_status": "received",
+            "daily_candle_rows": count,
+        })
 
     instruments.sort(key=lambda item: (
         str(item.get("ticker") or ""),
@@ -214,7 +229,7 @@ def export(path: Path, days: int = 180) -> int:
     coverage = build_coverage_registry(
         current_catalog,
         scan.candle_history,
-        manifest["sample_end"],
+        datetime.now(timezone.utc).isoformat(),
     )
     coverage_path.write_text(
         json.dumps(coverage, indent=2, ensure_ascii=False) + "\\n",
