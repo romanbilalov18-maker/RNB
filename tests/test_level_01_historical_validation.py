@@ -1,6 +1,7 @@
 import csv
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from bot.intelligence.levels.level_01.historical_validation import evaluate, load_rows
@@ -60,7 +61,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         rows = []
         for index in range(40):
             rows.append({
-                "timestamp": f"2026-{index // 28 + 1:02d}-{index % 28 + 1:02d}",
+                "timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
                 "symbol": "AAA",
                 "close": 100.0 + index * 0.5,
                 "volume": 1000 + index * 10,
@@ -78,7 +79,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
 
     def test_report_includes_export_manifest_and_its_selection_warning(self):
         rows = [
-            {"timestamp": f"2026-01-{index + 1:02d}", "symbol": "AAA",
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "symbol": "AAA",
              "close": 100 + index, "volume": 1000}
             for index in range(40)
         ]
