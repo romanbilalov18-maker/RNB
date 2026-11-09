@@ -16,7 +16,7 @@ from bot.live_runner import LiveMarketRunner
 from bot.tinvest_client import TInvestClient
 
 
-def run_real_market_intelligence(token: str, limit: int = 10) -> list:
+def run_real_market_intelligence(token: str, limit: int = 10, include_scan_metadata: bool = False) -> list:
     if not token.strip():
         raise ValueError("T-Invest token is required")
     if limit <= 0:
@@ -95,7 +95,9 @@ def run_real_market_intelligence(token: str, limit: int = 10) -> list:
         "monitor_limit": limit,
         "scope": "counts from current T-Invest scan; monitor analyzes only buy_candidates up to limit",
     }
-    return [(*item, scan_metadata) for item in results]
+    if include_scan_metadata:
+        return [(*item, scan_metadata) for item in results]
+    return results
 
 
 def _print_read_only_status() -> None:
