@@ -106,13 +106,11 @@ def run_monitor(
             results = run_fn(token, limit=limit, include_scan_metadata=True)
         else:
             results = run_fn(token, limit=limit)
-        if not results:
-            raise RuntimeError("No instruments were successfully analyzed")
-
         normalized_results = [_monitor_parts(item) for item in results]
         scan_metadata = next((metadata for _, _, _, metadata in normalized_results if metadata), {})
         universe_record = {
             "timestamp": timestamp,
+            "scan_status": "completed" if normalized_results else "no_eligible_instruments",
             "symbols": sorted({str(analysis.ticker) for analysis, _, _, _ in normalized_results}),
             "instrument_count": len({str(analysis.ticker) for analysis, _, _, _ in normalized_results}),
             "scanner_shortlist_count": scan_metadata.get("scanner_shortlist_count"),
