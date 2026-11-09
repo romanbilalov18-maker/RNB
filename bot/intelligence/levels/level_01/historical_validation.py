@@ -126,13 +126,17 @@ def _metrics(rows):
 
 
 def evaluate(path: Path, window: int = 20, horizon: int = 5,
-             data_source: str = "user_supplied_csv", cost_bps: float = 0.0):
+             data_source: str = "user_supplied_csv", cost_bps: float = 0.0,
+             max_gap_days: int = 7):
     if window < 3 or horizon < 1:
         raise ValueError("window must be >= 3 and horizon must be >= 1")
     if not math.isfinite(cost_bps) or cost_bps < 0:
         raise ValueError("cost_bps must be finite and >= 0")
+    if not isinstance(max_gap_days, int) or isinstance(max_gap_days, bool) or max_gap_days < 1:
+        raise ValueError("max_gap_days must be a positive integer")
     grouped = load_rows(path)
     predictions = []
+    skipped_gap_outcomes = 0
     analyzer_totals = defaultdict(lambda: {"count": 0, "score_sum": 0.0, "unavailable": 0})
     for symbol, rows in grouped.items():
         if len(rows) <= window + horizon:
@@ -140,6 +144,25 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         # Non-overlapping forward outcomes prevent the same future price move from
         # being counted repeatedly. Every symbol is evaluated on its own timeline.
         for index in range(window, len(rows) - horizon, horizon):
+            # A row-count horizon is only meaningful when observations are
+            # sufficiently continuous. Do not bridge long outages as if they
+            # were ordinary adjacent trading sessions.
+            span = rows[index - window:index + horizon + 1]
+            timestamps = [
+                datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+                for row in span
+            ]
+            timestamps = [
+                stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
+                for stamp in timestamps
+            ]
+            if any(
+                (later.astimezone(timezone.utc) - earlier.astimezone(timezone.utc)).total_seconds()
+                > max_gap_days * 86400
+                for earlier, later in zip(timestamps, timestamps[1:])
+            ):
+                skipped_gap_outcomes += 1
+                continue
             history = rows[index - window:index]
             current, previous = rows[index], rows[index - 1]
             avg_volume = statistics.mean(row["volume"] for row in history)
@@ -203,6 +226,8 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         "symbols": sorted(grouped),
         "input_rows": sum(len(rows) for rows in grouped.values()),
         "evaluated_observations": len(predictions),
+        "skipped_outcomes_due_to_data_gaps": skipped_gap_outcomes,
+        "maximum_allowed_observation_gap_days": max_gap_days,
         "lookback_window": window,
         "forward_horizon_rows": horizon,
         "non_overlapping_outcomes": True,
@@ -227,6 +252,7 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             "Cost is an explicit assumed round-trip basis-point deduction; actual spread, fees and slippage may differ.",
             "Corporate actions, market sessions, survivorship bias and instrument-specific trading constraints are not modeled.",
             "Liquidity remains unavailable unless supplied by a verified source.",
+            "Outcomes crossing gaps longer than maximum_allowed_observation_gap_days are skipped; this calendar-day threshold is a conservative diagnostic, not an exchange calendar.",
             "Indicator definitions must be matched to the live data producer before interpreting results.",
         ],
     }
