@@ -102,7 +102,10 @@ def run_monitor(
     for cycle in range(cycles):
         cycle_started = clock_fn()
         timestamp = datetime.now(timezone.utc).isoformat()
-        results = run_fn(token, limit=limit)
+        if run_fn is run_real_market_intelligence:
+            results = run_fn(token, limit=limit, include_scan_metadata=True)
+        else:
+            results = run_fn(token, limit=limit)
         if not results:
             raise RuntimeError("No instruments were successfully analyzed")
 
