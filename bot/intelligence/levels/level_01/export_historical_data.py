@@ -115,7 +115,7 @@ def export(path: Path, days: int = 180) -> int:
     manifest = build_manifest(rows, days)
     manifest_path = path.with_suffix(path.suffix + ".manifest.json")
     manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\\n",
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     print(f"REAL_TINVEST_CSV={path}")
