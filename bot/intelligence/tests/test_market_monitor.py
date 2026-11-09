@@ -57,7 +57,12 @@ class MarketMonitorTests(unittest.TestCase):
             setattr(Result, f"level_{number:02d}", type("L", (), {"score": 0.5, "confidence": 0.6})())
 
         def fake_run(token, limit):
-            return [(Analysis(), Result(), 100.0, {"backtest": True}, {"walk_forward": True}, {}, {}, {})]
+            return [(Analysis(), Result(), 100.0, {"backtest": True}, {"walk_forward": True}, {}, {}, {}, {
+                "scanner_shortlist_count": 50, "buy_candidate_count": 17,
+                "fresh_quote_count": 43, "active_session_count": 40,
+                "monitor_analyzed_count": 1, "monitor_limit": 1,
+                "scope": "current scanner, monitor limit applies",
+            })]
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "monitor.jsonl"
@@ -72,6 +77,11 @@ class MarketMonitorTests(unittest.TestCase):
             snapshot = json.loads(universe.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(snapshot["symbols"], ["XYZ"])
             self.assertEqual(snapshot["instrument_count"], 1)
+            self.assertEqual(snapshot["scanner_shortlist_count"], 50)
+            self.assertEqual(snapshot["buy_candidate_count"], 17)
+            self.assertEqual(snapshot["fresh_quote_count"], 43)
+            self.assertEqual(snapshot["monitor_analyzed_count"], 1)
+            self.assertEqual(snapshot["monitor_limit"], 1)
             self.assertIn("not the full historical market universe", snapshot["scope"])
 
     def test_monitor_rejects_nonfinite_or_nonpositive_price(self):
