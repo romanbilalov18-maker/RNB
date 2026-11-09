@@ -106,7 +106,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
 
     def test_report_marks_missing_manifest_as_unknown_provenance(self):
         rows = [
-            {"timestamp": f"2026-01-{index + 1:02d}", "symbol": "AAA",
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "symbol": "AAA",
              "close": 100 + index, "volume": 1000}
             for index in range(40)
         ]
@@ -140,7 +140,7 @@ class Level01HistoricalValidationTests(unittest.TestCase):
 
     def test_rejects_negative_cost(self):
         path = self.write_csv([
-            {"timestamp": f"2026-01-{index + 1:02d}", "symbol": "AAA",
+            {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "symbol": "AAA",
              "close": 100 + index, "volume": 1000}
             for index in range(20)
         ])
