@@ -331,6 +331,31 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(len(result.equity_curve), 2)
 
 
+    def test_decision_diagnostics_count_actions_reasons_and_metric_ranges(self):
+        from bot.historical_replay import _summarize_decision_diagnostics
+
+        summary = _summarize_decision_diagnostics([
+            {"ticker": "AAA", "action": "WAIT", "reason": "low score",
+             "score": 0.2, "confidence": 0.8, "consistency": 0.7},
+            {"ticker": "BBB", "action": "BUY", "reason": "approved",
+             "score": 0.9, "confidence": 0.9, "consistency": 0.8},
+            {"ticker": "CCC", "action": "WAIT", "reason": "low score",
+             "score": 0.4, "confidence": 0.6, "consistency": 0.5},
+            {"ticker": "DDD", "action": "NO_INTELLIGENCE",
+             "reason": "missing result", "score": None,
+             "confidence": None, "consistency": None},
+        ])
+
+        self.assertEqual(summary["candidate_decisions"], 4)
+        self.assertEqual(summary["action_counts"], {
+            "BUY": 1, "NO_INTELLIGENCE": 1, "WAIT": 2,
+        })
+        self.assertEqual(summary["reason_counts"]["low score"], 2)
+        self.assertEqual(summary["metric_summary"]["score"]["observations"], 3)
+        self.assertAlmostEqual(summary["metric_summary"]["score"]["mean"], 0.5)
+        self.assertFalse(summary["authorization_thresholds"]["thresholds_changed"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
