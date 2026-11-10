@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from bot.historical_replay import HistoricalReplay, HistoricalReplayCycle, build_historical_cycles
+from bot.historical_replay import (\n    HistoricalReplay, HistoricalReplayCycle, build_historical_cycles,\n    iter_historical_cycles,\n)
 from bot.virtual_portfolio import VirtualPortfolio
 
 
@@ -219,6 +219,59 @@ class HistoricalReplayTests(unittest.TestCase):
         )
         self.assertEqual(portfolio.trades[0].timestamp, first)
         self.assertEqual(portfolio.trades[1].timestamp, second)
+
+
+    def test_streamed_cycles_receive_portfolio_state_after_previous_execution(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(ticker=ticker, score=0.9, momentum=0.1, volatility=0.1)
+
+        observed_positions = []
+
+        def fake_intelligence(scan, portfolio=None):
+            observed_positions.append(set(portfolio.positions) if portfolio is not None else None)
+            return {
+                ticker: SimpleNamespace(
+                    overall_score=0.9,
+                    overall_confidence=0.8,
+                    overall_consistency=0.8,
+                )
+                for ticker in scan.analyses
+            }
+
+        portfolio = VirtualPortfolio(initial_balance=10_000)
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        bars = [
+            SimpleNamespace(time=start + timedelta(days=i), open=100 + i, close=100 + i)
+            for i in range(4)
+        ]
+
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan", fake_intelligence
+        ):
+            cycles = iter_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+                portfolio=portfolio,
+            )
+            next(cycles)
+            next(cycles)
+            next(cycles)
+            portfolio.buy("AAA", 1, 102.0, start + timedelta(days=2))
+            next(cycles)
+
+        self.assertEqual(observed_positions, [set(), set(), set(), {"AAA"}])
 
 
 if __name__ == "__main__":

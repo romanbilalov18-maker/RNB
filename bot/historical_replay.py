@@ -130,7 +130,7 @@ class HistoricalReplay:
         )
 
 
-def build_historical_cycles(
+def iter_historical_cycles(
     candles_by_ticker: dict[str, list[object]],
     *,
     instrument_ids: dict[str, str],
@@ -139,7 +139,8 @@ def build_historical_cycles(
     tradable_tickers: set[str],
     min_history: int = 20,
     momentum_period: int = 10,
-) -> list[HistoricalReplayCycle]:
+    portfolio: VirtualPortfolio | None = None,
+):
     """Build point-in-time scans and execute at the next bar's opening price.
 
     A cycle's strategy analysis sees only bars completed before that cycle.
@@ -174,7 +175,6 @@ def build_historical_cycles(
 
     analyzer = StockAnalyzer(min_history=min_history, momentum_period=momentum_period)
     history: dict[str, list[object]] = {ticker: [] for ticker in candles_by_ticker}
-    cycles = []
     for stamp in sorted(bars_by_time):
         current_bars = bars_by_time[stamp]
 
@@ -225,20 +225,49 @@ def build_historical_cycles(
             candle_history=visible_history,
             session_by_ticker={ticker: sessions_by_ticker[ticker] for ticker in analyses if ticker in sessions_by_ticker},
         )
-        intelligence = analyze_scan(scan)
-        decisions = DecisionEngine().evaluate(intelligence)
+        # The generator pauses at each yield until HistoricalReplay has executed
+        # the cycle. The next analysis therefore receives the updated portfolio.
+        intelligence = analyze_scan(scan, portfolio=portfolio)
+        decisions = DecisionEngine().evaluate(
+            intelligence,
+            held_tickers=set(portfolio.positions) if portfolio is not None else (),
+        )
         approved = {
             ticker for ticker, decision in decisions.items()
             if decision.action == "BUY" and ticker in {item.ticker for item in candidates}
         }
         reasons = {ticker: decisions[ticker].reason for ticker in approved}
-        cycles.append(HistoricalReplayCycle(stamp, scan, approved, reasons))
+        yield HistoricalReplayCycle(stamp, scan, approved, reasons)
 
         # Only after decisions for this timestamp are formed does its candle
         # become available to the analyzer in the following cycle.
         for ticker, bar in current_bars.items():
             history[ticker].append(bar)
-    return cycles
+def build_historical_cycles(
+    candles_by_ticker: dict[str, list[object]],
+    *,
+    instrument_ids: dict[str, str],
+    lot_sizes: dict[str, int],
+    sessions_by_ticker: dict[str, dict],
+    tradable_tickers: set[str],
+    min_history: int = 20,
+    momentum_period: int = 10,
+) -> list[HistoricalReplayCycle]:
+    """Compatibility wrapper returning prepared cycles without portfolio context.
+
+    Use iter_historical_cycles(..., portfolio=portfolio) with HistoricalReplay
+    when portfolio-aware intelligence must observe each preceding execution.
+    """
+    return list(iter_historical_cycles(
+        candles_by_ticker,
+        instrument_ids=instrument_ids,
+        lot_sizes=lot_sizes,
+        sessions_by_ticker=sessions_by_ticker,
+        tradable_tickers=tradable_tickers,
+        min_history=min_history,
+        momentum_period=momentum_period,
+    ))
+
 
 def _number(value: object) -> float | None:
     if value is None:
