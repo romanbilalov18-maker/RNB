@@ -1,0 +1,120 @@
+name: Historical Portfolio Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "T-Invest daily candle history (30-365 days)"
+        required: true
+        default: "180"
+        type: string
+      initial_balance:
+        description: "Virtual starting balance in RUB"
+        required: true
+        default: "100000"
+        type: string
+      commission_rate:
+        description: "Commission per side (fraction; 0.0005 = 0.05%)"
+        required: true
+        default: "0.0005"
+        type: string
+      risk_budget_percent:
+        description: "Maximum combined portfolio stop-loss risk (%)"
+        required: true
+        default: "1.0"
+        type: string
+      reserve_rate:
+        description: "Share of net realized profit moved to protected reserve"
+        required: true
+        default: "0.7"
+        type: string
+      take_profit_percent:
+        description: "Take-profit threshold (%)"
+        required: true
+        default: "0.15"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  historical-portfolio:
+    name: T-Invest data + virtual portfolio replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      INVEST_TOKEN: ${{ secrets.INVEST_TOKEN }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --retries 1 --timeout 30
+          python -m pip install --retries 2 --timeout 30 -r requirements.txt
+      - name: Validate inputs and token
+        env:
+          DAYS: ${{ inputs.lookback_days }}
+          BALANCE: ${{ inputs.initial_balance }}
+          COMMISSION: ${{ inputs.commission_rate }}
+          RISK: ${{ inputs.risk_budget_percent }}
+          RESERVE: ${{ inputs.reserve_rate }}
+          TAKE_PROFIT: ${{ inputs.take_profit_percent }}
+        run: |
+          python - <<'PY'
+          import math, os
+          if not os.getenv("INVEST_TOKEN", "").strip():
+              raise SystemExit("INVEST_TOKEN secret is missing")
+          def number(name):
+              value = float(os.environ[name])
+              if not math.isfinite(value):
+                  raise SystemExit(f"{name} must be finite")
+              return value
+          days = int(os.environ["DAYS"])
+          balance = number("BALANCE")
+          commission = number("COMMISSION")
+          risk = number("RISK")
+          reserve = number("RESERVE")
+          take_profit = number("TAKE_PROFIT")
+          if not 30 <= days <= 365: raise SystemExit("lookback_days must be 30..365")
+          if balance <= 0: raise SystemExit("initial_balance must be positive")
+          if not 0 <= commission <= 0.02: raise SystemExit("commission_rate must be 0..0.02")
+          if not 0 < risk <= 100: raise SystemExit("risk_budget_percent must be (0, 100]")
+          if not 0 <= reserve <= 1: raise SystemExit("reserve_rate must be 0..1")
+          if not 0.15 <= take_profit <= 100: raise SystemExit("take_profit_percent must be 0.15..100")
+          print("EXECUTION_MODE=VIRTUAL_ONLY")
+          print("LIVE_ORDERS_SUBMITTED=False")
+          PY
+      - name: Run unit tests for historical replay
+        run: |
+          python -m unittest tests.test_historical_replay -v
+          python -m unittest tests.test_historical_portfolio_backtest -v
+      - name: Export real T-Invest daily candles and current metadata snapshot
+        run: |
+          python -m bot.intelligence.levels.level_01.export_historical_data \
+            --output data/level_01_history.csv --days "${{ inputs.lookback_days }}"
+      - name: Run portfolio backtest through PaperExecutor
+        run: |
+          python -m bot.historical_portfolio_backtest \
+            --csv data/level_01_history.csv \
+            --initial-balance "${{ inputs.initial_balance }}" \
+            --commission-rate "${{ inputs.commission_rate }}" \
+            --risk-budget-percent "${{ inputs.risk_budget_percent }}" \
+            --reserve-rate "${{ inputs.reserve_rate }}" \
+            --take-profit-percent "${{ inputs.take_profit_percent }}" \
+            --output data/historical_portfolio_report.json
+      - name: Upload full historical backtest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnb-historical-portfolio-backtest-${{ github.run_id }}
+          path: |
+            data/level_01_history.csv
+            data/level_01_history.csv.manifest.json
+            data/level_01_history.csv.coverage.json
+            data/historical_portfolio_report.json
+          if-no-files-found: warn
+          retention-days: 30
