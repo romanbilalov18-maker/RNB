@@ -46,6 +46,8 @@ def _daily_ohlc_protective_exit(
 
     if open_price <= stop_price:
         return open_price, "исторический Stop Loss: гэп ниже защитного уровня"
+    if open_price >= target_price:
+        return open_price, "исторический Take Profit: гэп выше целевого уровня"
     stop_touched = low <= stop_price
     target_touched = high >= target_price
     if stop_touched and target_touched:
@@ -55,8 +57,6 @@ def _daily_ohlc_protective_exit(
         )
     if stop_touched:
         return stop_price, "исторический Stop Loss: внутридневное касание уровня"
-    if open_price >= target_price:
-        return open_price, "исторический Take Profit: гэп выше целевого уровня"
     if target_touched:
         return target_price, "исторический Take Profit: внутридневное касание уровня"
     return None
