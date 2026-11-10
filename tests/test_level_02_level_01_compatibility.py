@@ -4,6 +4,7 @@ from bot.intelligence.core.models.analysis_result import AnalyzerResult
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
 from bot.intelligence.levels.level_02.analyzers.relative_strength import analyze as analyze_relative_strength
+from bot.intelligence.levels.level_02.analyzers.signal_conflict import analyze as analyze_signal_conflict
 from bot.intelligence.levels.level_02.analyzers.volume_flow import analyze as analyze_volume_flow
 from bot.intelligence.levels.level_02.level_02_engine import analyze as analyze_level_02
 
@@ -58,6 +59,38 @@ class Level02Level01CompatibilityTests(unittest.TestCase):
             level1(AnalyzerResult("volume", 0.8, 0.9), confidence=0.9),
         )
         self.assertEqual(result.metrics["confirmation"], 0.5)
+
+    def test_signal_consistency_excludes_risk_and_execution_factors(self):
+        result = analyze_signal_conflict(
+            MarketSnapshot(symbol="TEST", price=100),
+            level1(
+                AnalyzerResult("price", 0.8, 1.0),
+                AnalyzerResult("momentum", 0.8, 1.0),
+                AnalyzerResult("volume", 0.8, 1.0),
+                AnalyzerResult("volatility", 0.0, 1.0),
+                AnalyzerResult("liquidity", 1.0, 1.0),
+                AnalyzerResult("data_quality", 0.9, 0.9),
+            ),
+        )
+        self.assertEqual(result.score, 1.0)
+        self.assertEqual(result.metrics["score_dispersion"], 0.0)
+        self.assertEqual(result.metrics["input_analyzers"], ["price", "momentum", "volume"])
+        self.assertEqual(
+            result.metrics["excluded_non_alpha_analyzers"],
+            ["data_quality", "liquidity", "volatility"],
+        )
+        self.assertEqual(result.confidence, 1.0)
+
+    def test_signal_consistency_requires_observed_alpha_factors(self):
+        result = analyze_signal_conflict(
+            MarketSnapshot(symbol="TEST", price=100),
+            level1(
+                AnalyzerResult("volatility", 0.0, 1.0),
+                AnalyzerResult("liquidity", 1.0, 1.0),
+            ),
+        )
+        self.assertEqual(result.confidence, 0.0)
+        self.assertIn("no_observed_alpha_analyzer_results", result.warnings)
 
     def test_level2_preserves_level1_warnings_and_marks_missing_context(self):
         result = analyze_level_02(
