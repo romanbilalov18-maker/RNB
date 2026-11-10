@@ -47,6 +47,29 @@ class TestLevel9(unittest.TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertIn("portfolio_diversification_not_applicable", result.warnings)
 
+    def test_known_empty_portfolio_excludes_only_not_applicable_l9_evidence(self):
+        snapshot = MarketSnapshot(
+            "TEST", 105.0, 100.0, sector="Technology",
+            portfolio_context_available=True,
+        )
+        result = Level9Engine().analyze(snapshot, self.l5, self.l6, self.l8)
+        self.assertIn("portfolio_confirmed_empty", result.analyzer_results["concentration_risk"].warnings)
+        self.assertIn("portfolio_confirmed_empty", result.analyzer_results["diversification_value"].warnings)
+        self.assertIn("portfolio_confirmed_empty", result.analyzer_results["correlation_risk"].warnings)
+        self.assertGreater(result.confidence, 0.0)
+        self.assertGreater(result.confidence, result.analyzer_results["opportunity_priority"].confidence * 0.25)
+        self.assertLessEqual(result.confidence, 1.0)
+
+    def test_unknown_portfolio_context_still_reduces_l9_confidence(self):
+        unknown = MarketSnapshot("TEST", 105.0, 100.0, sector="Technology")
+        known_empty = MarketSnapshot(
+            "TEST", 105.0, 100.0, sector="Technology",
+            portfolio_context_available=True,
+        )
+        unknown_result = Level9Engine().analyze(unknown, self.l5, self.l6, self.l8)
+        known_result = Level9Engine().analyze(known_empty, self.l5, self.l6, self.l8)
+        self.assertLess(unknown_result.confidence, known_result.confidence)
+
     def test_diversification_uses_exposure_weights_not_just_sector_count(self):
         snapshot = SimpleNamespace(
             portfolio_positions=(
