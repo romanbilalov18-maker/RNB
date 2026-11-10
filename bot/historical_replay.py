@@ -240,6 +240,34 @@ def iter_historical_cycles(
             and _historical_session_is_open(cycle_sessions.get(ticker), moscow_date)
         }
         candidates = [item for item in ranked if item.ticker in buyable]
+
+        # Historical sector/market intelligence needs a same-cycle benchmark.
+        # Build it only from observed next-bar opens and prior completed closes;
+        # never substitute missing returns or use the current candle's close.
+        import math
+        observed_returns = []
+        for ticker, current_price in prices.items():
+            previous_price = previous_closes.get(ticker)
+            if (
+                isinstance(current_price, (int, float))
+                and not isinstance(current_price, bool)
+                and math.isfinite(current_price)
+                and current_price > 0
+                and isinstance(previous_price, (int, float))
+                and not isinstance(previous_price, bool)
+                and math.isfinite(previous_price)
+                and previous_price > 0
+            ):
+                observed_returns.append(current_price / previous_price - 1.0)
+        market_return = (
+            sum(observed_returns) / len(observed_returns)
+            if observed_returns else None
+        )
+        market_breadth = (
+            sum(value > 0 for value in observed_returns) / len(observed_returns)
+            if observed_returns else None
+        )
+
         scan = LiveScanResult(
             selected_10=ranked[:10],
             selected_3=candidates[:3],
@@ -253,6 +281,9 @@ def iter_historical_cycles(
             sellable_quote_tickers=set(prices),
             latest_candles=latest,
             candle_history=visible_history,
+            market_return=market_return,
+            market_breadth=market_breadth,
+            market_sample_count=len(observed_returns),
             sector_by_ticker={
                 ticker: sector
                 for ticker, sector in (sectors_by_ticker or {}).items()
