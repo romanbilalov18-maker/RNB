@@ -83,13 +83,23 @@ class HistoricalReplay:
         decision_records = []
         for cycle in self._validate_cycles(cycles):
             decision_records.extend(cycle.decision_diagnostics or ())
-            self.executor.execute(
-                self.portfolio,
-                cycle.scan,
-                eligible_buy_tickers=cycle.eligible_buy_tickers,
-                eligible_buy_reasons=cycle.eligible_buy_reasons,
-                as_of=cycle.timestamp,
-            )
+            if isinstance(self.executor, PaperExecutor):
+                self.executor.execute(
+                    self.portfolio,
+                    cycle.scan,
+                    eligible_buy_tickers=cycle.eligible_buy_tickers,
+                    eligible_buy_reasons=cycle.eligible_buy_reasons,
+                    as_of=cycle.timestamp,
+                    execution_candles=getattr(cycle.scan, "execution_candles", None),
+                )
+            else:
+                self.executor.execute(
+                    self.portfolio,
+                    cycle.scan,
+                    eligible_buy_tickers=cycle.eligible_buy_tickers,
+                    eligible_buy_reasons=cycle.eligible_buy_reasons,
+                    as_of=cycle.timestamp,
+                )
             prices = getattr(cycle.scan, "current_prices", {}) or {}
             equity, missing = self.portfolio.equity_with_available_prices(prices)
             if missing:
@@ -328,6 +338,7 @@ def iter_historical_cycles(
                 if isinstance(sector, str) and sector.strip()
             },
             session_by_ticker=cycle_sessions,
+            execution_candles=current_bars,
         )
         # The generator pauses at each yield until HistoricalReplay has executed
         # the cycle. The next analysis therefore receives the updated portfolio.
