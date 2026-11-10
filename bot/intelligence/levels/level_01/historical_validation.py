@@ -258,9 +258,15 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             gross_return = rows[index + horizon]["close"] / current["close"] - 1.0
             # Explicit assumed round-trip cost, not a claim about actual broker costs.
             net_return = gross_return - 2.0 * cost_bps / 10000.0
+            analyzer_scores = {
+                result.analyzer: result.score
+                for result in results
+                if result.analyzer != "data_quality" and result.confidence > 0
+            }
             predictions.append({
                 "symbol": symbol, "timestamp": current["timestamp"], "score": score,
                 "gross_return": gross_return, "net_return": net_return,
+                "analyzer_scores": analyzer_scores,
             })
             for result in results:
                 if result.analyzer == "data_quality":
@@ -337,6 +343,20 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
                 "observations": values["count"],
                 "mean_score": values["score_sum"] / values["count"] if values["count"] else None,
                 "unavailable_rate": values["unavailable"] / values["count"] if values["count"] else None,
+                "metrics": {
+                    "all": _metrics([
+                        {"score": row["analyzer_scores"][name], "net_return": row["net_return"]}
+                        for row in predictions if name in row["analyzer_scores"]
+                    ]),
+                    "development_chronological": _metrics([
+                        {"score": row["analyzer_scores"][name], "net_return": row["net_return"]}
+                        for row in development if name in row["analyzer_scores"]
+                    ]),
+                    "holdout_chronological": _metrics([
+                        {"score": row["analyzer_scores"][name], "net_return": row["net_return"]}
+                        for row in holdout if name in row["analyzer_scores"]
+                    ]),
+                },
             } for name, values in sorted(analyzer_totals.items())
         },
         "limitations": [
