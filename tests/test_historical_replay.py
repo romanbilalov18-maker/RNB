@@ -377,6 +377,68 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(breakdown["L11.learning_confidence"], 0.0)
         self.assertEqual(breakdown["L14.data_reliability"], 0.7)
 
+    def test_historical_scan_builds_market_benchmark_from_observed_cycle_returns(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(
+                    ticker=ticker, score=0.5, momentum=0.0, volatility=0.1
+                )
+
+        def fake_intelligence(scan, portfolio=None):
+            return {
+                ticker: SimpleNamespace(
+                    overall_score=0.1, overall_confidence=0.1, overall_consistency=0.1
+                )
+                for ticker in scan.analyses
+            }
+
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        bars_by_ticker = {
+            "AAA": [
+                SimpleNamespace(time=start + timedelta(days=0), open=100, close=100),
+                SimpleNamespace(time=start + timedelta(days=1), open=102, close=101),
+                SimpleNamespace(time=start + timedelta(days=2), open=102, close=102),
+            ],
+            "BBB": [
+                SimpleNamespace(time=start + timedelta(days=0), open=100, close=100),
+                SimpleNamespace(time=start + timedelta(days=1), open=101, close=100),
+                SimpleNamespace(time=start + timedelta(days=2), open=101, close=101),
+            ],
+            "CCC": [
+                SimpleNamespace(time=start + timedelta(days=0), open=100, close=100),
+                SimpleNamespace(time=start + timedelta(days=1), open=99, close=100),
+                SimpleNamespace(time=start + timedelta(days=2), open=99, close=99),
+            ],
+        }
+
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan", fake_intelligence
+        ):
+            cycles = list(iter_historical_cycles(
+                bars_by_ticker,
+                instrument_ids={ticker: ticker for ticker in bars_by_ticker},
+                lot_sizes={ticker: 1 for ticker in bars_by_ticker},
+                sessions_by_ticker={
+                    ticker: {"instrument_exchange": "MOEX"}
+                    for ticker in bars_by_ticker
+                },
+                tradable_tickers=set(bars_by_ticker),
+                min_history=2,
+                momentum_period=1,
+                sectors_by_ticker={ticker: "technology" for ticker in bars_by_ticker},
+            ))
+
+        scan = cycles[1].scan
+        self.assertAlmostEqual(scan.market_return, (0.02 + 0.01 - 0.01) / 3)
+        self.assertAlmostEqual(scan.market_breadth, 2 / 3)
+        self.assertEqual(scan.market_sample_count, 3)
+
     def test_historical_cycles_carry_explicit_sector_metadata_into_scan(self):
         import bot.stock_analysis as analysis_module
         import bot.intelligence.integration as integration_module
