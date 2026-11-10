@@ -576,7 +576,7 @@ class HistoricalReplayTests(unittest.TestCase):
 
         intraday = _daily_ohlc_protective_exit(
             position,
-            SimpleNamespace(open=100.0, high=101.0, low=94.0),
+            SimpleNamespace(open=100.0, high=100.1, low=94.0),
             **kwargs,
         )
         self.assertAlmostEqual(intraday[0], stop_price)
