@@ -206,13 +206,18 @@ def iter_historical_cycles(
         ranked = sorted(analyses.values(), key=lambda item: (
             -float(item.score), -float(item.momentum), float(item.volatility), item.ticker
         ))
+        # Historical replay must not reuse today's exchange session as if it
+        # were valid for an old candle. Require a broker-sourced schedule record
+        # explicitly marked open for this exact Moscow calendar date.
+        from zoneinfo import ZoneInfo
+        moscow_date = stamp.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
         buyable = {
             ticker for ticker in analyses
             if ticker in tradable_tickers
             and isinstance(lot_sizes.get(ticker), int)
             and not isinstance(lot_sizes.get(ticker), bool)
             and lot_sizes[ticker] > 0
-            and bool(sessions_by_ticker.get(ticker))
+            and _historical_session_is_open(sessions_by_ticker.get(ticker), moscow_date)
         }
         candidates = [item for item in ranked if item.ticker in buyable]
         scan = LiveScanResult(
@@ -272,6 +277,19 @@ def build_historical_cycles(
         min_history=min_history,
         momentum_period=momentum_period,
     ))
+
+
+def _historical_session_is_open(session: object, expected_date: str) -> bool:
+    """Accept only explicit, date-matched broker session evidence."""
+    if not isinstance(session, dict):
+        return False
+    return (
+        session.get("verified") is True
+        and session.get("is_open") is True
+        and session.get("schedule_date") == expected_date
+        and bool(str(session.get("session") or "").strip())
+        and bool(str(session.get("instrument_exchange") or "").strip())
+    )
 
 
 def _number(value: object) -> float | None:
