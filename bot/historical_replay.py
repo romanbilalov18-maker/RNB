@@ -150,6 +150,7 @@ def iter_historical_cycles(
     min_history: int = 20,
     momentum_period: int = 10,
     portfolio: VirtualPortfolio | None = None,
+    sectors_by_ticker: dict[str, str] | None = None,
 ):
     """Build point-in-time scans and execute at the next bar's opening price.
 
@@ -252,6 +253,11 @@ def iter_historical_cycles(
             sellable_quote_tickers=set(prices),
             latest_candles=latest,
             candle_history=visible_history,
+            sector_by_ticker={
+                ticker: sector
+                for ticker, sector in (sectors_by_ticker or {}).items()
+                if isinstance(sector, str) and sector.strip()
+            },
             session_by_ticker=cycle_sessions,
         )
         # The generator pauses at each yield until HistoricalReplay has executed
@@ -303,6 +309,7 @@ def build_historical_cycles(
     tradable_tickers: set[str],
     min_history: int = 20,
     momentum_period: int = 10,
+    sectors_by_ticker: dict[str, str] | None = None,
 ) -> list[HistoricalReplayCycle]:
     """Compatibility wrapper returning prepared cycles without portfolio context.
 
@@ -317,6 +324,7 @@ def build_historical_cycles(
         tradable_tickers=tradable_tickers,
         min_history=min_history,
         momentum_period=momentum_period,
+        sectors_by_ticker=sectors_by_ticker,
     ))
 
 
