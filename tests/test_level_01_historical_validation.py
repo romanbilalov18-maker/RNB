@@ -81,6 +81,10 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         self.assertEqual(report["data_source"], "user_supplied_csv")
         self.assertIn("limitations", report)
         self.assertIn("price", report["analyzers"])
+        self.assertIn("metrics", report["analyzers"]["price"])
+        self.assertIn("development_chronological", report["analyzers"]["price"]["metrics"])
+        self.assertIn("holdout_chronological", report["analyzers"]["price"]["metrics"])
+        self.assertEqual(report["analyzers"]["price"]["metrics"]["all"]["observations"], 10)
         self.assertEqual(report["indicator_source"], "bot.stock_analysis.StockAnalyzer (shared with LiveMarketRunner)")
 
     def test_historical_snapshot_reuses_live_stock_analyzer_indicators(self):
