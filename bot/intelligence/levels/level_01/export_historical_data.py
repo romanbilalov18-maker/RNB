@@ -48,7 +48,7 @@ def build_coverage_registry(catalog: list[object], candle_history: dict[str, lis
         for ticker, candles in candle_history.items()
     }
     fields = (
-        "uid", "figi", "ticker", "isin", "name", "class_code", "currency",
+        "uid", "figi", "ticker", "isin", "name", "class_code", "currency", "lot",
         "exchange", "sector", "instrument_type", "api_trade_available_flag",
         "buy_available_flag", "sell_available_flag", "ipo_date",
         "first_1day_candle_date", "first_1min_candle_date", "delisted_date",
