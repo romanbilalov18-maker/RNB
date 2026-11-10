@@ -1,0 +1,168 @@
+name: Fixed Universe Comparison
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    name: Replay both historical datasets on identical 35-ticker universe
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --retries 1 --timeout 30
+          python -m pip install --retries 2 --timeout 30 -r requirements.txt
+
+      - name: Download the two original T-Invest datasets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data/previous data/latest
+          gh run download 42896846152 \
+            --name rnb-historical-portfolio-backtest-42896846152 \
+            --dir data/previous
+          gh run download 42898132730 \
+            --name rnb-historical-portfolio-backtest-42898132730 \
+            --dir data/latest
+
+      - name: Verify common real-data sample and use one metadata snapshot
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+
+          previous = Path("data/previous")
+          latest = Path("data/latest")
+          current_coverage = latest / "level_01_history.csv.coverage.json"
+          (previous / "level_01_history.csv.coverage.json").write_bytes(current_coverage.read_bytes())
+
+          symbols = "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,DIAS,ELFV,ENPG,FIXR,FLOT,GEMC,INCB,MGNT,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,RTKM,SNGS,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,UPRO,URKZ,VSEH,VSYDP,ZAYM".split(",")
+          if len(symbols) != 35 or len(set(symbols)) != 35:
+              raise SystemExit("Fixed universe definition is invalid")
+
+          def read(path):
+              with path.open(newline="", encoding="utf-8") as handle:
+                  return list(csv.DictReader(handle))
+
+          old_rows = [row for row in read(previous / "level_01_history.csv") if row["symbol"] in symbols]
+          new_rows = [row for row in read(latest / "level_01_history.csv") if row["symbol"] in symbols]
+          def keyed(rows):
+              return {(row["symbol"], row["timestamp"]): tuple(row[k] for k in ("open", "high", "low", "close", "volume")) for row in rows}
+          old_data, new_data = keyed(old_rows), keyed(new_rows)
+          if set(old_data) != set(new_data):
+              missing_old = sorted(set(new_data) - set(old_data))[:10]
+              missing_new = sorted(set(old_data) - set(new_data))[:10]
+              raise SystemExit(f"Datasets are not aligned on the fixed universe; only_previous_missing={missing_old}; only_latest_missing={missing_new}")
+          differences = [key for key in old_data if old_data[key] != new_data[key]]
+          if differences:
+              raise SystemExit(f"OHLCV differs for {len(differences)} common symbol/timestamp rows; refusing non-identical comparison")
+          print(f"FIXED_UNIVERSE_SYMBOLS={len(symbols)}")
+          print(f"IDENTICAL_REAL_TINVEST_CANDLES={len(old_data)}")
+          print("METADATA_SNAPSHOT=latest artifact applied to both replays")
+          PY
+
+      - name: Replay previous dataset on fixed universe
+        run: |
+          python -m bot.historical_portfolio_backtest \
+            --csv data/previous/level_01_history.csv \
+            --initial-balance 100000 \
+            --commission-rate 0.0005 \
+            --risk-budget-percent 1.0 \
+            --reserve-rate 0.7 \
+            --take-profit-percent 0.15 \
+            --tickers "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,DIAS,ELFV,ENPG,FIXR,FLOT,GEMC,INCB,MGNT,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,RTKM,SNGS,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,UPRO,URKZ,VSEH,VSYDP,ZAYM" \
+            --output data/previous/fixed_universe_report.json
+
+      - name: Replay latest dataset on fixed universe
+        run: |
+          python -m bot.historical_portfolio_backtest \
+            --csv data/latest/level_01_history.csv \
+            --initial-balance 100000 \
+            --commission-rate 0.0005 \
+            --risk-budget-percent 1.0 \
+            --reserve-rate 0.7 \
+            --take-profit-percent 0.15 \
+            --tickers "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,DIAS,ELFV,ENPG,FIXR,FLOT,GEMC,INCB,MGNT,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,RTKM,SNGS,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,UPRO,URKZ,VSEH,VSYDP,ZAYM" \
+            --output data/latest/fixed_universe_report.json
+
+      - name: Compare portfolio results and per-ticker attribution
+        run: |
+          python - <<'PY'
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+
+          old = json.loads(Path("data/previous/fixed_universe_report.json").read_text(encoding="utf-8"))
+          new = json.loads(Path("data/latest/fixed_universe_report.json").read_text(encoding="utf-8"))
+          def ticker_pnl(report):
+              result = defaultdict(float)
+              reasons = defaultdict(lambda: {"count": 0, "realized_pnl": 0.0})
+              for trade in report["trades"]:
+                  if trade["side"] != "SELL":
+                      continue
+                  result[trade["ticker"]] += trade["realized_pnl"]
+                  reasons[trade["reason"]]["count"] += 1
+                  reasons[trade["reason"]]["realized_pnl"] += trade["realized_pnl"]
+              return result, reasons
+          old_pnl, old_reasons = ticker_pnl(old)
+          new_pnl, new_reasons = ticker_pnl(new)
+          a, b = old["portfolio"], new["portfolio"]
+          comparison = {
+              "universe": sorted(old["dataset"]["universe_filter"]),
+              "dataset_symbols": old["dataset"]["symbols"],
+              "candle_rows": old["dataset"]["candle_rows"],
+              "previous": {key: a[key] for key in ("final_equity", "total_return_pct", "realized_pnl", "commissions", "total_trades", "max_drawdown", "max_drawdown_pct")},
+              "latest": {key: b[key] for key in ("final_equity", "total_return_pct", "realized_pnl", "commissions", "total_trades", "max_drawdown", "max_drawdown_pct")},
+              "delta_latest_minus_previous": {
+                  key: b[key] - a[key] for key in ("final_equity", "total_return_pct", "realized_pnl", "commissions", "total_trades", "max_drawdown", "max_drawdown_pct")
+              },
+              "previous_exit_reasons": dict(old_reasons),
+              "latest_exit_reasons": dict(new_reasons),
+              "per_ticker_realized_pnl": {
+                  ticker: {"previous": old_pnl.get(ticker, 0.0), "latest": new_pnl.get(ticker, 0.0), "delta": new_pnl.get(ticker, 0.0) - old_pnl.get(ticker, 0.0)}
+                  for ticker in sorted(set(old_pnl) | set(new_pnl))
+              },
+              "comparison_controls": {
+                  "same_35_ticker_universe": True,
+                  "same_ohlcv_timestamps_and_values": True,
+                  "same_metadata_snapshot": True,
+                  "same_replay_code_and_settings": True,
+                  "execution_mode": "VIRTUAL_ONLY",
+                  "live_orders_submitted": False
+              }
+          }
+          Path("data/fixed_universe_comparison.json").write_text(json.dumps(comparison, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print("FIXED_UNIVERSE_COMPARISON=COMPLETED")
+          print(f"PREVIOUS_RETURN_PCT={a['total_return_pct']:.6f}")
+          print(f"LATEST_RETURN_PCT={b['total_return_pct']:.6f}")
+          print(f"RETURN_DELTA_PCT_POINTS={b['total_return_pct'] - a['total_return_pct']:.6f}")
+          print(f"PREVIOUS_MAX_DRAWDOWN_PCT={a['max_drawdown_pct']:.6f}")
+          print(f"LATEST_MAX_DRAWDOWN_PCT={b['max_drawdown_pct']:.6f}")
+          print("TOP_LOSERS_LATEST=" + json.dumps(sorted(comparison["per_ticker_realized_pnl"].items(), key=lambda item: item[1]["latest"])[:10], ensure_ascii=False))
+          PY
+
+      - name: Upload fixed-universe comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnb-fixed-universe-comparison-${{ github.run_id }}
+          path: |
+            data/previous/fixed_universe_report.json
+            data/latest/fixed_universe_report.json
+            data/fixed_universe_comparison.json
+          if-no-files-found: warn
+          retention-days: 30
