@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from bot.paper_executor import PaperExecutor
 from bot.virtual_portfolio import VirtualPortfolio
@@ -56,23 +56,28 @@ class HistoricalReplay:
         self.executor = executor or PaperExecutor()
 
     @staticmethod
-    def _validate_cycles(cycles: Iterable[HistoricalReplayCycle]) -> list[HistoricalReplayCycle]:
-        materialized = list(cycles)
+    def _validate_cycles(
+        cycles: Iterable[HistoricalReplayCycle],
+    ) -> Iterator[HistoricalReplayCycle]:
+        """Validate lazily so stateful cycle generators can observe each fill.
+
+        Do not materialize this iterator: iter_historical_cycles deliberately
+        pauses after yielding a scan and resumes only after its execution.
+        """
         previous = None
-        for index, cycle in enumerate(materialized):
+        for index, cycle in enumerate(cycles):
             stamp = cycle.timestamp
             if not isinstance(stamp, datetime) or stamp.tzinfo is None or stamp.utcoffset() is None:
                 raise ValueError(f"cycle {index} timestamp must be timezone-aware")
             if previous is not None and stamp <= previous:
                 raise ValueError("historical cycles must be strictly chronological with unique timestamps")
             previous = stamp
-        return materialized
+            yield cycle
 
     def run(self, cycles: Iterable[HistoricalReplayCycle]) -> HistoricalReplayResult:
-        ordered = self._validate_cycles(cycles)
         curve = []
         warnings = set()
-        for cycle in ordered:
+        for cycle in self._validate_cycles(cycles):
             self.executor.execute(
                 self.portfolio,
                 cycle.scan,
