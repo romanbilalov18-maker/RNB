@@ -244,6 +244,13 @@ def main() -> None:
     print(f"REALIZED_PNL_RUB={p['realized_pnl']:.2f} COMMISSIONS_RUB={p['commissions']:.2f}")
     print(f"SPENDABLE_CASH_RUB={p['spendable_cash']:.2f} PROTECTED_RESERVE_RUB={p['protected_cash']:.2f}")
     print(f"MAX_DRAWDOWN_RUB={p['max_drawdown'] if p['max_drawdown'] is not None else 'INCOMPLETE'}")
+
+    diagnostics = p["decision_diagnostics"]
+    print(f"DECISION_CANDIDATES={diagnostics.get('candidate_decisions', 0)}")
+    print(f"DECISION_ACTION_COUNTS={json.dumps(diagnostics.get('action_counts', {}), ensure_ascii=False, sort_keys=True)}")
+    print(f"DECISION_REASON_COUNTS={json.dumps(diagnostics.get('reason_counts', {}), ensure_ascii=False, sort_keys=True)}")
+    print(f"DECISION_METRIC_SUMMARY={json.dumps(diagnostics.get('metric_summary', {}), ensure_ascii=False, sort_keys=True)}")
+
     print(f"REPORT={args.output}")
 
 
