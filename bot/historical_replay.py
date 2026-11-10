@@ -321,28 +321,33 @@ def build_historical_cycles(
 
 
 def _confidence_breakdown(intelligence: object) -> dict:
-    """Expose the confidence bottleneck across L1-L15 without changing decisions."""
+    """Expose per-level and per-analyzer confidence without changing decisions."""
     if intelligence is None:
         return {}
     breakdown = {}
     for level in range(1, 16):
+        prefix = f"L{level:02d}"
         result = getattr(intelligence, f"level_{level:02d}", None)
         confidence = getattr(result, "confidence", None)
         if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-            breakdown[f"L{level:02d}"] = float(confidence)
+            breakdown[prefix] = float(confidence)
 
-    level10 = getattr(intelligence, "level_10", None)
-    for name, result in (getattr(level10, "analyzer_results", {}) or {}).items():
-        confidence = getattr(result, "confidence", None)
-        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-            breakdown[f"L10.{name}"] = float(confidence)
-
-    level15 = getattr(intelligence, "level_15", None)
-    for result in getattr(level15, "analyzer_results", ()) or ():
-        confidence = getattr(result, "confidence", None)
-        name = getattr(result, "analyzer", None)
-        if isinstance(name, str) and isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-            breakdown[f"L15.{name}"] = float(confidence)
+        analyzer_results = getattr(result, "analyzer_results", None)
+        if isinstance(analyzer_results, dict):
+            items = analyzer_results.items()
+        else:
+            items = (
+                (getattr(item, "analyzer", None), item)
+                for item in (analyzer_results or ())
+            )
+        for name, analyzer_result in items:
+            analyzer_confidence = getattr(analyzer_result, "confidence", None)
+            if (
+                isinstance(name, str) and name
+                and isinstance(analyzer_confidence, (int, float))
+                and not isinstance(analyzer_confidence, bool)
+            ):
+                breakdown[f"{prefix}.{name}"] = float(analyzer_confidence)
     return breakdown
 
 
