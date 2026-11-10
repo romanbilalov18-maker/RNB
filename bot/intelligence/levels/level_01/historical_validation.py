@@ -190,6 +190,27 @@ def _metrics(rows):
 
 
 
+def _aggregate_components(components, excluded_analyzer=None):
+    """Recompute the L1 confidence-weighted score after excluding one component."""
+    observed = [
+        (values["score"], values["confidence"])
+        for name, values in components.items()
+        if name != excluded_analyzer and values["confidence"] > 0
+    ]
+    if not observed:
+        return 0.0
+    return sum(score * confidence for score, confidence in observed) / sum(
+        confidence for _, confidence in observed
+    )
+
+
+def _ablation_metrics(rows, variant):
+    return _metrics([
+        {"score": row["ablation_scores"][variant], "net_return": row["net_return"]}
+        for row in rows
+    ])
+
+
 def _cost_sensitivity(rows, one_way_costs_bps=(0, 5, 10, 25, 50, 100)):
     """Show how assumed round-trip costs change the same gross outcomes.
 
@@ -258,15 +279,30 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             gross_return = rows[index + horizon]["close"] / current["close"] - 1.0
             # Explicit assumed round-trip cost, not a claim about actual broker costs.
             net_return = gross_return - 2.0 * cost_bps / 10000.0
-            analyzer_scores = {
-                result.analyzer: result.score
+            analyzer_components = {
+                result.analyzer: {
+                    "score": result.score,
+                    "confidence": result.confidence,
+                }
                 for result in results
                 if result.analyzer != "data_quality" and result.confidence > 0
             }
+            analyzer_names = sorted(
+                result.analyzer for result in results
+                if result.analyzer != "data_quality"
+            )
+            ablation_scores = {"baseline": score}
+            for excluded_analyzer in analyzer_names:
+                ablation_scores[f"without_{excluded_analyzer}"] = (
+                    _aggregate_components(analyzer_components, excluded_analyzer)
+                )
             predictions.append({
                 "symbol": symbol, "timestamp": current["timestamp"], "score": score,
                 "gross_return": gross_return, "net_return": net_return,
-                "analyzer_scores": analyzer_scores,
+                "analyzer_scores": {
+                    name: values["score"] for name, values in analyzer_components.items()
+                },
+                "ablation_scores": ablation_scores,
             })
             for result in results:
                 if result.analyzer == "data_quality":
@@ -337,6 +373,25 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             "all": _metrics(predictions),
             "development_chronological": _metrics(development),
             "holdout_chronological": _metrics(holdout),
+        },
+        "ablation": {
+            "methodology": (
+                "Diagnostic only: recompute the existing confidence-weighted L1 score "
+                "after excluding one analyzer at a time. All variants use identical "
+                "observations, forward returns, chronological split and assumed costs. "
+                "No weights are fitted and holdout results must not be used for tuning."
+            ),
+            "variants": {
+                variant: {
+                    "all": _ablation_metrics(predictions, variant),
+                    "development_chronological": _ablation_metrics(development, variant),
+                    "holdout_chronological": _ablation_metrics(holdout, variant),
+                }
+                for variant in (
+                    ["baseline"]
+                    + [f"without_{name}" for name in sorted(analyzer_totals)]
+                )
+            },
         },
         "analyzers": {
             name: {
