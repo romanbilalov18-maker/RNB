@@ -36,7 +36,7 @@ on:
       ticker_universe:
         description: "Fixed comma-separated ticker universe; every ticker must be present in the exported T-Invest dataset"
         required: true
-        default: "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,ELFV,ENPG,FLOT,FIXR,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,URKZ,VSEH,ABIO,APTK,CHMK,KLSB,KOGK,KZOS,LIFE,LSNG,MRKP"
+        default: "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,DIAS,ELFV,ENPG,FIXR,FLOT,GEMC,INCB,MGNT,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,RTKM,SNGS,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,UPRO,URKZ,VSEH,VSYDP,ZAYM"
         type: string
 
 permissions:
