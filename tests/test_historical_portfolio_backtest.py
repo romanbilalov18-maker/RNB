@@ -4,7 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from bot.historical_portfolio_backtest import load_dataset
+from bot.historical_portfolio_backtest import _build_open_position_report, load_dataset
+from bot.virtual_portfolio import VirtualPortfolio
 
 
 class HistoricalPortfolioDatasetTests(unittest.TestCase):
@@ -76,6 +77,48 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
             coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "no matching current T-Invest catalog metadata"):
                 load_dataset(path)
+
+    def test_open_position_report_marks_missing_final_quotes_as_unknown(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        portfolio.buy("AAA", 2, 100, "2025-01-02T10:00:00+00:00")
+        portfolio.buy("BBB", 3, 50, "2025-01-02T10:00:00+00:00")
+
+        details, summary = _build_open_position_report(
+            portfolio,
+            {"AAA": 110.0},
+            [],
+        )
+
+        by_ticker = {item["ticker"]: item for item in details}
+        self.assertEqual(by_ticker["AAA"]["valuation_status"], "PRICED")
+        self.assertEqual(by_ticker["AAA"]["market_value"], 220.0)
+        self.assertEqual(by_ticker["BBB"]["valuation_status"], "MISSING_FINAL_QUOTE")
+        self.assertIsNone(by_ticker["BBB"]["market_price"])
+        self.assertIsNone(by_ticker["BBB"]["market_value"])
+        self.assertIsNone(by_ticker["BBB"]["estimated_net_if_sold_now"])
+        self.assertFalse(summary["valuation_complete"])
+        self.assertEqual(summary["priced_positions"], 1)
+        self.assertEqual(summary["unpriced_positions"], 1)
+        self.assertEqual(summary["missing_final_quote_tickers"], ["BBB"])
+
+    def test_open_position_report_summarizes_historical_missing_quote_cycles(self):
+        from types import SimpleNamespace
+
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 1, 100, "2025-01-02T10:00:00+00:00")
+        curve = [
+            SimpleNamespace(unpriced_tickers=("AAA", "BBB")),
+            SimpleNamespace(unpriced_tickers=()),
+            SimpleNamespace(unpriced_tickers=("BBB",)),
+        ]
+
+        _, summary = _build_open_position_report(portfolio, {"AAA": 101.0}, curve)
+
+        self.assertEqual(summary["incomplete_mark_to_market_cycles"], 2)
+        self.assertEqual(
+            summary["unpriced_ticker_cycle_counts"],
+            {"AAA": 1, "BBB": 2},
+        )
 
 
 if __name__ == "__main__":
