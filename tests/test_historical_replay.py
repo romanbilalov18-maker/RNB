@@ -69,7 +69,7 @@ class HistoricalReplayTests(unittest.TestCase):
                 seen_lengths.append(len(bars))
                 return SimpleNamespace(ticker=ticker, score=0.2, momentum=0.0, volatility=0.1)
 
-        fake_intelligence = lambda scan: {
+        fake_intelligence = lambda scan, portfolio=None: {
             ticker: SimpleNamespace(overall_score=0.1, overall_confidence=0.1, overall_consistency=0.1)
             for ticker in scan.analyses
         }
@@ -120,7 +120,7 @@ class HistoricalReplayTests(unittest.TestCase):
                     ticker=ticker, score=0.9, momentum=0.1, volatility=0.1
                 )
 
-        def fake_intelligence(scan):
+        def fake_intelligence(scan, portfolio=None):
             return {
                 ticker: SimpleNamespace(
                     overall_score=0.9,
