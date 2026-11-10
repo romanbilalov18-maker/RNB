@@ -602,6 +602,14 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertAlmostEqual(target[0], target_price)
         self.assertIn("Take Profit", target[1])
 
+        target_gap = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(open=target_price + 2.0, high=target_price + 3.0, low=target_price + 1.0),
+            **kwargs,
+        )
+        self.assertAlmostEqual(target_gap[0], target_price + 2.0)
+        self.assertIn("гэп", target_gap[1])
+
         untouched = _daily_ohlc_protective_exit(
             position,
             SimpleNamespace(open=100.0, high=100.05, low=99.5),
