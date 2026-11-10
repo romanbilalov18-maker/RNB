@@ -1,7 +1,12 @@
 import math
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
-from bot.intelligence.levels.level_01.level_01_engine import aggregate as aggregate_level_01, analyze as analyze_level_01
+from bot.intelligence.levels.level_01.level_01_engine import (
+    aggregate as aggregate_level_01,
+    alpha_results as level_01_alpha_results,
+    analyze as analyze_level_01,
+    risk_results as level_01_risk_results,
+)
 from bot.intelligence.levels.level_01.models.level_01_result import Level1Result
 from bot.intelligence.levels.level_02.level_02_engine import analyze as analyze_level_02
 from bot.intelligence.levels.level_03.level_03_engine import analyze as analyze_level_03
@@ -20,6 +25,7 @@ from bot.intelligence.levels.level_14.level_14_engine import Level14Engine
 from bot.intelligence.levels.level_15.level_15_engine import Level15Engine
 from .intelligence_result import IntelligenceResult
 
+
 def _bounded(value: float) -> float:
     """Clamp finite scores to [0, 1]; invalid numeric values fail closed to 0."""
     try:
@@ -36,7 +42,6 @@ def _overall_consistency(level10_result) -> float:
     return _bounded(float(level10_result.cross_level_agreement))
 
 
-
 class IntelligencePipeline:
     """Run Levels 1-15 without trading side effects."""
     def __init__(self, learning_observations: tuple[LearningObservation, ...] = ()) -> None:
@@ -49,16 +54,64 @@ class IntelligencePipeline:
 
     def analyze(self, snapshot: MarketSnapshot) -> IntelligenceResult:
         a = analyze_level_01(snapshot)
-        l1 = Level1Result(snapshot.symbol, aggregate_level_01(a), _bounded(sum(r.confidence for r in a)/len(a)) if a else 0.0, _bounded(1.0-(max(r.score for r in a)-min(r.score for r in a))) if a else 0.0, a, tuple(r.analyzer for r in a if r.score>=.70), tuple(r.analyzer for r in a if r.score<=.30), tuple(dict.fromkeys(w for r in a for w in r.warnings)), {"version":"1.0"})
-        l2 = analyze_level_02(snapshot,l1); l3 = analyze_level_03(snapshot,l2)
-        l4 = self.level_04.analyze(snapshot,l3); l5 = self.level_05.analyze(snapshot,l2,l3,l4)
-        l6 = self.level_06.analyze(snapshot,l5); l7 = self.level_07.analyze(snapshot,l3,l4,l5,l6)
-        l8 = self.level_08.analyze(snapshot,l3,l4,l7); l9 = self.level_09.analyze(snapshot,l5,l6,l8)
-        l10 = self.level_10.analyze(snapshot,l5,l6,l7,l8,l9); l11 = self.level_11.analyze(snapshot.symbol,self.learning_observations)
-        l12 = self.level_12.analyze(snapshot,l4,l7,l10); l13 = self.level_13.analyze(snapshot,l6,l7,l10,l12)
-        l14 = self.level_14.analyze(l6,l10,l12,l13); l15 = self.level_15.analyze(l6,l10,l11,l12,l13,l14)
-        levels = (l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15)
-        warnings = tuple(dict.fromkeys(w for level in levels for w in level.warnings))
-        strengths = tuple(dict.fromkeys(list(l15.strengths)+list(l14.strengths)+list(l10.strengths)+list(l9.strengths)+list(l8.strengths)))
-        weaknesses = tuple(dict.fromkeys(list(l15.weaknesses)+list(l14.weaknesses)+list(l10.weaknesses)+list(l9.weaknesses)+list(l8.weaknesses)))
-        return IntelligenceResult(snapshot.symbol,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15,l15.score,l15.confidence,_overall_consistency(l10),strengths,weaknesses,warnings,{"version":"1.3","levels":15,"learning_samples":len(self.learning_observations),"overall_consistency_source":"L10.cross_level_agreement"})
+        alpha = level_01_alpha_results(a)
+        risk = level_01_risk_results(a)
+        alpha_confidence = (
+            sum(result.confidence for result in alpha) / len(alpha)
+            if alpha else 0.0
+        )
+        alpha_consistency = (
+            1.0 - (max(result.score for result in alpha) - min(result.score for result in alpha))
+            if alpha else 0.0
+        )
+        risk_diagnostics = {
+            result.analyzer: {
+                "score": result.score,
+                "confidence": result.confidence,
+                "metrics": result.metrics,
+                "warnings": result.warnings,
+            }
+            for result in risk
+        }
+        l1 = Level1Result(
+            snapshot.symbol,
+            aggregate_level_01(a),
+            _bounded(alpha_confidence),
+            _bounded(alpha_consistency),
+            a,
+            tuple(result.analyzer for result in a if result.score >= 0.70),
+            tuple(result.analyzer for result in a if result.score <= 0.30),
+            tuple(dict.fromkeys(warning for result in a for warning in result.warnings)),
+            {
+                "version": "1.1",
+                "score_semantics": "directional_attractiveness_only",
+                "alpha_analyzers": ["price", "momentum", "volume"],
+                "risk_execution_analyzers": ["volatility", "liquidity"],
+                "alpha_observed_analyzers": [result.analyzer for result in alpha],
+                "risk_diagnostics": risk_diagnostics,
+                "data_quality_is_not_an_alpha_input": True,
+            },
+        )
+        l2 = analyze_level_02(snapshot, l1); l3 = analyze_level_03(snapshot, l2)
+        l4 = self.level_04.analyze(snapshot, l3); l5 = self.level_05.analyze(snapshot, l2, l3, l4)
+        l6 = self.level_06.analyze(snapshot, l5); l7 = self.level_07.analyze(snapshot, l3, l4, l5, l6)
+        l8 = self.level_08.analyze(snapshot, l3, l4, l7); l9 = self.level_09.analyze(snapshot, l5, l6, l8)
+        l10 = self.level_10.analyze(snapshot, l5, l6, l7, l8, l9); l11 = self.level_11.analyze(snapshot.symbol, self.learning_observations)
+        l12 = self.level_12.analyze(snapshot, l4, l7, l10); l13 = self.level_13.analyze(snapshot, l6, l7, l10, l12)
+        l14 = self.level_14.analyze(l6, l10, l12, l13); l15 = self.level_15.analyze(l6, l10, l11, l12, l13, l14)
+        levels = (l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15)
+        warnings = tuple(dict.fromkeys(warning for level in levels for warning in level.warnings))
+        strengths = tuple(dict.fromkeys(list(l15.strengths) + list(l14.strengths) + list(l10.strengths) + list(l9.strengths) + list(l8.strengths)))
+        weaknesses = tuple(dict.fromkeys(list(l15.weaknesses) + list(l14.weaknesses) + list(l10.weaknesses) + list(l9.weaknesses) + list(l8.weaknesses)))
+        return IntelligenceResult(
+            snapshot.symbol, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15,
+            l15.score, l15.confidence, _overall_consistency(l10), strengths, weaknesses, warnings,
+            {
+                "version": "1.4",
+                "levels": 15,
+                "learning_samples": len(self.learning_observations),
+                "overall_consistency_source": "L10.cross_level_agreement",
+                "level1_score_semantics": "directional_attractiveness_only",
+                "level1_risk_diagnostics": "separate_from_alpha_score",
+            },
+        )
