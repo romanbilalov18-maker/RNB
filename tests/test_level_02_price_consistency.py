@@ -43,7 +43,7 @@ class Level02PriceAndConsistencyTests(unittest.TestCase):
             make_level1(AnalyzerResult("price", 0.9, 0.0), confidence=0.0),
         )
         self.assertEqual(result.confidence, 0.0)
-        self.assertIn("no_observed_analyzer_results", result.warnings)
+        self.assertIn("no_observed_alpha_analyzer_results", result.warnings)
 
 
 if __name__ == "__main__":
