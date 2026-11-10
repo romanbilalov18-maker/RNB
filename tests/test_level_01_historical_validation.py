@@ -200,6 +200,36 @@ class Level01HistoricalValidationTests(unittest.TestCase):
             with_cost["metrics"]["all"]["mean_net_return"],
         )
 
+    def test_report_includes_cost_sensitivity_without_changing_primary_cost(self):
+        rows = [
+            {
+                "timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+                "symbol": "AAA",
+                "close": 100.0 + index,
+                "volume": 1000 + index,
+            }
+            for index in range(50)
+        ]
+        path = self.write_csv(rows)
+
+        report = evaluate(path, window=10, horizon=3, cost_bps=12)
+
+        self.assertEqual(report["assumed_round_trip_cost_bps"], 12)
+        scenarios = report["cost_sensitivity"]
+        self.assertEqual(
+            [item["assumed_one_way_cost_bps"] for item in scenarios],
+            [0, 5, 10, 25, 50, 100],
+        )
+        means = [item["mean_net_return"] for item in scenarios]
+        self.assertTrue(all(
+            later < earlier for earlier, later in zip(means, means[1:])
+        ))
+        self.assertEqual(
+            scenarios[0]["mean_net_return"],
+            report["metrics"]["all"]["mean_net_return"]
+            + 2 * 12 / 10000,
+        )
+
     def test_rejects_negative_cost(self):
         path = self.write_csv([
             {"timestamp": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "symbol": "AAA",
