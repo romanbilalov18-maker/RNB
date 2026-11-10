@@ -86,6 +86,28 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         self.assertIn("holdout_chronological", report["analyzers"]["price"]["metrics"])
         self.assertEqual(report["analyzers"]["price"]["metrics"]["all"]["observations"], 10)
         self.assertEqual(report["indicator_source"], "bot.stock_analysis.StockAnalyzer (shared with LiveMarketRunner)")
+        ablation = report["ablation"]
+        self.assertIn("holdout results must not be used for tuning", ablation["methodology"])
+        variants = ablation["variants"]
+        self.assertIn("baseline", variants)
+        self.assertIn("without_volatility", variants)
+        self.assertEqual(
+            variants["baseline"]["all"],
+            report["metrics"]["all"],
+        )
+        for variant_metrics in variants.values():
+            self.assertEqual(
+                variant_metrics["all"]["observations"],
+                report["evaluated_observations"],
+            )
+            self.assertEqual(
+                variant_metrics["development_chronological"]["observations"],
+                report["metrics"]["development_chronological"]["observations"],
+            )
+            self.assertEqual(
+                variant_metrics["holdout_chronological"]["observations"],
+                report["metrics"]["holdout_chronological"]["observations"],
+            )
 
     def test_historical_snapshot_reuses_live_stock_analyzer_indicators(self):
         from types import SimpleNamespace
