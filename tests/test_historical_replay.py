@@ -331,6 +331,52 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(len(result.equity_curve), 2)
 
 
+    def test_confidence_breakdown_includes_individual_analyzers_for_all_levels(self):
+        from bot.historical_replay import _confidence_breakdown
+
+        intelligence = SimpleNamespace(
+            level_08=SimpleNamespace(
+                confidence=0.4,
+                analyzer_results={
+                    "cross_asset_context": SimpleNamespace(confidence=0.2),
+                },
+            ),
+            level_09=SimpleNamespace(
+                confidence=0.3,
+                analyzer_results={
+                    "opportunity_priority": SimpleNamespace(confidence=0.1),
+                    "correlation_risk": SimpleNamespace(confidence=0.0),
+                },
+            ),
+            level_10=SimpleNamespace(
+                confidence=0.5,
+                analyzer_results={
+                    "cross_level_agreement": SimpleNamespace(confidence=0.25),
+                },
+            ),
+            level_11=SimpleNamespace(
+                confidence=0.0,
+                analyzer_results=(
+                    SimpleNamespace(analyzer="learning_confidence", confidence=0.0),
+                ),
+            ),
+            level_14=SimpleNamespace(
+                confidence=0.35,
+                analyzer_results=(
+                    SimpleNamespace(analyzer="data_reliability", confidence=0.7),
+                ),
+            ),
+        )
+
+        breakdown = _confidence_breakdown(intelligence)
+
+        self.assertEqual(breakdown["L08.cross_asset_context"], 0.2)
+        self.assertEqual(breakdown["L09.opportunity_priority"], 0.1)
+        self.assertEqual(breakdown["L09.correlation_risk"], 0.0)
+        self.assertEqual(breakdown["L10.cross_level_agreement"], 0.25)
+        self.assertEqual(breakdown["L11.learning_confidence"], 0.0)
+        self.assertEqual(breakdown["L14.data_reliability"], 0.7)
+
     def test_decision_diagnostics_count_actions_reasons_and_metric_ranges(self):
         from bot.historical_replay import _summarize_decision_diagnostics
 
