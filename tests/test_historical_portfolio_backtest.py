@@ -78,6 +78,25 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no matching current T-Invest catalog metadata"):
                 load_dataset(path)
 
+    def test_load_dataset_can_filter_to_fixed_ticker_universe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self._write_dataset(Path(temp))
+            candles, metadata, _ = load_dataset(path, tickers={" aaa "})
+        self.assertEqual(set(candles), {"AAA"})
+        self.assertIn("AAA", metadata)
+
+    def test_fixed_ticker_universe_fails_if_symbol_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self._write_dataset(Path(temp))
+            with self.assertRaisesRegex(ValueError, "absent from T-Invest dataset: BBB"):
+                load_dataset(path, tickers={"AAA", "BBB"})
+
+    def test_fixed_ticker_universe_rejects_empty_filter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self._write_dataset(Path(temp))
+            with self.assertRaisesRegex(ValueError, "at least one non-empty symbol"):
+                load_dataset(path, tickers=set())
+
     def test_open_position_report_marks_missing_final_quotes_as_unknown(self):
         portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
         portfolio.buy("AAA", 2, 100, "2025-01-02T10:00:00+00:00")
