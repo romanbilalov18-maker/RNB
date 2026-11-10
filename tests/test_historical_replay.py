@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from bot.historical_replay import (\n    HistoricalReplay, HistoricalReplayCycle, build_historical_cycles,\n    iter_historical_cycles,\n)
+from bot.historical_replay import (
+    HistoricalReplay, HistoricalReplayCycle, build_historical_cycles,
+    iter_historical_cycles,
+)
 from bot.virtual_portfolio import VirtualPortfolio
 
 
