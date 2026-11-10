@@ -110,7 +110,8 @@ jobs:
             --commission-rate "${{ inputs.commission_rate }}" \
             --risk-budget-percent "${{ inputs.risk_budget_percent }}" \
             --reserve-rate "${{ inputs.reserve_rate }}" \
-            --take-profit-percent "${{ inputs.take_profit_percent }}" \
+            --take-profit-percent "${{ inputs.take_profit_percent }}" \\
+            --tickers "${{ inputs.ticker_universe }}" \
             --output data/historical_portfolio_report.json
       - name: Upload full historical backtest report
         if: always()
