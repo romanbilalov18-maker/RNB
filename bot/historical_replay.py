@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 from typing import Iterable, Iterator
 
 from bot.paper_executor import PaperExecutor
@@ -186,8 +187,45 @@ def iter_historical_cycles(
 
     analyzer = StockAnalyzer(min_history=min_history, momentum_period=momentum_period)
     history: dict[str, list[object]] = {ticker: [] for ticker in candles_by_ticker}
+    # Build feedback online from prior decisions only; never import live audit
+    # data or release a label before three later broker sessions have closed.
+    pending_learning: dict[str, list[dict]] = {ticker: [] for ticker in candles_by_ticker}
+    learning_by_ticker: dict[str, list] = {ticker: [] for ticker in candles_by_ticker}
     for stamp in sorted(bars_by_time):
         current_bars = bars_by_time[stamp]
+
+        # Mature feedback only from bars appended by earlier replay cycles.
+        for ticker, pending_items in pending_learning.items():
+            for item in list(pending_items):
+                later = [
+                    bar for bar in history[ticker]
+                    if _historical_session_date(bar) > item["anchor_session_date"]
+                ]
+                if len(later) < 3:
+                    continue
+                target_price = _number(getattr(later[2], "close", None))
+                anchor_price = item["anchor_price"]
+                if target_price is None or target_price <= 0 or anchor_price <= 0:
+                    pending_items.remove(item)
+                    continue
+                raw_return = target_price / anchor_price - 1.0
+                cost_rate = 2.0 * float(getattr(portfolio, "commission_rate", 0.0005))
+                net_return = raw_return - cost_rate
+                action = item["recommendation"]
+                outcome_return = net_return if action == "BUY" else -raw_return - cost_rate
+                correct = net_return > 0 if action == "BUY" else raw_return < -cost_rate
+                from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
+                learning_by_ticker[ticker].append(LearningObservation(
+                    outcome_return=outcome_return,
+                    correct=bool(correct),
+                    level_scores=item["level_scores"],
+                    analyzer_scores=item["analyzer_scores"],
+                    regime=item["regime"],
+                    decision_time=item["decision_time"],
+                    outcome_target_date=_historical_session_date(later[2]),
+                ))
+                pending_items.remove(item)
+                learning_by_ticker[ticker] = learning_by_ticker[ticker][-200:]
 
         # Analyze only completed bars from before this execution timestamp.
         analyses, prices, previous_closes, visible_history, latest = {}, {}, {}, {}, {}
@@ -293,7 +331,16 @@ def iter_historical_cycles(
         )
         # The generator pauses at each yield until HistoricalReplay has executed
         # the cycle. The next analysis therefore receives the updated portfolio.
-        intelligence = analyze_scan(scan, portfolio=portfolio)
+        observations = {
+            ticker: tuple(items)
+            for ticker, items in learning_by_ticker.items()
+            if items
+        }
+        intelligence = analyze_scan(
+            scan,
+            learning_observations_by_ticker=observations,
+            portfolio=portfolio,
+        )
         decisions = DecisionEngine().evaluate(
             intelligence,
             held_tickers=set(portfolio.positions) if portfolio is not None else (),
@@ -303,6 +350,24 @@ def iter_historical_cycles(
             if decision.action == "BUY" and ticker in {item.ticker for item in candidates}
         }
         reasons = {ticker: decisions[ticker].reason for ticker in approved}
+        # Preserve the exact decision-time L1-L15 snapshot and execution-open
+        # anchor. Outcomes are admitted only after three later sessions close.
+        from bot.decision_audit import DecisionAuditStore
+        for ticker, decision in decisions.items():
+            anchor = _number(prices.get(ticker))
+            intelligence_item = intelligence.get(ticker)
+            if decision.action not in {"BUY", "SELL"} or anchor is None or anchor <= 0 or intelligence_item is None:
+                continue
+            level_json, analyzer_json, regime = DecisionAuditStore._learning_snapshot(intelligence_item)
+            pending_learning.setdefault(ticker, []).append({
+                "anchor_price": anchor,
+                "anchor_session_date": _historical_session_date(current_bars[ticker]) if ticker in current_bars else moscow_date,
+                "recommendation": decision.action,
+                "level_scores": json.loads(level_json),
+                "analyzer_scores": json.loads(analyzer_json),
+                "regime": regime,
+                "decision_time": stamp.isoformat(),
+            })
         candidate_tickers = {item.ticker for item in candidates}
         decision_diagnostics = tuple(
             {
@@ -357,6 +422,17 @@ def build_historical_cycles(
         momentum_period=momentum_period,
         sectors_by_ticker=sectors_by_ticker,
     ))
+
+
+def _historical_session_date(candle: object) -> str:
+    """Return a broker candle's Moscow session date; reject missing timestamps."""
+    from zoneinfo import ZoneInfo
+
+    stamp = getattr(candle, "time", None) or getattr(candle, "date", None)
+    if not isinstance(stamp, datetime) or stamp.tzinfo is None or stamp.utcoffset() is None:
+        raise ValueError("historical learning candle timestamp must be timezone-aware")
+    return stamp.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
+
 
 
 def _confidence_breakdown(intelligence: object) -> dict:
