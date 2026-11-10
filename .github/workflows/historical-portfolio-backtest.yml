@@ -33,6 +33,11 @@ on:
         required: true
         default: "0.15"
         type: string
+      ticker_universe:
+        description: "Fixed comma-separated ticker universe; every ticker must be present in the exported T-Invest dataset"
+        required: true
+        default: "AFLT,ALRS,AQUA,BANE,BELU,CHMF,DELI,ELFV,ENPG,FLOT,FIXR,MRKU,MSNG,MTLR,MVID,NMTP,RAGR,ROSN,SPBE,SVCB,TATN,TATNP,UGLD,UNAC,URKZ,VSEH,ABIO,APTK,CHMK,KLSB,KOGK,KZOS,LIFE,LSNG,MRKP"
+        type: string
 
 permissions:
   contents: read
@@ -63,6 +68,7 @@ jobs:
           RISK: ${{ inputs.risk_budget_percent }}
           RESERVE: ${{ inputs.reserve_rate }}
           TAKE_PROFIT: ${{ inputs.take_profit_percent }}
+          TICKERS: ${{ inputs.ticker_universe }}
         run: |
           python - <<'PY'
           import math, os
