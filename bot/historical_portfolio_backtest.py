@@ -19,7 +19,11 @@ from bot.paper_executor import PaperExecutor
 from bot.virtual_portfolio import VirtualPortfolio
 
 
-def load_dataset(csv_path: Path) -> tuple[dict[str, list[object]], dict, dict]:
+def load_dataset(
+    csv_path: Path,
+    *,
+    tickers: set[str] | None = None,
+) -> tuple[dict[str, list[object]], dict, dict]:
     coverage_path = csv_path.with_suffix(csv_path.suffix + ".coverage.json")
     manifest_path = csv_path.with_suffix(csv_path.suffix + ".manifest.json")
     if not csv_path.is_file() or not coverage_path.is_file() or not manifest_path.is_file():
@@ -70,6 +74,22 @@ def load_dataset(csv_path: Path) -> tuple[dict[str, list[object]], dict, dict]:
                 raise ValueError(f"CSV line {line_number}: duplicate ticker/timestamp")
             seen.add(key)
             candles.setdefault(ticker, []).append(SimpleNamespace(time=stamp, **values))
+
+    if tickers is not None:
+        requested = {
+            str(ticker).strip().upper()
+            for ticker in tickers
+            if isinstance(ticker, str) and str(ticker).strip()
+        }
+        if not requested:
+            raise ValueError("ticker filter must contain at least one non-empty symbol")
+        missing = sorted(requested - set(candles))
+        if missing:
+            raise ValueError(
+                "requested ticker filter contains symbols absent from T-Invest dataset: "
+                + ", ".join(missing)
+            )
+        candles = {ticker: bars for ticker, bars in candles.items() if ticker in requested}
 
     for ticker, bars in candles.items():
         bars.sort(key=lambda item: item.time)
@@ -158,8 +178,9 @@ def run_replay(
     reserve_rate: float = 0.7,
     risk_budget_percent: float = 1.0,
     take_profit_percent: float = 0.15,
+    tickers: set[str] | None = None,
 ) -> dict:
-    candles, metadata, manifest = load_dataset(csv_path)
+    candles, metadata, manifest = load_dataset(csv_path, tickers=tickers)
     instrument_ids = {
         ticker: str(item.get("uid") or item.get("figi"))
         for ticker, item in metadata.items() if ticker in candles
@@ -223,6 +244,7 @@ def run_replay(
             "start": manifest.get("sample_start"),
             "end": manifest.get("sample_end"),
             "selection_method": manifest.get("selection_method"),
+            "universe_filter": sorted(candles) if tickers is not None else None,
         },
         "settings": {
             "initial_balance": initial_balance,
@@ -295,6 +317,11 @@ def main() -> None:
     parser.add_argument("--reserve-rate", type=float, default=0.7)
     parser.add_argument("--risk-budget-percent", type=float, default=1.0)
     parser.add_argument("--take-profit-percent", type=float, default=0.15)
+    parser.add_argument(
+        "--tickers",
+        default="",
+        help="Optional comma-separated fixed ticker universe; missing symbols fail closed",
+    )
     parser.add_argument("--output", type=Path, default=Path("data/historical_portfolio_report.json"))
     args = parser.parse_args()
     if not math.isfinite(args.initial_balance) or args.initial_balance <= 0:
@@ -314,6 +341,10 @@ def main() -> None:
         reserve_rate=args.reserve_rate,
         risk_budget_percent=args.risk_budget_percent,
         take_profit_percent=args.take_profit_percent,
+        tickers=(
+            {item.strip().upper() for item in args.tickers.split(",") if item.strip()}
+            if args.tickers.strip() else None
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
