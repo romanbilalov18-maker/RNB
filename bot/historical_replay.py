@@ -336,11 +336,14 @@ def iter_historical_cycles(
             for ticker, items in learning_by_ticker.items()
             if items
         }
-        intelligence = analyze_scan(
-            scan,
-            learning_observations_by_ticker=observations,
-            portfolio=portfolio,
-        )
+        if observations:
+            intelligence = analyze_scan(
+                scan,
+                learning_observations_by_ticker=observations,
+                portfolio=portfolio,
+            )
+        else:
+            intelligence = analyze_scan(scan, portfolio=portfolio)
         decisions = DecisionEngine().evaluate(
             intelligence,
             held_tickers=set(portfolio.positions) if portfolio is not None else (),
