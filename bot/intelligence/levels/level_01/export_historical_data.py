@@ -239,7 +239,7 @@ def export(path: Path, days: int = 180) -> int:
         datetime.now(timezone.utc).isoformat(),
     )
     coverage_path.write_text(
-        json.dumps(coverage, indent=2, ensure_ascii=False) + "\\n",
+        json.dumps(coverage, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     print(f"CURRENT_CATALOG_COVERAGE={coverage_path}")
