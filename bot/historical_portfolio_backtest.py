@@ -126,6 +126,11 @@ def run_replay(
         min_history=20,
         momentum_period=10,
         portfolio=portfolio,
+        sectors_by_ticker={
+            ticker: str(item.get("sector")).strip()
+            for ticker, item in metadata.items()
+            if isinstance(item.get("sector"), str) and item.get("sector").strip()
+        },
     )
     result = HistoricalReplay(portfolio, executor).run(cycles)
     report = {
