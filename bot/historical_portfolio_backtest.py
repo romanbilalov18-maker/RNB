@@ -85,6 +85,71 @@ def load_dataset(csv_path: Path) -> tuple[dict[str, list[object]], dict, dict]:
     return candles, metadata, manifest
 
 
+
+def _build_open_position_report(portfolio, market_prices, equity_curve):
+    """Report every remaining holding without inventing marks for missing quotes."""
+    performance = {
+        item.ticker: item
+        for item in portfolio.position_performance(market_prices)
+    }
+    details = []
+    missing_final_quotes = []
+    priced_market_value = 0.0
+    priced_cost_basis = 0.0
+
+    for ticker, position in sorted(portfolio.positions.items()):
+        item = performance.get(ticker)
+        cost_basis = position.quantity * position.average_price
+        if item is None:
+            missing_final_quotes.append(ticker)
+            details.append({
+                "ticker": ticker,
+                "quantity": position.quantity,
+                "average_entry_price": position.average_price,
+                "cost_basis": cost_basis,
+                "market_price": None,
+                "market_value": None,
+                "unrealized_pnl_before_exit_costs": None,
+                "estimated_net_if_sold_now": None,
+                "valuation_status": "MISSING_FINAL_QUOTE",
+            })
+            continue
+
+        priced_market_value += item.current_value
+        priced_cost_basis += item.invested_value
+        details.append({
+            "ticker": ticker,
+            "quantity": item.quantity,
+            "average_entry_price": item.average_price,
+            "cost_basis": item.invested_value,
+            "market_price": item.market_price,
+            "market_value": item.current_value,
+            "unrealized_pnl_before_exit_costs": item.unrealized_pnl,
+            "estimated_sell_commission": item.estimated_sell_commission,
+            "estimated_net_if_sold_now": item.net_if_sold_now,
+            "valuation_status": "PRICED",
+        })
+
+    missing_cycles = {}
+    incomplete_cycles = 0
+    for point in equity_curve:
+        if point.unpriced_tickers:
+            incomplete_cycles += 1
+            for ticker in point.unpriced_tickers:
+                missing_cycles[ticker] = missing_cycles.get(ticker, 0) + 1
+
+    summary = {
+        "valuation_complete": not missing_final_quotes,
+        "priced_positions": len(details) - len(missing_final_quotes),
+        "unpriced_positions": len(missing_final_quotes),
+        "missing_final_quote_tickers": missing_final_quotes,
+        "priced_positions_market_value": priced_market_value,
+        "priced_positions_cost_basis": priced_cost_basis,
+        "incomplete_mark_to_market_cycles": incomplete_cycles,
+        "unpriced_ticker_cycle_counts": dict(sorted(missing_cycles.items())),
+    }
+    return details, summary
+
 def run_replay(
     csv_path: Path,
     *,
@@ -132,7 +197,19 @@ def run_replay(
             if isinstance(item.get("sector"), str) and item.get("sector").strip()
         },
     )
-    result = HistoricalReplay(portfolio, executor).run(cycles)
+    last_scan = None
+
+    def tracked_cycles():
+        nonlocal last_scan
+        for cycle in cycles:
+            last_scan = cycle.scan
+            yield cycle
+
+    result = HistoricalReplay(portfolio, executor).run(tracked_cycles())
+    final_prices = getattr(last_scan, "current_prices", {}) or {}
+    open_position_details, position_valuation = _build_open_position_report(
+        portfolio, final_prices, result.equity_curve
+    )
     report = {
         "report_type": "RNB_HISTORICAL_PORTFOLIO_REPLAY",
         "data_source": "T-Invest API",
@@ -164,6 +241,8 @@ def run_replay(
             "protected_cash": result.protected_cash,
             "spendable_cash": float(portfolio.cash),
             "open_positions": len(portfolio.positions),
+            "open_position_details": open_position_details,
+            "position_valuation": position_valuation,
             "total_trades": result.total_trades,
             "buy_trades": result.buy_trades,
             "sell_trades": result.sell_trades,
