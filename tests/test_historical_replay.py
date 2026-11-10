@@ -434,8 +434,12 @@ class HistoricalReplayTests(unittest.TestCase):
                 sectors_by_ticker={ticker: "technology" for ticker in bars_by_ticker},
             ))
 
-        scan = cycles[1].scan
-        self.assertAlmostEqual(scan.market_return, (0.02 + 0.01 - 0.01) / 3)
+        # The first two bars establish the required analysis history; the
+        # third bar supplies the execution opens measured against the second
+        # bar's completed closes.
+        scan = cycles[-1].scan
+        expected_returns = (102 / 101 - 1, 101 / 100 - 1, 99 / 100 - 1)
+        self.assertAlmostEqual(scan.market_return, sum(expected_returns) / 3)
         self.assertAlmostEqual(scan.market_breadth, 2 / 3)
         self.assertEqual(scan.market_sample_count, 3)
 
