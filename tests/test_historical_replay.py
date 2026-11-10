@@ -548,7 +548,8 @@ class HistoricalReplayTests(unittest.TestCase):
         # of the third strictly later broker session (bar index 5), and becomes
         # available only to the following decision cycle (bar index 6).
         self.assertEqual(observed_sample_counts[:4], [0, 0, 0, 0])
-        self.assertEqual(observed_sample_counts[4:6], [1, 2])
+        self.assertEqual(observed_sample_counts[4:6], [0, 0])
+        self.assertEqual(observed_sample_counts[6:8], [1, 2])
         self.assertTrue(all(count >= 0 for count in observed_sample_counts))
         self.assertEqual(len(cycles), 9)
 
