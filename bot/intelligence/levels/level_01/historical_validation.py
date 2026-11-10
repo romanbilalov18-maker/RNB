@@ -12,8 +12,10 @@ import statistics
 from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 
 from bot.intelligence.core.models.market_snapshot import MarketSnapshot
+from bot.stock_analysis import StockAnalyzer
 from bot.intelligence.levels.level_01.level_01_engine import aggregate, analyze
 from bot.intelligence.levels.level_01.session_gap_diagnostics import (
     find_missing_trading_dates,
@@ -68,6 +70,43 @@ def load_rows(path: Path):
     if not grouped:
         raise ValueError("CSV contains no market rows")
     return grouped
+
+
+
+def build_historical_snapshot(symbol: str, candle_window: list[dict]) -> MarketSnapshot:
+    """Build an L1 snapshot with the same indicator formulas as the live scanner.
+
+    The window contains completed candles through the signal candle. The
+    StockAnalyzer implementation is shared with LiveMarketRunner so historical
+    diagnostics cannot silently drift to a different momentum/volatility/
+    volume calculation.
+    """
+    if len(candle_window) < 3:
+        raise ValueError("candle_window must contain at least 3 completed candles")
+    momentum_period = min(10, len(candle_window) - 1)
+    candles = [
+        SimpleNamespace(close=row["close"], volume=row["volume"])
+        for row in candle_window
+    ]
+    analysis = StockAnalyzer(
+        min_history=len(candle_window),
+        momentum_period=momentum_period,
+    ).analyze("historical", symbol, candles)
+    current = candle_window[-1]
+    previous = candle_window[-2]
+    return MarketSnapshot(
+        symbol=symbol,
+        price=current["close"],
+        previous_price=previous["close"],
+        volume=current["volume"],
+        average_volume=analysis.average_volume,
+        volatility=analysis.volatility,
+        momentum=analysis.momentum,
+        # Historical order-book data is not present in daily OHLCV. Keep it
+        # unknown; never substitute volume or fabricate a liquidity score.
+        liquidity=None,
+    )
+
 
 
 def _load_dataset_provenance(path: Path) -> dict:
@@ -168,11 +207,10 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             continue
         # Non-overlapping forward outcomes prevent the same future price move from
         # being counted repeatedly. Every symbol is evaluated on its own timeline.
-        for index in range(window, len(rows) - horizon, horizon):
-            # A row-count horizon is only meaningful when observations are
-            # sufficiently continuous. Do not bridge long outages as if they
-            # were ordinary adjacent trading sessions.
-            span = rows[index - window:index + horizon + 1]
+        for index in range(window - 1, len(rows) - horizon, horizon):
+            # The signal candle is the final candle in the lookback window.
+            # The outcome starts at that close and ends horizon rows later.
+            span = rows[index - window + 1:index + horizon + 1]
             timestamps = [
                 datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
                 for row in span
@@ -188,18 +226,9 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
             ):
                 skipped_gap_outcomes += 1
                 continue
-            history = rows[index - window:index]
-            current, previous = rows[index], rows[index - 1]
-            avg_volume = statistics.mean(row["volume"] for row in history)
-            returns = [history[i]["close"] / history[i - 1]["close"] - 1.0
-                       for i in range(1, len(history))]
-            volatility = statistics.pstdev(returns) if len(returns) > 1 else 0.0
-            momentum = current["close"] / history[0]["close"] - 1.0
-            snapshot = MarketSnapshot(
-                symbol=symbol, price=current["close"], previous_price=previous["close"],
-                volume=current["volume"], average_volume=avg_volume if avg_volume > 0 else None,
-                volatility=volatility, momentum=momentum, liquidity=None,
-            )
+            candle_window = rows[index - window + 1:index + 1]
+            current = rows[index]
+            snapshot = build_historical_snapshot(symbol, candle_window)
             results = analyze(snapshot)
             score = aggregate(results)
             gross_return = rows[index + horizon]["close"] / current["close"] - 1.0
@@ -268,6 +297,8 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         "official_calendar_gap_diagnostics": calendar_diagnostics,
         "maximum_allowed_observation_gap_days": max_gap_days,
         "lookback_window": window,
+        "indicator_source": "bot.stock_analysis.StockAnalyzer (shared with LiveMarketRunner)",
+        "momentum_period_rows": min(10, window - 1),
         "forward_horizon_rows": horizon,
         "non_overlapping_outcomes": True,
         "assumed_round_trip_cost_bps": cost_bps,

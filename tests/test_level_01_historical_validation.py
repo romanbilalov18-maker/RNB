@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from bot.intelligence.levels.level_01.historical_validation import (
+    build_historical_snapshot,
     evaluate,
     load_rows,
     load_official_trading_dates,
@@ -73,13 +74,38 @@ class Level01HistoricalValidationTests(unittest.TestCase):
         path = self.write_csv(rows)
         report = evaluate(path, window=10, horizon=3)
         self.assertEqual(report["status"], "completed")
-        self.assertEqual(report["evaluated_observations"], 9)
+        self.assertEqual(report["evaluated_observations"], 10)
         self.assertTrue(report["non_overlapping_outcomes"])
         self.assertGreater(report["metrics"]["development_chronological"]["observations"], 0)
         self.assertGreater(report["metrics"]["holdout_chronological"]["observations"], 0)
         self.assertEqual(report["data_source"], "user_supplied_csv")
         self.assertIn("limitations", report)
         self.assertIn("price", report["analyzers"])
+        self.assertEqual(report["indicator_source"], "bot.stock_analysis.StockAnalyzer (shared with LiveMarketRunner)")
+
+    def test_historical_snapshot_reuses_live_stock_analyzer_indicators(self):
+        from types import SimpleNamespace
+        from bot.stock_analysis import StockAnalyzer
+
+        rows = [
+            {"close": 100.0 + index * 0.7 + (index % 3) * 0.2,
+             "volume": 1000.0 + index * 25.0}
+            for index in range(20)
+        ]
+        snapshot = build_historical_snapshot("AAA", rows)
+        live_analysis = StockAnalyzer(min_history=20, momentum_period=10).analyze(
+            "test-id",
+            "AAA",
+            [SimpleNamespace(close=row["close"], volume=row["volume"]) for row in rows],
+        )
+
+        self.assertAlmostEqual(snapshot.momentum, live_analysis.momentum)
+        self.assertAlmostEqual(snapshot.volatility, live_analysis.volatility)
+        self.assertAlmostEqual(snapshot.average_volume, live_analysis.average_volume)
+        self.assertEqual(snapshot.price, rows[-1]["close"])
+        self.assertEqual(snapshot.previous_price, rows[-2]["close"])
+        self.assertEqual(snapshot.volume, rows[-1]["volume"])
+        self.assertIsNone(snapshot.liquidity)
 
     def test_report_includes_export_manifest_and_its_selection_warning(self):
         rows = [
