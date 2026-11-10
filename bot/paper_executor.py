@@ -4,10 +4,62 @@ from datetime import datetime, timezone
 import math
 
 from bot.live_runner import LiveScanResult
-from bot.position_manager import PositionManager
+from bot.position_manager import PositionDecision, PositionManager
 from bot.position_health import assess_position_health, verified_completed_candles
 from bot.position_sizer import PositionSizer
 from bot.virtual_portfolio import VirtualPortfolio
+
+
+def _daily_ohlc_protective_exit(
+    position,
+    candle: object,
+    *,
+    commission_rate: float,
+    stop_loss: float,
+    take_profit: float,
+) -> tuple[float, str] | None:
+    """Resolve a pre-existing holding's protective exit from one real daily bar.
+
+    If both stop and target were touched and daily OHLC cannot reveal order,
+    choose the stop first. This is deliberately conservative, not a claim about
+    the true intraday path.
+    """
+    try:
+        open_price = float(getattr(candle, "open"))
+        high = float(getattr(candle, "high"))
+        low = float(getattr(candle, "low"))
+        average = float(position.average_price)
+        rate = float(commission_rate)
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return None
+    values = (open_price, high, low, average, rate)
+    if not all(math.isfinite(value) for value in values):
+        return None
+    if min(open_price, high, low, average) <= 0 or not 0 <= rate < 1:
+        return None
+    if high < max(open_price, low) or low > min(open_price, high):
+        return None
+
+    entry_cost = average * (1.0 + rate)
+    stop_price = entry_cost * (1.0 + stop_loss) / (1.0 - rate)
+    target_price = entry_cost * (1.0 + take_profit) / (1.0 - rate)
+
+    if open_price <= stop_price:
+        return open_price, "исторический Stop Loss: гэп ниже защитного уровня"
+    stop_touched = low <= stop_price
+    target_touched = high >= target_price
+    if stop_touched and target_touched:
+        return stop_price, (
+            "исторический Stop Loss: стоп и цель затронуты в одной дневной свече; "
+            "неоднозначный путь, консервативно выбран стоп первым"
+        )
+    if stop_touched:
+        return stop_price, "исторический Stop Loss: внутридневное касание уровня"
+    if open_price >= target_price:
+        return open_price, "исторический Take Profit: гэп выше целевого уровня"
+    if target_touched:
+        return target_price, "исторический Take Profit: внутридневное касание уровня"
+    return None
 
 
 class PaperExecutor:
@@ -124,6 +176,7 @@ class PaperExecutor:
         eligible_buy_reasons: dict[str, str] | None = None,
         *,
         as_of: datetime | None = None,
+        execution_candles: dict[str, object] | None = None,
     ) -> tuple[list, list]:
         # as_of pins execution to historical time; otherwise use wall clock.
         execution_time = as_of or datetime.now(timezone.utc)
@@ -220,6 +273,35 @@ class PaperExecutor:
             active_analyses,
             execution_prices,
         )
+        # Historical daily OHLC is execution-only: it cannot change signals or
+        # create intraday exits for a position bought at this same day's open.
+        # Only holdings that existed before this execute() call are considered.
+        ohlc_exit_reasons = {}
+        for ticker, position in portfolio.positions.items():
+            candle = (execution_candles or {}).get(ticker)
+            if candle is None or ticker not in execution_prices:
+                continue
+            protective_exit = _daily_ohlc_protective_exit(
+                position,
+                candle,
+                commission_rate=portfolio.commission_rate,
+                stop_loss=self.position_manager.stop_loss,
+                take_profit=self.position_manager.take_profit,
+            )
+            if protective_exit is None:
+                continue
+            fill_price, reason = protective_exit
+            execution_prices[ticker] = fill_price
+            ohlc_exit_reasons[ticker] = reason
+        if ohlc_exit_reasons:
+            decisions = [
+                PositionDecision(
+                    item.ticker,
+                    "SELL",
+                    ohlc_exit_reasons[item.ticker],
+                ) if item.ticker in ohlc_exit_reasons else item
+                for item in decisions
+            ]
         # Emit one auditable status per holding: quote provenance, market-health
         # diagnostics, and the exact rule that did or did not authorize an exit.
         # Missing data is a review state, never an automatic sell instruction.
