@@ -41,6 +41,9 @@ class LiveScanResult:
     session_by_ticker: dict[str, dict] = field(default_factory=dict)
     instrument_status_by_ticker: dict[str, dict] = field(default_factory=dict)
     market_closed_tickers: set[str] = field(default_factory=set)
+    # Historical replay only: current daily bar used for conservative virtual
+    # stop/target fill reconstruction; never used by the signal pipeline.
+    execution_candles: dict[str, object] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
