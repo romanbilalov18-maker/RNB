@@ -165,6 +165,7 @@ def run_replay(
             "max_drawdown": result.max_drawdown,
             "max_drawdown_pct": result.max_drawdown_pct,
             "warnings": list(result.warnings),
+            "decision_diagnostics": result.decision_diagnostics,
         },
         "trades": [
             {
