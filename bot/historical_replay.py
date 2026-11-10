@@ -206,18 +206,32 @@ def iter_historical_cycles(
         ranked = sorted(analyses.values(), key=lambda item: (
             -float(item.score), -float(item.momentum), float(item.volatility), item.ticker
         ))
-        # Historical replay must not reuse today's exchange session as if it
-        # were valid for an old candle. Require a broker-sourced schedule record
-        # explicitly marked open for this exact Moscow calendar date.
+        # A real T-Invest daily candle is evidence that the instrument had an
+        # observed trading bar on this date. Do not project today's session
+        # calendar backwards: it is not a historical exchange schedule.
         from zoneinfo import ZoneInfo
         moscow_date = stamp.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
+        cycle_sessions = {}
+        for ticker in current_bars:
+            base = sessions_by_ticker.get(ticker, {})
+            exchange = str(base.get("instrument_exchange") or "").strip()
+            if not exchange:
+                continue
+            cycle_sessions[ticker] = {
+                "session": "daily_bar_observed",
+                "instrument_exchange": exchange,
+                "verified": True,
+                "is_open": True,
+                "schedule_date": moscow_date,
+                "evidence": "T-Invest daily OHLCV candle exists for this ticker/date",
+            }
         buyable = {
             ticker for ticker in analyses
             if ticker in tradable_tickers
             and isinstance(lot_sizes.get(ticker), int)
             and not isinstance(lot_sizes.get(ticker), bool)
             and lot_sizes[ticker] > 0
-            and _historical_session_is_open(sessions_by_ticker.get(ticker), moscow_date)
+            and _historical_session_is_open(cycle_sessions.get(ticker), moscow_date)
         }
         candidates = [item for item in ranked if item.ticker in buyable]
         scan = LiveScanResult(
@@ -233,7 +247,7 @@ def iter_historical_cycles(
             sellable_quote_tickers=set(prices),
             latest_candles=latest,
             candle_history=visible_history,
-            session_by_ticker={ticker: sessions_by_ticker[ticker] for ticker in analyses if ticker in sessions_by_ticker},
+            session_by_ticker=cycle_sessions,
         )
         # The generator pauses at each yield until HistoricalReplay has executed
         # the cycle. The next analysis therefore receives the updated portfolio.
