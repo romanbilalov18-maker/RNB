@@ -553,6 +553,62 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertTrue(all(count >= 0 for count in observed_sample_counts))
         self.assertEqual(len(cycles), 9)
 
+
+    def test_daily_ohlc_stop_gap_intraday_and_ambiguous_path_are_conservative(self):
+        from bot.paper_executor import _daily_ohlc_protective_exit
+
+        position = SimpleNamespace(average_price=100.0)
+        kwargs = {
+            "commission_rate": 0.001,
+            "stop_loss": -0.05,
+            "take_profit": 0.0015,
+        }
+        stop_price = 100.0 * 1.001 * 0.95 / 0.999
+        target_price = 100.0 * 1.001 * 1.0015 / 0.999
+
+        gap = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(open=90.0, high=94.0, low=89.0),
+            **kwargs,
+        )
+        self.assertEqual(gap[0], 90.0)
+        self.assertIn("гэп", gap[1])
+
+        intraday = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(open=100.0, high=101.0, low=94.0),
+            **kwargs,
+        )
+        self.assertAlmostEqual(intraday[0], stop_price)
+        self.assertIn("внутридневное касание", intraday[1])
+
+        ambiguous = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(
+                open=100.0,
+                high=target_price + 1.0,
+                low=stop_price - 1.0,
+            ),
+            **kwargs,
+        )
+        self.assertAlmostEqual(ambiguous[0], stop_price)
+        self.assertIn("консервативно выбран стоп первым", ambiguous[1])
+
+        target = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(open=100.0, high=target_price + 1.0, low=99.0),
+            **kwargs,
+        )
+        self.assertAlmostEqual(target[0], target_price)
+        self.assertIn("Take Profit", target[1])
+
+        untouched = _daily_ohlc_protective_exit(
+            position,
+            SimpleNamespace(open=100.0, high=100.05, low=99.5),
+            **kwargs,
+        )
+        self.assertIsNone(untouched)
+
     def test_decision_diagnostics_count_actions_reasons_and_metric_ranges(self):
         from bot.historical_replay import _summarize_decision_diagnostics
 
