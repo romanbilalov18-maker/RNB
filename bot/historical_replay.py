@@ -5,7 +5,7 @@ creates prices, fills missing bars, or admits data dated after a replay cycle.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Iterable, Iterator
 
@@ -19,6 +19,7 @@ class HistoricalReplayCycle:
     scan: object
     eligible_buy_tickers: set[str] | None = None
     eligible_buy_reasons: dict[str, str] | None = None
+    decision_diagnostics: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class HistoricalReplayResult:
     max_drawdown_pct: float | None
     equity_curve: tuple[HistoricalEquityPoint, ...]
     warnings: tuple[str, ...]
+    decision_diagnostics: dict = field(default_factory=dict)
 
 
 class HistoricalReplay:
@@ -77,7 +79,9 @@ class HistoricalReplay:
     def run(self, cycles: Iterable[HistoricalReplayCycle]) -> HistoricalReplayResult:
         curve = []
         warnings = set()
+        decision_records = []
         for cycle in self._validate_cycles(cycles):
+            decision_records.extend(cycle.decision_diagnostics or ())
             self.executor.execute(
                 self.portfolio,
                 cycle.scan,
@@ -132,6 +136,7 @@ class HistoricalReplay:
             max_drawdown_pct=drawdown_pct,
             equity_curve=tuple(curve),
             warnings=tuple(sorted(warnings)),
+            decision_diagnostics=_summarize_decision_diagnostics(decision_records),
         )
 
 
@@ -261,7 +266,27 @@ def iter_historical_cycles(
             if decision.action == "BUY" and ticker in {item.ticker for item in candidates}
         }
         reasons = {ticker: decisions[ticker].reason for ticker in approved}
-        yield HistoricalReplayCycle(stamp, scan, approved, reasons)
+        candidate_tickers = {item.ticker for item in candidates}
+        decision_diagnostics = tuple(
+            {
+                "ticker": ticker,
+                "action": decisions[ticker].action,
+                "reason": decisions[ticker].reason,
+                "score": decisions[ticker].score,
+                "confidence": decisions[ticker].confidence,
+                "consistency": decisions[ticker].consistency,
+            }
+            if ticker in decisions else {
+                "ticker": ticker,
+                "action": "NO_INTELLIGENCE",
+                "reason": "нет корректного результата Intelligence",
+                "score": None,
+                "confidence": None,
+                "consistency": None,
+            }
+            for ticker in sorted(candidate_tickers)
+        )
+        yield HistoricalReplayCycle(stamp, scan, approved, reasons, decision_diagnostics)
 
         # Only after decisions for this timestamp are formed does its candle
         # become available to the analyzer in the following cycle.
@@ -291,6 +316,45 @@ def build_historical_cycles(
         min_history=min_history,
         momentum_period=momentum_period,
     ))
+
+
+def _summarize_decision_diagnostics(records: list[dict]) -> dict:
+    """Aggregate candidate decisions without changing authorization thresholds."""
+    from collections import Counter
+
+    actions = Counter()
+    reasons = Counter()
+    metrics = {name: [] for name in ("score", "confidence", "consistency")}
+    for record in records:
+        actions[str(record.get("action") or "UNKNOWN")] += 1
+        reasons[str(record.get("reason") or "unknown")] += 1
+        for name in metrics:
+            value = record.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                import math
+                if math.isfinite(float(value)):
+                    metrics[name].append(float(value))
+
+    metric_summary = {}
+    for name, values in metrics.items():
+        metric_summary[name] = {
+            "observations": len(values),
+            "minimum": min(values) if values else None,
+            "maximum": max(values) if values else None,
+            "mean": sum(values) / len(values) if values else None,
+        }
+    return {
+        "candidate_decisions": len(records),
+        "action_counts": dict(sorted(actions.items())),
+        "reason_counts": dict(sorted(reasons.items())),
+        "metric_summary": metric_summary,
+        "authorization_thresholds": {
+            "minimum_buy_score": 0.60,
+            "minimum_confidence": 0.50,
+            "minimum_consistency": 0.50,
+            "thresholds_changed": False,
+        },
+    }
 
 
 def _historical_session_is_open(session: object, expected_date: str) -> bool:
