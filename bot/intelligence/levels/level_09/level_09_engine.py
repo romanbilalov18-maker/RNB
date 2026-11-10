@@ -50,10 +50,27 @@ class Level9Engine:
             sum(quality_scores[key] * weight for key, weight in effective.items()) / total_effective
             if total_effective > 0 else 0.0
         )
-        confidence = sum(
-            self.WEIGHTS[key] * max(0.0, min(1.0, results[key].confidence))
+        # A confirmed empty portfolio makes concentration, diversification and
+        # correlation genuinely not applicable. They must not dilute confidence
+        # in the remaining applicable evidence as if data were missing.
+        # Unknown portfolio context is deliberately NOT excluded.
+        applicable = {
+            key: not (
+                "portfolio_confirmed_empty" in results[key].warnings
+                and any(warning.endswith("_not_applicable") for warning in results[key].warnings)
+            )
             for key in self.WEIGHTS
-        ) / sum(self.WEIGHTS.values())
+        }
+        applicable_weight = sum(
+            self.WEIGHTS[key] for key in self.WEIGHTS if applicable[key]
+        )
+        confidence = (
+            sum(
+                self.WEIGHTS[key] * max(0.0, min(1.0, results[key].confidence))
+                for key in self.WEIGHTS if applicable[key]
+            ) / applicable_weight
+            if applicable_weight > 0.0 else 0.0
+        )
         if context_warnings:
             score = 0.0
             confidence = 0.0
