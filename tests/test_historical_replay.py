@@ -481,6 +481,77 @@ class HistoricalReplayTests(unittest.TestCase):
 
         self.assertEqual(cycles[-1].scan.sector_by_ticker, {"AAA": "technology"})
 
+
+    def test_walk_forward_learning_releases_only_after_three_later_sessions(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+        import bot.intelligence.decision_engine as decision_module
+
+        observed_sample_counts = []
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(ticker=ticker, score=0.9, momentum=0.1, volatility=0.1)
+
+        class FakeDecisionEngine:
+            def evaluate(self, intelligence, held_tickers=()):
+                return {"AAA": SimpleNamespace(
+                    action="BUY", reason="test", score=0.9,
+                    confidence=0.8, consistency=0.8,
+                )}
+
+        def fake_intelligence(scan, portfolio=None, learning_observations_by_ticker=None):
+            samples = (learning_observations_by_ticker or {}).get("AAA", ())
+            observed_sample_counts.append(len(samples))
+            return {"AAA": SimpleNamespace(
+                overall_score=0.9,
+                overall_confidence=0.8,
+                overall_consistency=0.8,
+                level_01=SimpleNamespace(
+                    score=0.8,
+                    analyzer_results={
+                        "trend": SimpleNamespace(analyzer="trend", score=0.8)
+                    },
+                ),
+                level_03=SimpleNamespace(metadata={"regime": "trend"}),
+            )}
+
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        bars = [
+            SimpleNamespace(
+                time=start + timedelta(days=i),
+                open=100.0 + i,
+                high=102.0 + i,
+                low=99.0 + i,
+                close=101.0 + i,
+                volume=1000,
+            )
+            for i in range(9)
+        ]
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan", fake_intelligence
+        ), patch.object(decision_module, "DecisionEngine", FakeDecisionEngine):
+            cycles = list(iter_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+            ))
+
+        # First possible decision is on bar index 2. Its outcome uses the close
+        # of the third strictly later broker session (bar index 5), and becomes
+        # available only to the following decision cycle (bar index 6).
+        self.assertEqual(observed_sample_counts[:4], [0, 0, 0, 0])
+        self.assertEqual(observed_sample_counts[4:6], [1, 2])
+        self.assertTrue(all(count >= 0 for count in observed_sample_counts))
+        self.assertEqual(len(cycles), 9)
+
     def test_decision_diagnostics_count_actions_reasons_and_metric_ranges(self):
         from bot.historical_replay import _summarize_decision_diagnostics
 
