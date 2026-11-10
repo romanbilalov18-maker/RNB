@@ -377,6 +377,44 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(breakdown["L11.learning_confidence"], 0.0)
         self.assertEqual(breakdown["L14.data_reliability"], 0.7)
 
+    def test_historical_cycles_carry_explicit_sector_metadata_into_scan(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(ticker=ticker, score=0.5, momentum=0.0, volatility=0.1)
+
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan",
+            lambda scan, portfolio=None: {
+                ticker: SimpleNamespace(
+                    overall_score=0.1, overall_confidence=0.1, overall_consistency=0.1
+                )
+                for ticker in scan.analyses
+            },
+        ):
+            start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+            bars = [
+                SimpleNamespace(time=start + timedelta(days=i), open=100 + i, close=100 + i)
+                for i in range(3)
+            ]
+            cycles = list(iter_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+                sectors_by_ticker={"AAA": "technology"},
+            ))
+
+        self.assertEqual(cycles[-1].scan.sector_by_ticker, {"AAA": "technology"})
+
     def test_decision_diagnostics_count_actions_reasons_and_metric_ranges(self):
         from bot.historical_replay import _summarize_decision_diagnostics
 
