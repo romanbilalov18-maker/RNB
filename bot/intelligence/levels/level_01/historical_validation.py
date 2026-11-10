@@ -189,6 +189,30 @@ def _metrics(rows):
     }
 
 
+
+def _cost_sensitivity(rows, one_way_costs_bps=(0, 5, 10, 25, 50, 100)):
+    """Show how assumed round-trip costs change the same gross outcomes.
+
+    These are transparent scenarios, not broker tariff estimates. The caller's
+    selected cost_bps remains the value used by the primary metrics.
+    """
+    scenarios = []
+    for one_way_bps in one_way_costs_bps:
+        cost_fraction = 2.0 * one_way_bps / 10000.0
+        net_returns = [row["gross_return"] - cost_fraction for row in rows]
+        scenarios.append({
+            "assumed_one_way_cost_bps": one_way_bps,
+            "assumed_round_trip_cost_bps": 2 * one_way_bps,
+            "observations": len(net_returns),
+            "mean_net_return": statistics.mean(net_returns) if net_returns else None,
+            "positive_net_return_rate": (
+                sum(value > 0 for value in net_returns) / len(net_returns)
+                if net_returns else None
+            ),
+        })
+    return scenarios
+
+
 def evaluate(path: Path, window: int = 20, horizon: int = 5,
              data_source: str = "user_supplied_csv", cost_bps: float = 0.0,
              max_gap_days: int = 7, official_calendar_path: Path | None = None):
@@ -302,6 +326,7 @@ def evaluate(path: Path, window: int = 20, horizon: int = 5,
         "forward_horizon_rows": horizon,
         "non_overlapping_outcomes": True,
         "assumed_round_trip_cost_bps": cost_bps,
+        "cost_sensitivity": _cost_sensitivity(predictions),
         "metrics": {
             "all": _metrics(predictions),
             "development_chronological": _metrics(development),
