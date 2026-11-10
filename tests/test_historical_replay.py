@@ -85,7 +85,10 @@ class HistoricalReplayTests(unittest.TestCase):
                 {"AAA": bars},
                 instrument_ids={"AAA": "id"},
                 lot_sizes={"AAA": 1},
-                sessions_by_ticker={"AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}},
+                sessions_by_ticker={"AAA": {
+                    "session": "main", "instrument_exchange": "MOEX",
+                    "verified": True, "is_open": True, "schedule_date": "2025-01-03",
+                }},
                 tradable_tickers={"AAA"},
                 min_history=2,
                 momentum_period=1,
@@ -100,6 +103,25 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(seen_lengths, [2])
         self.assertLess(cycles[0].timestamp, cycles[1].timestamp)
         self.assertLess(cycles[1].timestamp, cycles[2].timestamp)
+
+
+    def test_historical_buy_requires_verified_open_schedule_for_exact_bar_date(self):
+        from bot.historical_replay import _historical_session_is_open
+        self.assertTrue(_historical_session_is_open({
+            "verified": True, "is_open": True, "schedule_date": "2025-01-03",
+            "session": "main", "instrument_exchange": "MOEX",
+        }, "2025-01-03"))
+        for invalid in (
+            {"verified": False, "is_open": True, "schedule_date": "2025-01-03",
+             "session": "main", "instrument_exchange": "MOEX"},
+            {"verified": True, "is_open": False, "schedule_date": "2025-01-03",
+             "session": "closed", "instrument_exchange": "MOEX"},
+            {"verified": True, "is_open": True, "schedule_date": "2025-01-04",
+             "session": "main", "instrument_exchange": "MOEX"},
+            {"session": "main", "instrument_exchange": "MOEX"},
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(_historical_session_is_open(invalid, "2025-01-03"))
 
     def test_empty_replay_has_no_fabricated_final_equity(self):
         result = HistoricalReplay(VirtualPortfolio(initial_balance=1000), CapturingExecutor()).run([])
