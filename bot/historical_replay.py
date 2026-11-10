@@ -275,6 +275,7 @@ def iter_historical_cycles(
                 "score": decisions[ticker].score,
                 "confidence": decisions[ticker].confidence,
                 "consistency": decisions[ticker].consistency,
+                "confidence_breakdown": _confidence_breakdown(intelligence.get(ticker)),
             }
             if ticker in decisions else {
                 "ticker": ticker,
@@ -283,6 +284,7 @@ def iter_historical_cycles(
                 "score": None,
                 "confidence": None,
                 "consistency": None,
+                "confidence_breakdown": {},
             }
             for ticker in sorted(candidate_tickers)
         )
@@ -318,6 +320,32 @@ def build_historical_cycles(
     ))
 
 
+def _confidence_breakdown(intelligence: object) -> dict:
+    """Expose the confidence bottleneck across L1-L15 without changing decisions."""
+    if intelligence is None:
+        return {}
+    breakdown = {}
+    for level in range(1, 16):
+        result = getattr(intelligence, f"level_{level:02d}", None)
+        confidence = getattr(result, "confidence", None)
+        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+            breakdown[f"L{level:02d}"] = float(confidence)
+
+    level10 = getattr(intelligence, "level_10", None)
+    for name, result in (getattr(level10, "analyzer_results", {}) or {}).items():
+        confidence = getattr(result, "confidence", None)
+        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+            breakdown[f"L10.{name}"] = float(confidence)
+
+    level15 = getattr(intelligence, "level_15", None)
+    for result in getattr(level15, "analyzer_results", ()) or ():
+        confidence = getattr(result, "confidence", None)
+        name = getattr(result, "analyzer", None)
+        if isinstance(name, str) and isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+            breakdown[f"L15.{name}"] = float(confidence)
+    return breakdown
+
+
 def _summarize_decision_diagnostics(records: list[dict]) -> dict:
     """Aggregate candidate decisions without changing authorization thresholds."""
     from collections import Counter
@@ -335,6 +363,25 @@ def _summarize_decision_diagnostics(records: list[dict]) -> dict:
                 if math.isfinite(float(value)):
                     metrics[name].append(float(value))
 
+    confidence_breakdown_values = {}
+    for record in records:
+        for name, value in (record.get("confidence_breakdown") or {}).items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                import math
+                if math.isfinite(float(value)):
+                    confidence_breakdown_values.setdefault(name, []).append(float(value))
+
+    confidence_breakdown_summary = {
+        name: {
+            "observations": len(values),
+            "minimum": min(values),
+            "maximum": max(values),
+            "mean": sum(values) / len(values),
+        }
+        for name, values in sorted(confidence_breakdown_values.items())
+        if values
+    }
+
     metric_summary = {}
     for name, values in metrics.items():
         metric_summary[name] = {
@@ -348,6 +395,7 @@ def _summarize_decision_diagnostics(records: list[dict]) -> dict:
         "action_counts": dict(sorted(actions.items())),
         "reason_counts": dict(sorted(reasons.items())),
         "metric_summary": metric_summary,
+        "confidence_breakdown_summary": confidence_breakdown_summary,
         "authorization_thresholds": {
             "minimum_buy_score": 0.60,
             "minimum_confidence": 0.50,
