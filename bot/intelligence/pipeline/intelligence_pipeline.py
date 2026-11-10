@@ -79,8 +79,8 @@ class IntelligencePipeline:
             _bounded(alpha_confidence),
             _bounded(alpha_consistency),
             a,
-            tuple(result.analyzer for result in a if result.score >= 0.70),
-            tuple(result.analyzer for result in a if result.score <= 0.30),
+            tuple(result.analyzer for result in alpha if result.score >= 0.70),
+            tuple(result.analyzer for result in alpha if result.score <= 0.30),
             tuple(dict.fromkeys(warning for result in a for warning in result.warnings)),
             {
                 "version": "1.1",
