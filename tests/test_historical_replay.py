@@ -277,5 +277,38 @@ class HistoricalReplayTests(unittest.TestCase):
         self.assertEqual(observed_positions, [set(), set(), set(), {"AAA"}])
 
 
+    def test_replay_consumes_stateful_cycle_generator_after_each_execution(self):
+        events = []
+
+        class OrderedExecutor:
+            def execute(self, portfolio, scan, *, eligible_buy_tickers=None,
+                        eligible_buy_reasons=None, as_of=None):
+                events.append(("execute", as_of))
+
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
+        def cycles():
+            events.append(("prepare", 1))
+            yield _cycle(start)
+            events.append(("prepare", 2))
+            yield _cycle(start + timedelta(days=1))
+
+        result = HistoricalReplay(
+            VirtualPortfolio(initial_balance=1000), OrderedExecutor()
+        ).run(cycles())
+
+        self.assertEqual(
+            events,
+            [
+                ("prepare", 1),
+                ("execute", start),
+                ("prepare", 2),
+                ("execute", start + timedelta(days=1)),
+            ],
+        )
+        self.assertEqual(len(result.equity_curve), 2)
+
+
+
 if __name__ == "__main__":
     unittest.main()
