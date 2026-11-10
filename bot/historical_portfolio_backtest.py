@@ -252,8 +252,9 @@ def run_replay(
             "profit_reserve_rate": reserve_rate,
             "risk_budget_percent": risk_budget_percent,
             "take_profit_percent": take_profit_percent,
-            "execution_price": "next daily candle open",
-            "signal_data": "only prior completed daily candles",
+            "execution_price": "next daily open; existing-position Stop Loss/Take Profit may fill at a daily OHLC trigger or gap open",
+            "intraday_ohlc_ambiguity": "if stop and target are both touched in one daily candle, stop is assumed first (conservative)",
+            "signal_data": "only prior completed daily candles; current-day OHLC is execution-only",
         },
         "portfolio": {
             "final_equity": result.final_equity,
@@ -301,7 +302,7 @@ def run_replay(
         "limitations": [
             "The historical universe is not reconstructed point-in-time.",
             "Current lot sizes and exchange metadata are used; historical changes are unavailable in the exported dataset.",
-            "Daily bars do not model intraday path, bid/ask spread, queue position, partial fills, or intraday stop execution.",
+            "Daily bars do not reveal intraday event order; when both stop and target are touched in one candle, the replay conservatively assumes the stop occurred first. Bid/ask spread, queue position, and partial fills are not modeled.",
             "The daily candle's existence is used as evidence of a trading day; this is not a full historical exchange schedule.",
             "Results are research diagnostics, not a profitability guarantee or authorization for real-money trading.",
         ],
