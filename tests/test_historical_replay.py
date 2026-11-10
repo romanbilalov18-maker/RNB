@@ -164,7 +164,7 @@ class HistoricalReplayTests(unittest.TestCase):
                 {"AAA": bars},
                 instrument_ids={"AAA": "id"},
                 lot_sizes={"AAA": 1},
-                sessions_by_ticker={"AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}},
+                sessions_by_ticker={"AAA": {"session": "main", "instrument_exchange": "MOEX", "verified": True, "is_open": True, "schedule_date": "2025-01-03"}},
                 tradable_tickers={"AAA"},
                 min_history=2,
                 momentum_period=1,
