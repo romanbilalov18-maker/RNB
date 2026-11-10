@@ -250,6 +250,7 @@ def main() -> None:
     print(f"DECISION_ACTION_COUNTS={json.dumps(diagnostics.get('action_counts', {}), ensure_ascii=False, sort_keys=True)}")
     print(f"DECISION_REASON_COUNTS={json.dumps(diagnostics.get('reason_counts', {}), ensure_ascii=False, sort_keys=True)}")
     print(f"DECISION_METRIC_SUMMARY={json.dumps(diagnostics.get('metric_summary', {}), ensure_ascii=False, sort_keys=True)}")
+    print(f"DECISION_CONFIDENCE_BREAKDOWN={json.dumps(diagnostics.get('confidence_breakdown_summary', {}), ensure_ascii=False, sort_keys=True)}")
 
     print(f"REPORT={args.output}")
 
