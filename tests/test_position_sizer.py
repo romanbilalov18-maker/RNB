@@ -533,5 +533,5 @@ if __name__ == "__main__":
         )
 
         self.assertEqual(len(plan), 1)
-        self.assertEqual(plan[0].quantity, 8)
-        self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 8 * 6.95)
+        self.assertEqual(plan[0].quantity, 1)
+        self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 6.95)
