@@ -83,7 +83,13 @@ class SQLitePortfolioStore:
                     last_health_status TEXT,
                     last_health_candle_timestamp TEXT,
                     health_condition TEXT,
-                    health_condition_since TEXT
+                    health_condition_since TEXT,
+                    initial_stop_price REAL,
+                    stop_price REAL,
+                    high_watermark REAL,
+                    initial_stop_risk_per_share REAL,
+                    stop_model TEXT,
+                    stop_updated_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS trades (
@@ -143,6 +149,16 @@ class SQLitePortfolioStore:
                 db.execute("ALTER TABLE positions ADD COLUMN health_condition TEXT")
             if "health_condition_since" not in position_columns:
                 db.execute("ALTER TABLE positions ADD COLUMN health_condition_since TEXT")
+            for column, sql_type in (
+                ("initial_stop_price", "REAL"),
+                ("stop_price", "REAL"),
+                ("high_watermark", "REAL"),
+                ("initial_stop_risk_per_share", "REAL"),
+                ("stop_model", "TEXT"),
+                ("stop_updated_at", "TEXT"),
+            ):
+                if column not in position_columns:
+                    db.execute(f"ALTER TABLE positions ADD COLUMN {column} {sql_type}")
             trade_columns = {row["name"] for row in db.execute("PRAGMA table_info(trades)")}
             if "reason" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reason TEXT NOT NULL DEFAULT 'not recorded'")
@@ -224,6 +240,41 @@ class SQLitePortfolioStore:
                     last_health_candle_timestamp=position["last_health_candle_timestamp"],
                     health_condition=position["health_condition"],
                     health_condition_since=position["health_condition_since"],
+                    initial_stop_price=(
+                        _validate_persisted_number(
+                            position["initial_stop_price"],
+                            f"position {position['ticker']} initial_stop_price",
+                            positive=True,
+                        ) if position["initial_stop_price"] is not None else None
+                    ),
+                    stop_price=(
+                        _validate_persisted_number(
+                            position["stop_price"],
+                            f"position {position['ticker']} stop_price",
+                            positive=True,
+                        ) if position["stop_price"] is not None else None
+                    ),
+                    high_watermark=(
+                        _validate_persisted_number(
+                            position["high_watermark"],
+                            f"position {position['ticker']} high_watermark",
+                            positive=True,
+                        ) if position["high_watermark"] is not None else None
+                    ),
+                    initial_stop_risk_per_share=(
+                        _validate_persisted_number(
+                            position["initial_stop_risk_per_share"],
+                            f"position {position['ticker']} initial_stop_risk_per_share",
+                            positive=True,
+                        ) if position["initial_stop_risk_per_share"] is not None else None
+                    ),
+                    stop_model=position["stop_model"],
+                    stop_updated_at=(
+                        _parse_persisted_timestamp(
+                            position["stop_updated_at"],
+                            f"position {position['ticker']} stop_updated_at",
+                        ) if position["stop_updated_at"] else None
+                    ),
                 )
                 if not isinstance(position["ticker"], str) or not position["ticker"].strip():
                     raise ValueError("corrupt portfolio data: position ticker must not be empty")
@@ -382,9 +433,11 @@ class SQLitePortfolioStore:
                     ticker, quantity, average_price, purchase_timestamp,
                     purchase_session, purchase_exchange, quote_unavailable_cycles,
                     stagnant_sessions, last_health_status, last_health_candle_timestamp,
-                    health_condition, health_condition_since
+                    health_condition, health_condition_since, initial_stop_price,
+                    stop_price, high_watermark, initial_stop_risk_per_share,
+                    stop_model, stop_updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (p.ticker, p.quantity, p.average_price,
@@ -392,7 +445,10 @@ class SQLitePortfolioStore:
                      p.purchase_session, p.purchase_exchange,
                      p.quote_unavailable_cycles, p.stagnant_sessions,
                      p.last_health_status, p.last_health_candle_timestamp,
-                     p.health_condition, p.health_condition_since)
+                     p.health_condition, p.health_condition_since,
+                     p.initial_stop_price, p.stop_price, p.high_watermark,
+                     p.initial_stop_risk_per_share, p.stop_model,
+                     p.stop_updated_at.isoformat() if p.stop_updated_at else None)
                     for p in portfolio.positions.values()
                 ],
             )
