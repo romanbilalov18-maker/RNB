@@ -34,7 +34,7 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
 
         current_bar = SimpleNamespace(
             time=start + timedelta(days=15),
-            open=100.0,
+            open=105.0,
             high=110.0,
             low=99.0,
             close=108.0,
@@ -42,7 +42,7 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
         scan = SimpleNamespace(
             analyses={},
             buy_candidates=[],
-            current_prices={"AAA": 100.0},
+            current_prices={"AAA": 105.0},
             previous_closes={"AAA": 101.0},
             lot_sizes={},
             active_trading_tickers={"AAA"},
