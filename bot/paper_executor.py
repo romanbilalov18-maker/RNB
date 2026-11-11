@@ -255,9 +255,16 @@ class PaperExecutor:
                     f"POSITION EXIT FALLBACK: {ticker} using timestamp-verified fresh order-book bid; BUY eligibility remains disabled."
                 )
             exit_eligible_tickers.add(ticker)
+        # Historical execution opens are a separate, broker-observed channel.
+        # Merge them only for already-held positions; never feed them back into
+        # candidate ranking, signal analysis, or portfolio mark-to-market inputs.
+        available_exit_prices = dict(scan.current_prices)
+        available_exit_prices.update(
+            getattr(scan, "execution_prices", {}) or {}
+        )
         execution_prices = {
             ticker: price
-            for ticker, price in scan.current_prices.items()
+            for ticker, price in available_exit_prices.items()
             if ticker in exit_eligible_tickers
         }
         market_closed_tickers = set(getattr(scan, "market_closed_tickers", set()) or set())
