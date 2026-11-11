@@ -79,6 +79,12 @@ class TestConfigValidation(unittest.TestCase):
         self.assertEqual(self._load(PROFIT_RESERVE_RATE="0").profit_reserve_rate, 0.0)
         self.assertEqual(self._load(PROFIT_RESERVE_RATE="1").profit_reserve_rate, 1.0)
 
+    def test_validates_net_profit_cost_assumptions(self):
+        for key, value in (("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", "-1"), ("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", "10001"), ("VIRTUAL_FALLBACK_SPREAD_PERCENT", "-0.1"), ("VIRTUAL_FALLBACK_SPREAD_PERCENT", "100.1")):
+            with self.subTest(key=key, value=value):
+                with self.assertRaisesRegex(ValueError, key):
+                    self._load(**{key: value})
+
     def test_rejects_take_profit_below_minimum(self):
         with self.assertRaisesRegex(ValueError, "at least 0.15%"):
             self._load(TAKE_PROFIT_PERCENT="0.1")
