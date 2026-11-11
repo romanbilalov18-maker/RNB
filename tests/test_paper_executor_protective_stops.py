@@ -36,7 +36,7 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
             time=start + timedelta(days=15),
             open=105.0,
             high=110.0,
-            low=99.0,
+            low=105.0,
             close=108.0,
         )
         scan = SimpleNamespace(
