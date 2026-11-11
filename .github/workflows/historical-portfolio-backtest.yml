@@ -120,6 +120,7 @@ jobs:
           --risk-budget-percent "${{ inputs.risk_budget_percent }}"
           --reserve-rate "${{ inputs.reserve_rate }}"
           --take-profit-percent "${{ inputs.take_profit_percent }}"
+          --minimum-net-return-percent "${{ inputs.minimum_net_return_percent }}"
           --tickers "${{ inputs.ticker_universe }}"
           --output data/historical_portfolio_report.json
           --comparison-output data/historical_scenario_comparison.json
