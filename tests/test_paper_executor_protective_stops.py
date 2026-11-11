@@ -213,3 +213,50 @@ if __name__ == "__main__":
         self.assertEqual(sells[0].price, 90.0)
         self.assertIn("гэп ниже", sells[0].reason)
         self.assertNotIn("GAP", portfolio.positions)
+
+
+    def test_legacy_five_percent_guard_remains_active_when_atr_stop_is_wider(self):
+        timestamp = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)
+        portfolio.buy("WIDE", 5, 100.0, timestamp)
+        position = portfolio.positions["WIDE"]
+        position.initial_stop_price = 90.0
+        position.stop_price = 90.0
+        position.high_watermark = 100.0
+        position.initial_stop_risk_per_share = (
+            100.0 * 1.0005 - 90.0 * 0.9995
+        )
+
+        candle = SimpleNamespace(
+            open=100.0, high=101.0, low=94.0, close=96.0
+        )
+        scan = SimpleNamespace(
+            analyses={},
+            buy_candidates=[],
+            current_prices={"WIDE": 100.0},
+            previous_closes={"WIDE": 100.0},
+            lot_sizes={},
+            active_trading_tickers={"WIDE"},
+            fresh_quote_tickers={"WIDE"},
+            sellable_quote_tickers={"WIDE"},
+            session_by_ticker={},
+            candle_history={},
+            market_closed_tickers=set(),
+        )
+
+        sells, _ = PaperExecutor().execute(
+            portfolio,
+            scan,
+            eligible_buy_tickers=set(),
+            eligible_buy_reasons={},
+            as_of=timestamp + timedelta(days=1),
+            execution_candles={"WIDE": candle},
+        )
+
+        expected_legacy_stop = (
+            100.0 * 1.0005 * 0.95 / 0.9995
+        )
+        self.assertEqual(len(sells), 1)
+        self.assertAlmostEqual(sells[0].price, expected_legacy_stop)
+        self.assertIn("Stop Loss", sells[0].reason)
+        self.assertNotIn("WIDE", portfolio.positions)
