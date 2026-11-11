@@ -7,7 +7,7 @@ from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionDecision, PositionManager
 from bot.position_health import assess_position_health, verified_completed_candles
 from bot.position_sizer import PositionSizer
-from bot.protective_stops import average_true_range, initial_atr_stop, ratchet_trailing_stop
+from bot.protective_stops import average_true_range, initial_atr_stop, market_price_number, ratchet_trailing_stop
 from bot.virtual_portfolio import VirtualPortfolio
 
 
@@ -26,12 +26,14 @@ def _daily_ohlc_protective_exit(
     the true intraday path.
     """
     try:
-        open_price = float(getattr(candle, "open"))
-        high = float(getattr(candle, "high"))
-        low = float(getattr(candle, "low"))
+        open_price = market_price_number(getattr(candle, "open"))
+        high = market_price_number(getattr(candle, "high"))
+        low = market_price_number(getattr(candle, "low"))
         average = float(position.average_price)
         rate = float(commission_rate)
     except (TypeError, ValueError, AttributeError, OverflowError):
+        return None
+    if open_price is None or high is None or low is None:
         return None
     values = (open_price, high, low, average, rate)
     if not all(math.isfinite(value) for value in values):
@@ -493,12 +495,12 @@ class PaperExecutor:
             if atr is None:
                 continue
             candle = (execution_candles or {}).get(ticker)
-            observed_high = getattr(candle, "high", None) if candle is not None else execution_prices.get(ticker)
-            try:
-                observed_high = float(observed_high)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if not math.isfinite(observed_high) or observed_high <= 0:
+            observed_high = (
+                market_price_number(getattr(candle, "high", None))
+                if candle is not None
+                else market_price_number(execution_prices.get(ticker))
+            )
+            if observed_high is None or not math.isfinite(observed_high) or observed_high <= 0:
                 continue
             old_high = getattr(position, "high_watermark", None)
             if not (
