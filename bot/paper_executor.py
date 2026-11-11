@@ -45,15 +45,18 @@ def _daily_ohlc_protective_exit(
 
     entry_cost = average * (1.0 + rate)
     persisted_stop = getattr(position, "stop_price", None)
+    legacy_stop_price = entry_cost * (1.0 + stop_loss) / (1.0 - rate)
     if (
         isinstance(persisted_stop, (int, float))
         and not isinstance(persisted_stop, bool)
         and math.isfinite(persisted_stop)
         and persisted_stop > 0
     ):
-        stop_price = float(persisted_stop)
+        # The tighter (higher) long stop wins. ATR must never weaken the
+        # existing hard percentage loss guard.
+        stop_price = max(float(persisted_stop), legacy_stop_price)
     else:
-        stop_price = entry_cost * (1.0 + stop_loss) / (1.0 - rate)
+        stop_price = legacy_stop_price
     target_price = entry_cost * (1.0 + take_profit) / (1.0 - rate)
 
     if open_price <= stop_price:
