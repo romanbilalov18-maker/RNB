@@ -201,3 +201,23 @@ class TestPositionManager(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_duplicate_sell_decisions_execute_only_one_sale(self):
+        timestamp = datetime(2026, 11, 10, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 10, 100.0, timestamp)
+        decision = SimpleNamespace(
+            ticker="AAA", action="SELL", reason="duplicate stop event"
+        )
+
+        trades = PositionManager().execute_sales(
+            portfolio,
+            [decision, decision],
+            {"AAA": 94.0},
+            timestamp=timestamp,
+        )
+
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(len([trade for trade in portfolio.trades if trade.side == "SELL"]), 1)
+        self.assertNotIn("AAA", portfolio.positions)
