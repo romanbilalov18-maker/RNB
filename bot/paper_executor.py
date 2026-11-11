@@ -445,6 +445,18 @@ class PaperExecutor:
                     f"verified_execution_price={execution_prices.get(decision.ticker, 'UNAVAILABLE')}"
                 )
 
+        position_stop_snapshot = {
+            ticker: {
+                "quantity": position.quantity,
+                "initial_stop_price": getattr(position, "initial_stop_price", None),
+                "stop_price": getattr(position, "stop_price", None),
+                "initial_stop_risk_per_share": getattr(
+                    position, "initial_stop_risk_per_share", None
+                ),
+                "stop_model": getattr(position, "stop_model", None),
+            }
+            for ticker, position in portfolio.positions.items()
+        }
         sell_trades = self.position_manager.execute_sales(
             portfolio,
             decisions,
@@ -460,12 +472,48 @@ class PaperExecutor:
                     trade for trade in sell_trades
                     if trade.ticker == decision.ticker
                 )
+                snapshot = position_stop_snapshot.get(trade.ticker, {})
+                initial_risk_per_share = snapshot.get("initial_stop_risk_per_share")
+                initial_risk = (
+                    trade.quantity * initial_risk_per_share
+                    if isinstance(initial_risk_per_share, (int, float))
+                    and not isinstance(initial_risk_per_share, bool)
+                    and math.isfinite(initial_risk_per_share)
+                    and initial_risk_per_share > 0
+                    else None
+                )
+                actual_loss = max(0.0, -float(trade.realized_pnl))
+                trigger_price = snapshot.get("stop_price")
+                stop_slippage = (
+                    float(trigger_price) - float(trade.price)
+                    if isinstance(trigger_price, (int, float))
+                    and not isinstance(trigger_price, bool)
+                    and math.isfinite(trigger_price)
+                    and trigger_price > 0
+                    and "stop" in str(trade.reason).casefold()
+                    else None
+                )
                 print(
                     f"SELL_EXECUTED: ticker={trade.ticker} "
-                    f"quantity={trade.quantity} price={trade.price} "
+                    f"quantity={trade.quantity} fill_price={trade.price} "
                     f"realized_pnl={trade.realized_pnl:.6f} "
                     f"reason={trade.reason}"
                 )
+                if "stop" in str(trade.reason).casefold():
+                    print(
+                        f"STOP_EXIT_AUDIT: ticker={trade.ticker} "
+                        f"model={snapshot.get('stop_model') or 'LEGACY'} "
+                        f"initial_stop={snapshot.get('initial_stop_price')} "
+                        f"trigger_stop={trigger_price} fill_price={trade.price} "
+                        f"gap_slippage_per_share={stop_slippage} "
+                        f"actual_loss={actual_loss:.6f} "
+                        f"initial_risk={initial_risk if initial_risk is not None else 'UNAVAILABLE'} "
+                        f"loss_over_initial_risk={(
+                            actual_loss / initial_risk
+                            if initial_risk is not None and initial_risk > 0
+                            else 'UNAVAILABLE'
+                        )}"
+                    )
             else:
                 position = portfolio.positions.get(decision.ticker)
                 print(
