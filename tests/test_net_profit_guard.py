@@ -27,6 +27,17 @@ class NetProfitGuardTests(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertEqual(result.reason, "net_return_below_threshold")
 
+    def test_minimum_take_profit_can_be_erased_by_round_trip_costs(self):
+        result = assess_net_profit(
+            expected_gross_return=.0025,
+            commission_rate=.0005,
+            spread_pct=.001,
+            slippage_bps=5,
+            minimum_net_return=0,
+        )
+        self.assertFalse(result.allowed)
+        self.assertLess(result.expected_net_return, 0)
+
     def test_invalid_inputs_fail_closed(self):
         cases = [
             ("expected_gross_return", float("nan")),
