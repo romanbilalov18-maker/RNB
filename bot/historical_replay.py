@@ -241,19 +241,26 @@ def iter_historical_cycles(
         analyses, prices, previous_closes, visible_history, latest = {}, {}, {}, {}, {}
         for ticker, bar in current_bars.items():
             bars = history[ticker]
+            # Execution evidence is independent of strategy analysis. A valid
+            # current-bar open must remain available to protect an existing
+            # holding even when history is short or the analyzer fails.
+            execution_open = _number(getattr(bar, "open", None))
+            if execution_open is not None and execution_open > 0:
+                prices[ticker] = execution_open
+
+            prior_close = _number(getattr(bars[-1], "close", None)) if bars else None
+            if prior_close is not None and prior_close > 0:
+                previous_closes[ticker] = prior_close
+
             if len(bars) < min_history:
                 continue
-            execution_open = _number(getattr(bar, "open", None))
-            prior_close = _number(getattr(bars[-1], "close", None))
-            if execution_open is None or prior_close is None or execution_open <= 0 or prior_close <= 0:
+            if execution_open is None or execution_open <= 0 or prior_close is None or prior_close <= 0:
                 continue
             try:
                 result = analyzer.analyze(instrument_ids.get(ticker, ticker), ticker, bars)
             except (TypeError, ValueError, ArithmeticError):
                 continue
             analyses[ticker] = result
-            prices[ticker] = execution_open
-            previous_closes[ticker] = prior_close
             visible_history[ticker] = list(bars)
             latest[ticker] = bars[-1]
 
