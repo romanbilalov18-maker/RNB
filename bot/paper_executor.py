@@ -7,6 +7,7 @@ from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionDecision, PositionManager
 from bot.position_health import assess_position_health, verified_completed_candles
 from bot.position_sizer import PositionSizer
+from bot.protective_stops import average_true_range, initial_atr_stop, ratchet_trailing_stop
 from bot.virtual_portfolio import VirtualPortfolio
 
 
@@ -41,7 +42,16 @@ def _daily_ohlc_protective_exit(
         return None
 
     entry_cost = average * (1.0 + rate)
-    stop_price = entry_cost * (1.0 + stop_loss) / (1.0 - rate)
+    persisted_stop = getattr(position, "stop_price", None)
+    if (
+        isinstance(persisted_stop, (int, float))
+        and not isinstance(persisted_stop, bool)
+        and math.isfinite(persisted_stop)
+        and persisted_stop > 0
+    ):
+        stop_price = float(persisted_stop)
+    else:
+        stop_price = entry_cost * (1.0 + stop_loss) / (1.0 - rate)
     target_price = entry_cost * (1.0 + take_profit) / (1.0 - rate)
 
     if open_price <= stop_price:
@@ -159,7 +169,18 @@ class PaperExecutor:
                 raise ValueError(
                     f"cannot estimate open stop-loss risk for invalid position {ticker}"
                 )
-            open_risk += quantity * average_price * loss_rate_after_commission
+            persisted_risk_per_share = getattr(
+                position, "initial_stop_risk_per_share", None
+            )
+            if (
+                isinstance(persisted_risk_per_share, (int, float))
+                and not isinstance(persisted_risk_per_share, bool)
+                and math.isfinite(persisted_risk_per_share)
+                and persisted_risk_per_share > 0
+            ):
+                open_risk += quantity * persisted_risk_per_share
+            else:
+                open_risk += quantity * average_price * loss_rate_after_commission
             if not math.isfinite(open_risk):
                 raise ValueError("open-position stop-loss risk is not finite")
 
@@ -434,6 +455,59 @@ class PaperExecutor:
                     f"price={execution_prices.get(decision.ticker, 'UNAVAILABLE')}"
                 )
         recently_sold = executed_sell_tickers
+
+        # Ratchet trailing stops only after today's protective OHLC check. For
+        # historical daily bars this avoids using today's high to create a stop
+        # and then retroactively testing today's low against that new stop.
+        for ticker, position in portfolio.positions.items():
+            current_stop = getattr(position, "stop_price", None)
+            if not (
+                isinstance(current_stop, (int, float))
+                and not isinstance(current_stop, bool)
+                and math.isfinite(current_stop)
+                and current_stop > 0
+            ):
+                continue
+            atr = average_true_range(
+                (getattr(scan, "candle_history", {}) or {}).get(ticker, ()),
+                period=14,
+            )
+            if atr is None:
+                continue
+            candle = (execution_candles or {}).get(ticker)
+            observed_high = getattr(candle, "high", None) if candle is not None else execution_prices.get(ticker)
+            try:
+                observed_high = float(observed_high)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not math.isfinite(observed_high) or observed_high <= 0:
+                continue
+            old_high = getattr(position, "high_watermark", None)
+            if not (
+                isinstance(old_high, (int, float))
+                and not isinstance(old_high, bool)
+                and math.isfinite(old_high)
+                and old_high > 0
+            ):
+                old_high = position.average_price
+            high_watermark = max(float(old_high), observed_high)
+            try:
+                raised_stop = ratchet_trailing_stop(
+                    float(current_stop), high_watermark, atr, 2.0
+                )
+            except ValueError:
+                continue
+            position.high_watermark = high_watermark
+            if raised_stop > float(current_stop) + 1e-12:
+                position.stop_price = raised_stop
+                position.stop_updated_at = execution_time
+                print(
+                    f"TRAILING STOP UPDATED: ticker={ticker} "
+                    f"high_watermark={high_watermark:.6f} "
+                    f"previous_stop={float(current_stop):.6f} "
+                    f"new_stop={raised_stop:.6f} atr14={atr:.6f}"
+                )
+
         sell_decision_tickers = {
             decision.ticker
             for decision in decisions
@@ -504,6 +578,37 @@ class PaperExecutor:
                 continue
             eligible_analyses.append(analysis)
 
+        # Derive an instrument-specific protective level from verified,
+        # completed broker candles only. When ATR evidence is insufficient,
+        # preserve the existing commission-adjusted 5% stop as an explicit
+        # compatibility fallback rather than inventing volatility data.
+        stop_prices = {}
+        stop_models = {}
+        for analysis in eligible_analyses:
+            ticker = analysis.ticker
+            entry_price = float(scan.current_prices[ticker])
+            atr = average_true_range(
+                (getattr(scan, "candle_history", {}) or {}).get(ticker, ()),
+                period=14,
+            )
+            if atr is not None:
+                try:
+                    stop_prices[ticker] = initial_atr_stop(entry_price, atr, 2.0)
+                    stop_models[ticker] = "ATR14_X2"
+                    continue
+                except ValueError:
+                    print(
+                        f"PROTECTIVE STOP FALLBACK: ticker={ticker} "
+                        "reason=ATR level outside valid price range; using legacy 5% guard."
+                    )
+            rate = portfolio.commission_rate
+            entry_cost = entry_price * (1.0 + rate)
+            stop_prices[ticker] = (
+                entry_cost * (1.0 + self.position_manager.stop_loss)
+                / (1.0 - rate)
+            )
+            stop_models[ticker] = "FIXED_5PCT_FALLBACK"
+
         print(
             f"EXECUTION DIAGNOSTIC: buy_signals={len(eligible_buy_tickers) if eligible_buy_tickers is not None else 'UNFILTERED'} "
             f"ranked_candidates={len(scan.buy_candidates)} "
@@ -550,6 +655,7 @@ class PaperExecutor:
                 existing_positions=set(portfolio.positions),
                 existing_values=existing_values,
                 total_equity=total_equity,
+                stop_prices=stop_prices,
             )
         elif sizing_analyses and risk_budget_exhausted:
             print(
@@ -605,6 +711,7 @@ class PaperExecutor:
                     existing_positions=set(portfolio.positions),
                     existing_values=existing_values,
                     total_equity=total_equity,
+                    stop_prices=stop_prices,
                 )
 
         if sizing_analyses and not plans:
@@ -691,6 +798,25 @@ class PaperExecutor:
                 ),
             )
             position = portfolio.positions[plan.ticker]
+            if position.initial_stop_price is None and plan.stop_price is not None:
+                stop_price = float(plan.stop_price)
+                position.initial_stop_price = stop_price
+                position.stop_price = stop_price
+                position.high_watermark = float(plan.price)
+                position.initial_stop_risk_per_share = (
+                    float(plan.price) * (1.0 + portfolio.commission_rate)
+                    - stop_price * (1.0 - portfolio.commission_rate)
+                )
+                position.stop_model = stop_models.get(
+                    plan.ticker, "FIXED_5PCT_FALLBACK"
+                )
+                position.stop_updated_at = execution_time
+                print(
+                    f"PROTECTIVE STOP INITIALIZED: ticker={plan.ticker} "
+                    f"model={position.stop_model} entry={plan.price:.6f} "
+                    f"initial_stop={stop_price:.6f} "
+                    f"risk_per_share={position.initial_stop_risk_per_share:.6f}"
+                )
             # Preserve the original entry session when averaging into an existing
             # position; initialize metadata only for a newly opened position.
             if position.purchase_timestamp is None:
