@@ -164,3 +164,45 @@ if __name__ == "__main__":
             position.quantity * position.initial_stop_risk_per_share,
             100.0 + 1e-9,
         )
+
+
+    def test_persisted_stop_gap_executes_at_real_open_not_stop_level(self):
+        timestamp = datetime(2026, 3, 2, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)
+        portfolio.buy("GAP", 5, 100.0, timestamp)
+        position = portfolio.positions["GAP"]
+        position.initial_stop_price = 97.0
+        position.stop_price = 97.0
+        position.high_watermark = 100.0
+        position.initial_stop_risk_per_share = 3.0985
+
+        candle = SimpleNamespace(
+            open=90.0, high=95.0, low=88.0, close=91.0
+        )
+        scan = SimpleNamespace(
+            analyses={},
+            buy_candidates=[],
+            current_prices={"GAP": 90.0},
+            previous_closes={"GAP": 100.0},
+            lot_sizes={},
+            active_trading_tickers={"GAP"},
+            fresh_quote_tickers={"GAP"},
+            sellable_quote_tickers={"GAP"},
+            session_by_ticker={},
+            candle_history={},
+            market_closed_tickers=set(),
+        )
+
+        sells, _ = PaperExecutor().execute(
+            portfolio,
+            scan,
+            eligible_buy_tickers=set(),
+            eligible_buy_reasons={},
+            as_of=timestamp + timedelta(days=1),
+            execution_candles={"GAP": candle},
+        )
+
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0].price, 90.0)
+        self.assertIn("гэп ниже", sells[0].reason)
+        self.assertNotIn("GAP", portfolio.positions)
