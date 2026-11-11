@@ -567,6 +567,18 @@ class PaperExecutor:
             except ValueError:
                 continue
             position.high_watermark = high_watermark
+            current_mark = execution_prices.get(ticker)
+            if (
+                not isinstance(current_mark, (int, float))
+                or isinstance(current_mark, bool)
+                or not math.isfinite(current_mark)
+                or current_mark <= 0
+                or raised_stop >= current_mark
+            ):
+                # Never create a stop above the currently executable mark.
+                # For daily OHLC, today's high is used only to prepare a future
+                # stop; the current open remains the conservative mark.
+                continue
             if raised_stop > float(current_stop) + 1e-12:
                 position.stop_price = raised_stop
                 position.stop_updated_at = execution_time
