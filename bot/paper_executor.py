@@ -11,6 +11,16 @@ from bot.protective_stops import average_true_range, initial_atr_stop, market_pr
 from bot.virtual_portfolio import VirtualPortfolio
 
 
+def _valid_daily_ohlc(candle: object) -> bool:
+    """Return whether a daily OHLC bar is internally consistent and priceable."""
+    open_price = market_price_number(getattr(candle, "open", None))
+    high = market_price_number(getattr(candle, "high", None))
+    low = market_price_number(getattr(candle, "low", None))
+    if open_price is None or high is None or low is None:
+        return False
+    return high >= max(open_price, low) and low <= min(open_price, high)
+
+
 def _daily_ohlc_protective_exit(
     position,
     candle: object,
@@ -335,6 +345,13 @@ class PaperExecutor:
         for ticker, position in portfolio.positions.items():
             candle = (execution_candles or {}).get(ticker)
             if candle is None or ticker not in execution_prices:
+                continue
+            if not _valid_daily_ohlc(candle):
+                print(
+                    f"PROTECTIVE OHLC GUARD UNAVAILABLE: ticker={ticker} "
+                    "reason=missing_or_inconsistent_daily_OHLC; "
+                    "no historical intraday fill was inferred."
+                )
                 continue
             protective_exit = _daily_ohlc_protective_exit(
                 position,
