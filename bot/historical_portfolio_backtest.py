@@ -186,10 +186,13 @@ def run_replay(
     take_profit_percent: float = 0.15,
     estimated_slippage_bps: float = 1.0,
     fallback_spread_percent: float = 0.02,
+    minimum_net_return_percent: float = 0.0,
     take_profit_r_multiple: float | None = None,
     reentry_cooldown_sessions: int = 0,
     tickers: set[str] | None = None,
 ) -> dict:
+    if not math.isfinite(minimum_net_return_percent) or not 0 <= minimum_net_return_percent <= 1:
+        raise ValueError("minimum_net_return_percent must be finite and in [0, 1]")
     if take_profit_r_multiple is not None and (
         not math.isfinite(take_profit_r_multiple) or take_profit_r_multiple <= 0
     ):
@@ -220,6 +223,7 @@ def run_replay(
         risk_budget_pct=risk_budget_percent / 100.0,
         estimated_slippage_bps=estimated_slippage_bps,
         fallback_spread_pct=fallback_spread_percent / 100.0,
+        minimum_net_return=minimum_net_return_percent / 100.0,
         take_profit_r_multiple=take_profit_r_multiple,
         reentry_cooldown_sessions=reentry_cooldown_sessions,
     )
@@ -277,6 +281,7 @@ def run_replay(
             "profit_reserve_rate": reserve_rate,
             "risk_budget_percent": risk_budget_percent,
             "take_profit_percent": take_profit_percent,
+            "minimum_net_return_percent": minimum_net_return_percent,
             "take_profit_r_multiple": take_profit_r_multiple,
             "reentry_cooldown_sessions": reentry_cooldown_sessions,
             "execution_price": "next daily open; existing-position Stop Loss/Take Profit may fill at a daily OHLC trigger or gap open",
@@ -343,8 +348,8 @@ def run_scenario_comparison(
     commission_rate: float = 0.0005, reserve_rate: float = 0.7,
     risk_budget_percent: float = 1.0, tickers: set[str] | None = None,
 ) -> dict:
-    """Compare fixed and R-multiple targets with 0/3-session post-stop cooldown."""
-    scenarios = [
+    """Compare exit settings across four minimum net-return gates (virtual only)."""
+    exit_scenarios = [
         {"name": f"fixed_{tp:.2f}pct_cd{cd}", "take_profit_percent": tp,
          "take_profit_r_multiple": None, "reentry_cooldown_sessions": cd}
         for tp in (0.15, 0.5, 1.0) for cd in (0, 3)
@@ -353,13 +358,25 @@ def run_scenario_comparison(
          "take_profit_r_multiple": r, "reentry_cooldown_sessions": cd}
         for r in (1.0, 1.5) for cd in (0, 3)
     ]
+    net_return_thresholds = (0.0, 0.025, 0.05, 0.075)
+    scenarios = [
+        {
+            **exit_scenario,
+            "minimum_net_return_percent": threshold,
+            "name": f"{exit_scenario['name']}_net{threshold:g}pct",
+        }
+        for exit_scenario in exit_scenarios
+        for threshold in net_return_thresholds
+    ]
     rows = []
     dataset = {}
     for scenario in scenarios:
         report = run_replay(
             csv_path, initial_balance=initial_balance,
             commission_rate=commission_rate, reserve_rate=reserve_rate,
-            risk_budget_percent=risk_budget_percent, tickers=tickers, **{
+            risk_budget_percent=risk_budget_percent, tickers=tickers,
+            minimum_net_return_percent=scenario["minimum_net_return_percent"],
+            **{
                 key: scenario[key] for key in (
                     "take_profit_percent", "take_profit_r_multiple",
                     "reentry_cooldown_sessions",
@@ -383,12 +400,16 @@ def run_scenario_comparison(
             "open_positions": p["open_positions"], "warnings": p["warnings"],
         })
     return {
-        "report_type": "RNB_EXIT_SCENARIO_COMPARISON",
+        "report_type": "RNB_NET_PROFIT_GATE_SCENARIO_COMPARISON",
         "data_source": "T-Invest API", "execution_mode": "VIRTUAL_ONLY",
         "live_orders_submitted": False, "dataset": dataset,
-        "scenario_count": len(rows), "scenarios": rows,
-        "selection_note": "No scenario is promoted automatically; compare equity, drawdown, costs and trade count.",
+        "scenario_count": len(rows),
+        "exit_scenario_count": len(exit_scenarios),
+        "minimum_net_return_thresholds_percent": list(net_return_thresholds),
+        "scenarios": rows,
+        "selection_note": "No scenario is promoted automatically; compare net equity, drawdown, costs, trade count and missing-quote warnings.",
     }
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -398,6 +419,8 @@ def main() -> None:
     parser.add_argument("--reserve-rate", type=float, default=0.7)
     parser.add_argument("--risk-budget-percent", type=float, default=1.0)
     parser.add_argument("--take-profit-percent", type=float, default=0.15)
+    parser.add_argument("--minimum-net-return-percent", type=float, default=0.0,
+                        help="Minimum expected net return after round-trip commission, spread and slippage (%)")
     parser.add_argument("--take-profit-r-multiple", type=float, default=None)
     parser.add_argument("--reentry-cooldown-sessions", type=int, default=0)
     parser.add_argument("--comparison-output", type=Path, default=None)
@@ -418,6 +441,8 @@ def main() -> None:
         raise SystemExit("--risk-budget-percent must be in (0, 100]")
     if not math.isfinite(args.take_profit_percent) or not 0.15 <= args.take_profit_percent <= 100:
         raise SystemExit("--take-profit-percent must be in [0.15, 100]")
+    if not math.isfinite(args.minimum_net_return_percent) or not 0 <= args.minimum_net_return_percent <= 1:
+        raise SystemExit("--minimum-net-return-percent must be finite and in [0, 1]")
     if args.take_profit_r_multiple is not None and (
         not math.isfinite(args.take_profit_r_multiple) or args.take_profit_r_multiple <= 0
     ):
@@ -431,6 +456,7 @@ def main() -> None:
         reserve_rate=args.reserve_rate,
         risk_budget_percent=args.risk_budget_percent,
         take_profit_percent=args.take_profit_percent,
+        minimum_net_return_percent=args.minimum_net_return_percent,
         take_profit_r_multiple=args.take_profit_r_multiple,
         reentry_cooldown_sessions=args.reentry_cooldown_sessions,
         tickers=(
@@ -461,6 +487,7 @@ def main() -> None:
     print("EXECUTION_MODE=VIRTUAL_ONLY; LIVE_ORDERS_SUBMITTED=False")
     print(f"DATASET_SYMBOLS={report['dataset']['symbols']} CANDLE_ROWS={report['dataset']['candle_rows']}")
     print(f"INITIAL_BALANCE_RUB={args.initial_balance:.2f}")
+    print(f"MINIMUM_NET_RETURN_PERCENT={args.minimum_net_return_percent:.4f}")
     print(f"FINAL_EQUITY_RUB={p['final_equity'] if p['final_equity'] is not None else 'INCOMPLETE'}")
     print(f"TOTAL_RETURN_PCT={p['total_return_pct'] if p['total_return_pct'] is not None else 'INCOMPLETE'}")
     print(f"TRADES={p['total_trades']} BUYS={p['buy_trades']} SELLS={p['sell_trades']}")
