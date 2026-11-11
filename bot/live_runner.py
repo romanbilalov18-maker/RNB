@@ -44,6 +44,8 @@ class LiveScanResult:
     # Historical replay only: current daily bar used for conservative virtual
     # stop/target fill reconstruction; never used by the signal pipeline.
     execution_candles: dict[str, object] = field(default_factory=dict)
+    # Historical execution opens are isolated from signal/mark-to-market prices.
+    execution_prices: dict[str, float] = field(default_factory=dict)
 
 
 class LiveMarketRunner:
