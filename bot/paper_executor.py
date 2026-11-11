@@ -7,6 +7,7 @@ from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionDecision, PositionManager
 from bot.position_health import assess_position_health, verified_completed_candles
 from bot.position_manager import position_take_profit_price
+from bot.net_profit_guard import assess_net_profit
 from bot.position_sizer import PositionSizer
 from bot.protective_stops import average_true_range, initial_atr_stop, market_price_number, ratchet_trailing_stop
 from bot.virtual_portfolio import VirtualPortfolio
@@ -114,6 +115,8 @@ class PaperExecutor:
         risk_budget_pct: float = 0.01,
         take_profit_r_multiple: float | None = None,
         reentry_cooldown_sessions: int = 0,
+        estimated_slippage_bps: float = 5.0,
+        fallback_spread_pct: float = 0.001,
     ):
         if (
             isinstance(risk_budget_pct, bool)
@@ -134,6 +137,15 @@ class PaperExecutor:
         self.max_position_weight = max_position_weight
         self.risk_budget_pct = float(risk_budget_pct)
         self.reentry_cooldown_sessions = reentry_cooldown_sessions
+        # Cost assumptions are explicit and validated by the shared guard.
+        assess_net_profit(
+            expected_gross_return=0.0,
+            commission_rate=0.0,
+            spread_pct=fallback_spread_pct,
+            slippage_bps=estimated_slippage_bps,
+        )
+        self.estimated_slippage_bps = float(estimated_slippage_bps)
+        self.fallback_spread_pct = float(fallback_spread_pct)
 
     @staticmethod
     def _remaining_risk_budget(
@@ -876,6 +888,63 @@ class PaperExecutor:
                     total_equity=total_equity,
                     stop_prices=stop_prices,
                 )
+
+        if plans:
+            spread_by_ticker = getattr(scan, "liquidity_spread_pct_by_ticker", {}) or {}
+            guarded_plans = []
+            for plan in plans:
+                # Target price is the gross execution price required to deliver
+                # configured net Take Profit after round-trip commissions.
+                planned_position = type(
+                    "_PlannedPosition", (),
+                    {
+                        "average_price": plan.price,
+                        "initial_stop_price": plan.stop_price,
+                        "initial_stop_risk_per_share": (
+                            plan.price * (1.0 + portfolio.commission_rate)
+                            - plan.stop_price * (1.0 - portfolio.commission_rate)
+                            if plan.stop_price is not None else None
+                        ),
+                    },
+                )()
+                target_price = position_take_profit_price(
+                    planned_position, portfolio.commission_rate,
+                    self.position_manager.take_profit,
+                    self.position_manager.take_profit_r_multiple,
+                )
+                spread_pct = spread_by_ticker.get(plan.ticker)
+                spread_source = "T_INVEST_ORDER_BOOK"
+                if (
+                    isinstance(spread_pct, bool)
+                    or not isinstance(spread_pct, (int, float))
+                    or not math.isfinite(spread_pct)
+                    or spread_pct < 0
+                ):
+                    spread_pct = self.fallback_spread_pct
+                    spread_source = "CONFIGURED_FALLBACK"
+                assessment = assess_net_profit(
+                    expected_gross_return=target_price / plan.price - 1.0,
+                    commission_rate=portfolio.commission_rate,
+                    spread_pct=float(spread_pct),
+                    slippage_bps=self.estimated_slippage_bps,
+                )
+                if not assessment.allowed:
+                    print(
+                        f"NET PROFIT GUARD REJECTED: ticker={plan.ticker} "
+                        f"net_return={assessment.expected_net_return * 100:.4f}% "
+                        f"commission={assessment.round_trip_commission * 100:.4f}% "
+                        f"spread={assessment.spread_cost * 100:.4f}% "
+                        f"slippage={assessment.slippage_cost * 100:.4f}% "
+                        f"spread_source={spread_source} reason={assessment.reason}"
+                    )
+                    continue
+                print(
+                    f"NET PROFIT GUARD PASSED: ticker={plan.ticker} "
+                    f"net_return={assessment.expected_net_return * 100:.4f}% "
+                    f"spread_source={spread_source}"
+                )
+                guarded_plans.append(plan)
+            plans = guarded_plans
 
         if sizing_analyses and not plans:
             min_lot_costs = []
