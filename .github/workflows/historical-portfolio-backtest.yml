@@ -33,6 +33,11 @@ on:
         required: true
         default: "0.15"
         type: string
+      minimum_net_return_percent:
+        description: "Minimum expected net return after round-trip costs (%)"
+        required: true
+        default: "0.0"
+        type: string
       ticker_universe:
         description: "Fixed comma-separated ticker universe; every ticker must be present in the exported T-Invest dataset"
         required: true
@@ -68,6 +73,7 @@ jobs:
           RISK: ${{ inputs.risk_budget_percent }}
           RESERVE: ${{ inputs.reserve_rate }}
           TAKE_PROFIT: ${{ inputs.take_profit_percent }}
+          MIN_NET_RETURN: ${{ inputs.minimum_net_return_percent }}
           TICKERS: ${{ inputs.ticker_universe }}
         run: |
           python - <<'PY'
@@ -85,12 +91,14 @@ jobs:
           risk = number("RISK")
           reserve = number("RESERVE")
           take_profit = number("TAKE_PROFIT")
+          minimum_net_return = number("MIN_NET_RETURN")
           if not 30 <= days <= 365: raise SystemExit("lookback_days must be 30..365")
           if balance <= 0: raise SystemExit("initial_balance must be positive")
           if not 0 <= commission <= 0.02: raise SystemExit("commission_rate must be 0..0.02")
           if not 0 < risk <= 100: raise SystemExit("risk_budget_percent must be (0, 100]")
           if not 0 <= reserve <= 1: raise SystemExit("reserve_rate must be 0..1")
           if not 0.15 <= take_profit <= 100: raise SystemExit("take_profit_percent must be 0.15..100")
+          if not 0 <= minimum_net_return <= 1: raise SystemExit("minimum_net_return_percent must be 0..1")
           print("EXECUTION_MODE=VIRTUAL_ONLY")
           print("LIVE_ORDERS_SUBMITTED=False")
           PY
