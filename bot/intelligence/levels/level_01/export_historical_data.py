@@ -9,7 +9,7 @@ import csv
 import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from bot.live_runner import LiveMarketRunner
@@ -111,7 +111,13 @@ def build_coverage_registry(catalog: list[object], candle_history: dict[str, lis
     }
 
 
-def build_manifest(rows: list[dict], days: int) -> dict:
+def build_manifest(
+    rows: list[dict],
+    days: int,
+    *,
+    selection_method: str = "current LiveMarketRunner scanner universe",
+    requested_tickers: list[str] | None = None,
+) -> dict:
     """Describe the exported sample and its known selection limitations."""
     by_symbol = {}
     timestamp_keys = set()
@@ -144,7 +150,8 @@ def build_manifest(rows: list[dict], days: int) -> dict:
             }
             for symbol, timestamps in sorted(by_symbol.items())
         },
-        "selection_method": "current LiveMarketRunner scanner universe",
+        "selection_method": selection_method,
+        "requested_tickers": sorted(set(requested_tickers or [])) or None,
         "historical_universe_reconstructed": False,
         "data_quality_warnings": (
             ["Duplicate (symbol, timestamp) rows were present in the exported sample."]
@@ -159,7 +166,69 @@ def build_manifest(rows: list[dict], days: int) -> dict:
     }
 
 
-def export(path: Path, days: int = 180) -> int:
+def fetch_explicit_ticker_history(
+    runner: LiveMarketRunner,
+    catalog: list[object],
+    tickers: list[str],
+    *,
+    start: datetime,
+    end: datetime,
+) -> dict[str, list[object]]:
+    """Fetch real daily candles directly for an explicitly requested universe."""
+    requested = [str(value).strip().upper() for value in tickers if str(value).strip()]
+    if not requested or len(requested) != len(set(requested)):
+        raise ValueError("explicit ticker universe must be non-empty and contain no duplicates")
+
+    by_ticker: dict[str, list[object]] = {}
+    for share in catalog:
+        ticker = str(getattr(share, "ticker", "") or "").strip().upper()
+        if ticker:
+            by_ticker.setdefault(ticker, []).append(share)
+
+    resolved = {}
+    errors = []
+    for ticker in requested:
+        matches = by_ticker.get(ticker, [])
+        if len(matches) != 1:
+            errors.append(f"{ticker}: expected one catalog match, found {len(matches)}")
+            continue
+        share = matches[0]
+        if not LiveMarketRunner._is_tradable_rub_share(share):
+            errors.append(f"{ticker}: not an API-tradable RUB share")
+            continue
+        instrument_id = str(getattr(share, "uid", "") or getattr(share, "figi", "") or "")
+        if not instrument_id:
+            errors.append(f"{ticker}: UID/FIGI unavailable")
+            continue
+        resolved[ticker] = instrument_id
+
+    if errors:
+        raise ValueError("cannot resolve explicit T-Invest ticker universe: " + "; ".join(errors))
+
+    histories = {}
+    missing = []
+    for ticker in requested:
+        response = runner._get_candles_with_retry(
+            instrument_id=resolved[ticker],
+            start=start,
+            end=end,
+        )
+        raw_candles = list(getattr(response, "candles", ()) or ()) if response is not None else []
+        verified = runner._verified_completed_candles(raw_candles)
+        if not verified:
+            missing.append(ticker)
+            continue
+        histories[ticker] = verified
+
+    if missing:
+        raise ValueError(
+            "T-Invest returned no verified completed daily candles for requested tickers: "
+            + ", ".join(sorted(missing))
+        )
+    return histories
+
+
+def export(path: Path, days: int = 180, tickers: list[str] | None = None) -> int:
     if days < 30:
         raise ValueError("days must be at least 30 to support historical evaluation")
     token = os.getenv("INVEST_TOKEN", "").strip()
@@ -169,15 +238,29 @@ def export(path: Path, days: int = 180) -> int:
     # The same read-only market scanner used by RNB selects instruments and
     # retrieves real daily candles. No synthetic fallback and no order API.
     client = TInvestClient(token)
+    requested_tickers = (
+        [str(value).strip().upper() for value in tickers if str(value).strip()]
+        if tickers is not None else None
+    )
     with client._client() as raw_client:
         # Preserve the full current broker shares catalog as a separate,
-        # read-only coverage snapshot; the scanner candle set is a shortlist.
+        # read-only coverage snapshot.
         catalog_response = raw_client.instruments.shares()
         current_catalog = list(catalog_response.instruments)
-        scan = LiveMarketRunner(raw_client, history_days=days).run()
+        runner = LiveMarketRunner(raw_client, history_days=days)
+        if requested_tickers is None:
+            candle_history = runner.run().candle_history
+            selection_method = "current LiveMarketRunner scanner universe"
+        else:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(days=days)
+            candle_history = fetch_explicit_ticker_history(
+                runner, current_catalog, requested_tickers, start=start, end=end
+            )
+            selection_method = "explicit T-Invest catalog ticker universe"
 
     rows = []
-    for ticker, candles in scan.candle_history.items():
+    for ticker, candles in candle_history.items():
         for candle in candles:
             # Keep the full bar required for realistic historical execution.
             # Missing/invalid OHLC values are skipped rather than synthesized.
@@ -221,7 +304,12 @@ def export(path: Path, days: int = 180) -> int:
         writer.writerows(rows)
 
     symbols = sorted({row["symbol"] for row in rows})
-    manifest = build_manifest(rows, days)
+    manifest = build_manifest(
+        rows,
+        days,
+        selection_method=selection_method,
+        requested_tickers=requested_tickers,
+    )
     manifest_path = path.with_suffix(path.suffix + ".manifest.json")
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
@@ -235,7 +323,7 @@ def export(path: Path, days: int = 180) -> int:
     coverage_path = path.with_suffix(path.suffix + ".coverage.json")
     coverage = build_coverage_registry(
         current_catalog,
-        scan.candle_history,
+        candle_history,
         datetime.now(timezone.utc).isoformat(),
     )
     coverage_path.write_text(
@@ -254,8 +342,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("data/level_01_history.csv"))
     parser.add_argument("--days", type=int, default=180)
+    parser.add_argument("--tickers", help="Comma-separated explicit T-Invest ticker universe")
     args = parser.parse_args()
-    export(args.output, args.days)
+    export(args.output, args.days, tickers=args.tickers.split(",") if args.tickers else None)
 
 
 if __name__ == "__main__":
