@@ -169,18 +169,32 @@ class PaperExecutor:
                 raise ValueError(
                     f"cannot estimate open stop-loss risk for invalid position {ticker}"
                 )
-            persisted_risk_per_share = getattr(
-                position, "initial_stop_risk_per_share", None
-            )
+            current_stop = getattr(position, "stop_price", None)
             if (
-                isinstance(persisted_risk_per_share, (int, float))
-                and not isinstance(persisted_risk_per_share, bool)
-                and math.isfinite(persisted_risk_per_share)
-                and persisted_risk_per_share > 0
+                isinstance(current_stop, (int, float))
+                and not isinstance(current_stop, bool)
+                and math.isfinite(current_stop)
+                and current_stop > 0
             ):
-                open_risk += quantity * persisted_risk_per_share
+                current_loss_per_share = max(
+                    0.0,
+                    average_price * (1.0 + commission_rate)
+                    - current_stop * (1.0 - commission_rate),
+                )
+                open_risk += quantity * current_loss_per_share
             else:
-                open_risk += quantity * average_price * loss_rate_after_commission
+                persisted_initial_risk = getattr(
+                    position, "initial_stop_risk_per_share", None
+                )
+                if (
+                    isinstance(persisted_initial_risk, (int, float))
+                    and not isinstance(persisted_initial_risk, bool)
+                    and math.isfinite(persisted_initial_risk)
+                    and persisted_initial_risk > 0
+                ):
+                    open_risk += quantity * persisted_initial_risk
+                else:
+                    open_risk += quantity * average_price * loss_rate_after_commission
             if not math.isfinite(open_risk):
                 raise ValueError("open-position stop-loss risk is not finite")
 
@@ -414,8 +428,12 @@ class PaperExecutor:
                 f"review_required={bool(position is not None and (getattr(position, 'quote_unavailable_cycles', 0) >= 3 or health.status == 'PROLONGED_STAGNATION' or broker_status.get('resolution') == 'UNRESOLVED' or (broker_status.get('status_check_succeeded') and (broker_status.get('api_trade_available') is False or broker_status.get('sell_available') is False)) ))} "
                 f"candles_checked={health.candles_checked} flat_sessions={health.flat_sessions} "
                 f"recent_range_pct={health.recent_range_pct if health.recent_range_pct is not None else 'UNAVAILABLE'} "
-                f"spread={spread_label} exit_action={decision.action} "
-                f"exit_reason={decision.reason}"
+                f"spread={spread_label} "
+                f"initial_stop={getattr(position, 'initial_stop_price', None) if position is not None else 'UNAVAILABLE'} "
+                f"current_stop={getattr(position, 'stop_price', None) if position is not None else 'UNAVAILABLE'} "
+                f"high_watermark={getattr(position, 'high_watermark', None) if position is not None else 'UNAVAILABLE'} "
+                f"stop_model={getattr(position, 'stop_model', None) if position is not None else 'UNAVAILABLE'} "
+                f"exit_action={decision.action} exit_reason={decision.reason}"
             )
         for decision in decisions:
             if decision.action == "SELL":
@@ -748,8 +766,15 @@ class PaperExecutor:
                         and math.isfinite(value)
                         for value in risk_inputs
                     ):
+                        minimum_stop = stop_prices.get(minimum_ticker)
+                        minimum_entry = scan.current_prices[minimum_ticker]
                         minimum_lot_risk = (
-                            minimum_cost / (1.0 + portfolio.commission_rate)
+                            minimum_lot * (
+                                minimum_entry * (1.0 + portfolio.commission_rate)
+                                - minimum_stop * (1.0 - portfolio.commission_rate)
+                            )
+                            if minimum_stop is not None
+                            else minimum_cost / (1.0 + portfolio.commission_rate)
                             * (
                                 sizer.stop_loss_pct
                                 + 2.0 * sizer.commission_rate
