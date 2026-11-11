@@ -1,10 +1,103 @@
 """Regression tests for the historical export dataset manifest."""
 import unittest
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
-from bot.intelligence.levels.level_01.export_historical_data import build_coverage_registry, build_manifest
+from bot.intelligence.levels.level_01.export_historical_data import (
+    build_coverage_registry,
+    build_manifest,
+    fetch_explicit_ticker_history,
+)
 
 
 class HistoricalExportManifestTests(unittest.TestCase):
+
+    def test_explicit_ticker_export_fetches_by_uid_not_scanner_shortlist(self):
+        start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=180)
+        catalog = [
+            SimpleNamespace(
+                ticker="AAA", uid="uid-a", currency="rub",
+                api_trade_available_flag=True,
+            ),
+            SimpleNamespace(
+                ticker="BBB", uid="uid-b", currency="rub",
+                api_trade_available_flag=True,
+            ),
+        ]
+        candle = SimpleNamespace(
+            time=start + timedelta(days=1),
+            is_complete=True,
+            open=100, high=102, low=99, close=101, volume=1000,
+        )
+
+        class FakeRunner:
+            def __init__(self):
+                self.requested = []
+
+            def _get_candles_with_retry(self, *, instrument_id, start, end):
+                self.requested.append((instrument_id, start, end))
+                return SimpleNamespace(candles=[candle])
+
+            @staticmethod
+            def _verified_completed_candles(candles):
+                return list(candles)
+
+        runner = FakeRunner()
+        history = fetch_explicit_ticker_history(
+            runner, catalog, ["BBB", "AAA"], start=start, end=end
+        )
+
+        self.assertEqual(set(history), {"AAA", "BBB"})
+        self.assertEqual([item[0] for item in runner.requested], ["uid-b", "uid-a"])
+        self.assertTrue(all(item[1] == start and item[2] == end for item in runner.requested))
+
+    def test_explicit_ticker_export_fails_closed_for_missing_catalog_symbol(self):
+        runner = SimpleNamespace()
+        catalog = [
+            SimpleNamespace(
+                ticker="AAA", uid="uid-a", currency="rub",
+                api_trade_available_flag=True,
+            )
+        ]
+        with self.assertRaisesRegex(ValueError, "BBB.*found 0"):
+            fetch_explicit_ticker_history(
+                runner, catalog, ["AAA", "BBB"],
+                start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                end=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            )
+
+    def test_explicit_ticker_export_rejects_duplicate_symbols(self):
+        with self.assertRaisesRegex(ValueError, "no duplicates"):
+            fetch_explicit_ticker_history(
+                SimpleNamespace(), [], ["AAA", "AAA"],
+                start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                end=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            )
+
+    def test_explicit_ticker_export_fails_when_broker_returns_no_candles(self):
+        catalog = [
+            SimpleNamespace(
+                ticker="AAA", uid="uid-a", currency="rub",
+                api_trade_available_flag=True,
+            )
+        ]
+
+        class EmptyRunner:
+            def _get_candles_with_retry(self, **kwargs):
+                return SimpleNamespace(candles=[])
+
+            @staticmethod
+            def _verified_completed_candles(candles):
+                return list(candles)
+
+        with self.assertRaisesRegex(ValueError, "no verified completed daily candles.*AAA"):
+            fetch_explicit_ticker_history(
+                EmptyRunner(), catalog, ["AAA"],
+                start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                end=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            )
+
     def test_manifest_reports_duplicate_symbol_timestamp_rows(self):
         rows = [
             {"timestamp": "2026-01-02T00:00:00+03:00", "symbol": "AAA"},
