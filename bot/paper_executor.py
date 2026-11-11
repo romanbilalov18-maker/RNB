@@ -493,6 +493,11 @@ class PaperExecutor:
                     and "stop" in str(trade.reason).casefold()
                     else None
                 )
+                loss_over_initial_risk = (
+                    actual_loss / initial_risk
+                    if initial_risk is not None and initial_risk > 0
+                    else "UNAVAILABLE"
+                )
                 print(
                     f"SELL_EXECUTED: ticker={trade.ticker} "
                     f"quantity={trade.quantity} fill_price={trade.price} "
@@ -508,11 +513,7 @@ class PaperExecutor:
                         f"gap_slippage_per_share={stop_slippage} "
                         f"actual_loss={actual_loss:.6f} "
                         f"initial_risk={initial_risk if initial_risk is not None else 'UNAVAILABLE'} "
-                        f"loss_over_initial_risk={(
-                            actual_loss / initial_risk
-                            if initial_risk is not None and initial_risk > 0
-                            else 'UNAVAILABLE'
-                        )}"
+                        f"loss_over_initial_risk={loss_over_initial_risk}"
                     )
             else:
                 position = portfolio.positions.get(decision.ticker)
