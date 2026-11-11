@@ -490,7 +490,7 @@ class PaperExecutor:
                     and not isinstance(trigger_price, bool)
                     and math.isfinite(trigger_price)
                     and trigger_price > 0
-                    and "stop" in str(trade.reason).casefold()
+                    and ("stop" in str(trade.reason).casefold() or "лимит убытка" in str(trade.reason).casefold())
                     else None
                 )
                 loss_over_initial_risk = (
@@ -504,7 +504,7 @@ class PaperExecutor:
                     f"realized_pnl={trade.realized_pnl:.6f} "
                     f"reason={trade.reason}"
                 )
-                if "stop" in str(trade.reason).casefold():
+                if "stop" in str(trade.reason).casefold() or "лимит убытка" in str(trade.reason).casefold():
                     print(
                         f"STOP_EXIT_AUDIT: ticker={trade.ticker} "
                         f"model={snapshot.get('stop_model') or 'LEGACY'} "
