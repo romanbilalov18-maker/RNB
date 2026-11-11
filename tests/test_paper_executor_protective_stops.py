@@ -219,7 +219,9 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
         portfolio.buy("AAA", 1, 100.0, start)
         portfolio.sell("AAA", 1, 94.0, start + timedelta(days=1), reason="historический Stop Loss")
         history = [
-            SimpleNamespace(time=start + timedelta(days=i), is_complete=True)
+            SimpleNamespace(
+                time=start + timedelta(days=i), close=100.0, is_complete=True
+            )
             for i in range(1, 4)
         ]
         weak = {"AAA": SimpleNamespace(momentum=0.1, trend_strength=0.1)}
@@ -227,7 +229,9 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
             portfolio, weak, candle_history={"AAA": history}, cooldown_sessions=3
         )
         self.assertEqual(blocked, {"AAA"})
-        history.append(SimpleNamespace(time=start + timedelta(days=4), is_complete=True))
+        history.append(SimpleNamespace(
+            time=start + timedelta(days=4), close=100.0, is_complete=True
+        ))
         released = PaperExecutor._blocked_reentries(
             portfolio, weak, candle_history={"AAA": history}, cooldown_sessions=3
         )
