@@ -686,7 +686,8 @@ if __name__ == "__main__":
             cycle = next(cycles)
 
         self.assertEqual(cycle.scan.analyses, {})
-        self.assertEqual(cycle.scan.current_prices["AAA"], 100.0)
+        self.assertNotIn("AAA", cycle.scan.current_prices)
+        self.assertEqual(cycle.scan.execution_prices["AAA"], 100.0)
         self.assertIn("AAA", cycle.scan.execution_candles)
 
         PaperExecutor().execute(
