@@ -188,6 +188,8 @@ def main() -> None:
                 sell_trades, buy_trades = PaperExecutor(
                     take_profit=config.take_profit_percent / 100.0,
                     risk_budget_pct=config.risk_budget_percent / 100.0,
+                    estimated_slippage_bps=config.estimated_slippage_bps,
+                    fallback_spread_pct=config.fallback_spread_percent / 100.0,
                 ).execute(
                     portfolio,
                     result,
