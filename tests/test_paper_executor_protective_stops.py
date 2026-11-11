@@ -213,6 +213,36 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
         self.assertNotIn("GAP", portfolio.positions)
 
 
+    def test_post_stop_cooldown_counts_only_verified_completed_later_sessions(self):
+        start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 1, 100.0, start)
+        portfolio.sell("AAA", 1, 94.0, start + timedelta(days=1), reason="historический Stop Loss")
+        history = [
+            SimpleNamespace(time=start + timedelta(days=i), is_complete=True)
+            for i in range(1, 4)
+        ]
+        weak = {"AAA": SimpleNamespace(momentum=0.1, trend_strength=0.1)}
+        blocked = PaperExecutor._blocked_reentries(
+            portfolio, weak, candle_history={"AAA": history}, cooldown_sessions=3
+        )
+        self.assertEqual(blocked, {"AAA"})
+        history.append(SimpleNamespace(time=start + timedelta(days=4), is_complete=True))
+        released = PaperExecutor._blocked_reentries(
+            portfolio, weak, candle_history={"AAA": history}, cooldown_sessions=3
+        )
+        self.assertEqual(released, set())
+
+    def test_post_stop_cooldown_does_not_block_after_take_profit(self):
+        start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 1, 100.0, start)
+        portfolio.sell("AAA", 1, 101.0, start + timedelta(days=1), reason="достигнут Take Profit")
+        weak = {"AAA": SimpleNamespace(momentum=0.1, trend_strength=0.1)}
+        self.assertEqual(PaperExecutor._blocked_reentries(
+            portfolio, weak, candle_history={"AAA": []}, cooldown_sessions=3
+        ), set())
+
     def test_legacy_five_percent_guard_remains_active_when_atr_stop_is_wider(self):
         timestamp = datetime(2026, 4, 1, tzinfo=timezone.utc)
         portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)

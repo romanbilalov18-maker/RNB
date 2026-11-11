@@ -184,8 +184,16 @@ def run_replay(
     reserve_rate: float = 0.7,
     risk_budget_percent: float = 1.0,
     take_profit_percent: float = 0.15,
+    take_profit_r_multiple: float | None = None,
+    reentry_cooldown_sessions: int = 0,
     tickers: set[str] | None = None,
 ) -> dict:
+    if take_profit_r_multiple is not None and (
+        not math.isfinite(take_profit_r_multiple) or take_profit_r_multiple <= 0
+    ):
+        raise ValueError("take_profit_r_multiple must be finite and positive")
+    if isinstance(reentry_cooldown_sessions, bool) or not isinstance(reentry_cooldown_sessions, int) or reentry_cooldown_sessions < 0:
+        raise ValueError("reentry_cooldown_sessions must be a non-negative integer")
     candles, metadata, manifest = load_dataset(csv_path, tickers=tickers)
     instrument_ids = {
         ticker: str(item.get("uid") or item.get("figi"))
@@ -208,6 +216,8 @@ def run_replay(
     executor = PaperExecutor(
         take_profit=take_profit_percent / 100.0,
         risk_budget_pct=risk_budget_percent / 100.0,
+        take_profit_r_multiple=take_profit_r_multiple,
+        reentry_cooldown_sessions=reentry_cooldown_sessions,
     )
     cycles = iter_historical_cycles(
         candles,
@@ -258,6 +268,8 @@ def run_replay(
             "profit_reserve_rate": reserve_rate,
             "risk_budget_percent": risk_budget_percent,
             "take_profit_percent": take_profit_percent,
+            "take_profit_r_multiple": take_profit_r_multiple,
+            "reentry_cooldown_sessions": reentry_cooldown_sessions,
             "execution_price": "next daily open; existing-position Stop Loss/Take Profit may fill at a daily OHLC trigger or gap open",
             "intraday_ohlc_ambiguity": "if stop and target are both touched in one daily candle, stop is assumed first (conservative)",
             "signal_data": "only prior completed daily candles; current-day OHLC is execution-only",
@@ -316,6 +328,59 @@ def run_replay(
     return report
 
 
+
+def run_scenario_comparison(
+    csv_path: Path, *, initial_balance: float = 100_000.0,
+    commission_rate: float = 0.0005, reserve_rate: float = 0.7,
+    risk_budget_percent: float = 1.0, tickers: set[str] | None = None,
+) -> dict:
+    """Compare fixed and R-multiple targets with 0/3-session post-stop cooldown."""
+    scenarios = [
+        {"name": f"fixed_{tp:.2f}pct_cd{cd}", "take_profit_percent": tp,
+         "take_profit_r_multiple": None, "reentry_cooldown_sessions": cd}
+        for tp in (0.15, 0.5, 1.0) for cd in (0, 3)
+    ] + [
+        {"name": f"{r:g}R_cd{cd}", "take_profit_percent": 0.15,
+         "take_profit_r_multiple": r, "reentry_cooldown_sessions": cd}
+        for r in (1.0, 1.5) for cd in (0, 3)
+    ]
+    rows = []
+    dataset = {}
+    for scenario in scenarios:
+        report = run_replay(
+            csv_path, initial_balance=initial_balance,
+            commission_rate=commission_rate, reserve_rate=reserve_rate,
+            risk_budget_percent=risk_budget_percent, tickers=tickers, **{
+                key: scenario[key] for key in (
+                    "take_profit_percent", "take_profit_r_multiple",
+                    "reentry_cooldown_sessions",
+                )
+            },
+        )
+        dataset = report["dataset"]
+        p = report["portfolio"]
+        sells = [trade for trade in report["trades"] if trade["side"] == "SELL"]
+        wins = sum(trade["realized_pnl"] > 0 for trade in sells)
+        rows.append({
+            **scenario, "final_equity": p["final_equity"],
+            "total_return_pct": p["total_return_pct"],
+            "realized_pnl": p["realized_pnl"], "commissions": p["commissions"],
+            "max_drawdown": p["max_drawdown"], "max_drawdown_pct": p["max_drawdown_pct"],
+            "total_trades": p["total_trades"], "buy_trades": p["buy_trades"],
+            "sell_trades": p["sell_trades"], "profitable_sells": wins,
+            "losing_sells": sum(trade["realized_pnl"] < 0 for trade in sells),
+            "win_rate_pct": wins / len(sells) * 100.0 if sells else 0.0,
+            "protected_reserve": p["protected_cash"],
+            "open_positions": p["open_positions"], "warnings": p["warnings"],
+        })
+    return {
+        "report_type": "RNB_EXIT_SCENARIO_COMPARISON",
+        "data_source": "T-Invest API", "execution_mode": "VIRTUAL_ONLY",
+        "live_orders_submitted": False, "dataset": dataset,
+        "scenario_count": len(rows), "scenarios": rows,
+        "selection_note": "No scenario is promoted automatically; compare equity, drawdown, costs and trade count.",
+    }
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csv", type=Path, default=Path("data/level_01_history.csv"))
@@ -324,6 +389,9 @@ def main() -> None:
     parser.add_argument("--reserve-rate", type=float, default=0.7)
     parser.add_argument("--risk-budget-percent", type=float, default=1.0)
     parser.add_argument("--take-profit-percent", type=float, default=0.15)
+    parser.add_argument("--take-profit-r-multiple", type=float, default=None)
+    parser.add_argument("--reentry-cooldown-sessions", type=int, default=0)
+    parser.add_argument("--comparison-output", type=Path, default=None)
     parser.add_argument(
         "--tickers",
         default="",
@@ -341,6 +409,12 @@ def main() -> None:
         raise SystemExit("--risk-budget-percent must be in (0, 100]")
     if not math.isfinite(args.take_profit_percent) or not 0.15 <= args.take_profit_percent <= 100:
         raise SystemExit("--take-profit-percent must be in [0.15, 100]")
+    if args.take_profit_r_multiple is not None and (
+        not math.isfinite(args.take_profit_r_multiple) or args.take_profit_r_multiple <= 0
+    ):
+        raise SystemExit("--take-profit-r-multiple must be finite and positive")
+    if args.reentry_cooldown_sessions < 0:
+        raise SystemExit("--reentry-cooldown-sessions must be non-negative")
     report = run_replay(
         args.csv,
         initial_balance=args.initial_balance,
@@ -348,6 +422,8 @@ def main() -> None:
         reserve_rate=args.reserve_rate,
         risk_budget_percent=args.risk_budget_percent,
         take_profit_percent=args.take_profit_percent,
+        take_profit_r_multiple=args.take_profit_r_multiple,
+        reentry_cooldown_sessions=args.reentry_cooldown_sessions,
         tickers=(
             {item.strip().upper() for item in args.tickers.split(",") if item.strip()}
             if args.tickers.strip() else None
@@ -355,6 +431,22 @@ def main() -> None:
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.comparison_output is not None:
+        comparison = run_scenario_comparison(
+            args.csv, initial_balance=args.initial_balance,
+            commission_rate=args.commission_rate, reserve_rate=args.reserve_rate,
+            risk_budget_percent=args.risk_budget_percent,
+            tickers=(
+                {item.strip().upper() for item in args.tickers.split(",") if item.strip()}
+                if args.tickers.strip() else None
+            ),
+        )
+        args.comparison_output.parent.mkdir(parents=True, exist_ok=True)
+        args.comparison_output.write_text(
+            json.dumps(comparison, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print(f"SCENARIO_COMPARISON={args.comparison_output} SCENARIOS={comparison['scenario_count']}")
     p = report["portfolio"]
     print("HISTORICAL_PORTFOLIO_REPLAY=COMPLETED")
     print("EXECUTION_MODE=VIRTUAL_ONLY; LIVE_ORDERS_SUBMITTED=False")

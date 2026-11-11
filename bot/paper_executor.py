@@ -6,6 +6,7 @@ import math
 from bot.live_runner import LiveScanResult
 from bot.position_manager import PositionDecision, PositionManager
 from bot.position_health import assess_position_health, verified_completed_candles
+from bot.position_manager import position_take_profit_price
 from bot.position_sizer import PositionSizer
 from bot.protective_stops import average_true_range, initial_atr_stop, market_price_number, ratchet_trailing_stop
 from bot.virtual_portfolio import VirtualPortfolio
@@ -28,6 +29,7 @@ def _daily_ohlc_protective_exit(
     commission_rate: float,
     stop_loss: float,
     take_profit: float,
+    take_profit_r_multiple: float | None = None,
 ) -> tuple[float, str] | None:
     """Resolve a pre-existing holding's protective exit from one real daily bar.
 
@@ -67,7 +69,9 @@ def _daily_ohlc_protective_exit(
         stop_price = max(float(persisted_stop), legacy_stop_price)
     else:
         stop_price = legacy_stop_price
-    target_price = entry_cost * (1.0 + take_profit) / (1.0 - rate)
+    target_price = position_take_profit_price(
+        position, rate, take_profit, take_profit_r_multiple
+    )
 
     if open_price <= stop_price:
         return open_price, "исторический Stop Loss: гэп ниже защитного уровня"
@@ -108,6 +112,8 @@ class PaperExecutor:
         max_position_weight: float = 0.35,
         take_profit: float = 0.0015,
         risk_budget_pct: float = 0.01,
+        take_profit_r_multiple: float | None = None,
+        reentry_cooldown_sessions: int = 0,
     ):
         if (
             isinstance(risk_budget_pct, bool)
@@ -115,9 +121,19 @@ class PaperExecutor:
             or not 0 < risk_budget_pct <= 1
         ):
             raise ValueError("risk_budget_pct must be in (0, 1]")
-        self.position_manager = PositionManager(take_profit=take_profit)
+        if (
+            isinstance(reentry_cooldown_sessions, bool)
+            or not isinstance(reentry_cooldown_sessions, int)
+            or reentry_cooldown_sessions < 0
+        ):
+            raise ValueError("reentry_cooldown_sessions must be a non-negative integer")
+        self.position_manager = PositionManager(
+            take_profit=take_profit,
+            take_profit_r_multiple=take_profit_r_multiple,
+        )
         self.max_position_weight = max_position_weight
         self.risk_budget_pct = float(risk_budget_pct)
+        self.reentry_cooldown_sessions = reentry_cooldown_sessions
 
     @staticmethod
     def _remaining_risk_budget(
@@ -359,6 +375,7 @@ class PaperExecutor:
                 commission_rate=portfolio.commission_rate,
                 stop_loss=self.position_manager.stop_loss,
                 take_profit=self.position_manager.take_profit,
+                take_profit_r_multiple=self.position_manager.take_profit_r_multiple,
             )
             if protective_exit is None:
                 continue
@@ -675,6 +692,8 @@ class PaperExecutor:
         blocked_reentries = self._blocked_reentries(
             portfolio,
             scan.analyses,
+            candle_history=(getattr(scan, "candle_history", {}) or {}),
+            cooldown_sessions=self.reentry_cooldown_sessions,
         )
         eligible_analyses = []
         rejection_counts = {}
@@ -1006,28 +1025,45 @@ class PaperExecutor:
     def _blocked_reentries(
         portfolio: VirtualPortfolio,
         analyses: dict,
+        *,
+        candle_history: dict | None = None,
+        cooldown_sessions: int = 0,
     ) -> set[str]:
-        """Block re-entry after a SELL while the ticker remains weak.
-
-        The block is derived from the persistent trade history, so it survives
-        between cycles and process restarts without adding another database field.
-        Once the signal recovers, the ticker becomes eligible again.
-        """
+        """Block weak re-entries and count only completed broker sessions after a stop."""
+        if (
+            isinstance(cooldown_sessions, bool)
+            or not isinstance(cooldown_sessions, int)
+            or cooldown_sessions < 0
+        ):
+            raise ValueError("cooldown_sessions must be a non-negative integer")
         last_trade_by_ticker = {}
         for trade in portfolio.trades:
             last_trade_by_ticker[trade.ticker] = trade
-
         blocked = set()
+        candle_history = candle_history or {}
         for ticker, trade in last_trade_by_ticker.items():
             if trade.side != "SELL":
                 continue
-
+            is_stop_exit = (
+                "stop" in str(getattr(trade, "reason", "")).casefold()
+                or "лимит убытка" in str(getattr(trade, "reason", "")).casefold()
+            )
+            if cooldown_sessions and is_stop_exit:
+                sell_time = getattr(trade, "timestamp", None)
+                completed = verified_completed_candles(candle_history.get(ticker, ()))
+                later_sessions = sum(
+                    1 for candle in completed
+                    if isinstance(getattr(candle, "time", None), datetime)
+                    and isinstance(sell_time, datetime)
+                    and candle.time > sell_time
+                )
+                if later_sessions < cooldown_sessions:
+                    blocked.add(ticker)
+                    continue
             analysis = analyses.get(ticker)
             if analysis is None:
                 blocked.add(ticker)
                 continue
-
             if analysis.momentum <= -0.02 and analysis.trend_strength < 0:
                 blocked.add(ticker)
-
         return blocked

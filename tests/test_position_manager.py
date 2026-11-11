@@ -199,6 +199,28 @@ class TestPositionManager(unittest.TestCase):
         self.assertEqual(decisions[0].action, "SELL")
 
 
+    def test_r_multiple_target_uses_initial_risk_and_both_commissions(self):
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        portfolio.buy("AAA", 1, 100.0, datetime.now(timezone.utc))
+        position = portfolio.positions["AAA"]
+        position.initial_stop_price = 95.0
+        position.initial_stop_risk_per_share = 5.095
+        manager = PositionManager(take_profit_r_multiple=1.0)
+        target = (100.1 + 5.095) / 0.999
+        decisions = manager.evaluate(portfolio, {}, {"AAA": target - 0.01})
+        self.assertEqual(decisions[0].action, "HOLD")
+        decisions = manager.evaluate(portfolio, {}, {"AAA": target})
+        self.assertEqual(decisions[0].action, "SELL")
+        self.assertIn("1R", decisions[0].reason)
+
+    def test_r_multiple_legacy_position_falls_back_to_fixed_target(self):
+        portfolio = VirtualPortfolio(10_000)
+        portfolio.buy("AAA", 1, 100.0, datetime.now(timezone.utc))
+        decisions = PositionManager(take_profit_r_multiple=1.0).evaluate(
+            portfolio, {}, {"AAA": 100.26}
+        )
+        self.assertEqual(decisions[0].action, "SELL")
+
     def test_duplicate_sell_decisions_execute_only_one_sale(self):
         timestamp = datetime(2026, 11, 10, tzinfo=timezone.utc)
         portfolio = VirtualPortfolio(10_000)

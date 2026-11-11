@@ -15,6 +15,31 @@ class PositionDecision:
     reason: str
 
 
+def position_take_profit_price(position, commission_rate, fixed_take_profit, take_profit_r_multiple=None):
+    """Return target price net of both entry and exit commission."""
+    entry_cost = float(position.average_price) * (1.0 + commission_rate)
+    if take_profit_r_multiple is None:
+        return entry_cost * (1.0 + fixed_take_profit) / (1.0 - commission_rate)
+    risk_per_share = getattr(position, "initial_stop_risk_per_share", None)
+    if not (
+        isinstance(risk_per_share, (int, float))
+        and not isinstance(risk_per_share, bool)
+        and math.isfinite(risk_per_share)
+        and risk_per_share > 0
+    ):
+        initial_stop = getattr(position, "initial_stop_price", None)
+        if (
+            isinstance(initial_stop, (int, float))
+            and not isinstance(initial_stop, bool)
+            and math.isfinite(initial_stop)
+            and 0 < initial_stop < float(position.average_price)
+        ):
+            risk_per_share = entry_cost - float(initial_stop) * (1.0 - commission_rate)
+        else:
+            return entry_cost * (1.0 + fixed_take_profit) / (1.0 - commission_rate)
+    return (entry_cost + float(risk_per_share) * take_profit_r_multiple) / (1.0 - commission_rate)
+
+
 class PositionManager:
     """Manage exits for existing virtual positions."""
 
@@ -23,9 +48,17 @@ class PositionManager:
         stop_loss: float = -0.05,
         take_profit: float = 0.0015,
         negative_momentum: float = -0.02,
+        take_profit_r_multiple: float | None = None,
     ):
         if not all(math.isfinite(value) for value in (stop_loss, take_profit, negative_momentum)):
             raise ValueError("exit thresholds must be finite")
+        if take_profit_r_multiple is not None and (
+            isinstance(take_profit_r_multiple, bool)
+            or not isinstance(take_profit_r_multiple, (int, float))
+            or not math.isfinite(take_profit_r_multiple)
+            or take_profit_r_multiple <= 0
+        ):
+            raise ValueError("take_profit_r_multiple must be finite and positive")
         if stop_loss >= 0:
             raise ValueError("stop_loss must be negative")
         if take_profit < 0.0015:
@@ -34,6 +67,7 @@ class PositionManager:
             raise ValueError("negative_momentum must be negative")
         self.stop_loss = stop_loss
         self.take_profit = take_profit
+        self.take_profit_r_multiple = float(take_profit_r_multiple) if take_profit_r_multiple is not None else None
         self.negative_momentum = negative_momentum
 
     def evaluate(
@@ -65,14 +99,19 @@ class PositionManager:
             # Take Profit and Stop Loss depend only on the actual market
             # price and must be checked before strategy analysis. A temporary
             # candle-analysis failure must never block a price-based exit.
-            if net_return >= self.take_profit:
-                decisions.append(
-                    PositionDecision(
-                        ticker,
-                        "SELL",
-                        f"достигнут Take Profit +{self.take_profit * 100:g}%",
-                    )
+            target_price = position_take_profit_price(
+                position, portfolio.commission_rate, self.take_profit,
+                self.take_profit_r_multiple,
+            )
+            if price >= target_price - 1e-12:
+                label = (
+                    f"{self.take_profit_r_multiple:g}R"
+                    if self.take_profit_r_multiple is not None
+                    else f"+{self.take_profit * 100:g}%"
                 )
+                decisions.append(PositionDecision(
+                    ticker, "SELL", f"достигнут Take Profit {label}"
+                ))
                 continue
 
             # Persisted ATR/trailing stops are absolute market-price levels.

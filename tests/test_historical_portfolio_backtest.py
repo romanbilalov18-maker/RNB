@@ -4,11 +4,53 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from bot.historical_portfolio_backtest import _build_open_position_report, load_dataset
+from bot.historical_portfolio_backtest import (
+    _build_open_position_report, load_dataset, run_scenario_comparison,
+)
+from unittest.mock import patch
 from bot.virtual_portfolio import VirtualPortfolio
 
 
 class HistoricalPortfolioDatasetTests(unittest.TestCase):
+    def test_scenario_comparison_runs_fixed_and_r_multiple_targets_with_cooldowns(self):
+        fake_report = {
+            "dataset": {"symbols": 35, "candle_rows": 5899},
+            "portfolio": {
+                "final_equity": 100_100.0, "total_return_pct": 0.1,
+                "realized_pnl": 100.0, "commissions": 20.0,
+                "max_drawdown": 50.0, "max_drawdown_pct": 0.05,
+                "total_trades": 4, "buy_trades": 2, "sell_trades": 2,
+                "protected_cash": 70.0, "open_positions": 0, "warnings": [],
+            },
+            "trades": [
+                {"side": "SELL", "realized_pnl": 60.0},
+                {"side": "SELL", "realized_pnl": 40.0},
+            ],
+        }
+        with patch(
+            "bot.historical_portfolio_backtest.run_replay",
+            return_value=fake_report,
+        ) as replay:
+            comparison = run_scenario_comparison(Path("unused.csv"))
+
+        self.assertEqual(comparison["scenario_count"], 10)
+        self.assertFalse(comparison["live_orders_submitted"])
+        self.assertEqual(replay.call_count, 10)
+        self.assertEqual(
+            {row["take_profit_percent"] for row in comparison["scenarios"] if row["take_profit_r_multiple"] is None},
+            {0.15, 0.5, 1.0},
+        )
+        self.assertEqual(
+            {row["take_profit_r_multiple"] for row in comparison["scenarios"] if row["take_profit_r_multiple"] is not None},
+            {1.0, 1.5},
+        )
+        self.assertEqual(
+            {row["reentry_cooldown_sessions"] for row in comparison["scenarios"]},
+            {0, 3},
+        )
+        self.assertTrue(all(row["win_rate_pct"] == 100.0 for row in comparison["scenarios"]))
+
+
     def _write_dataset(self, root: Path, *, data_source="T-Invest API", duplicate=False):
         csv_path = root / "history.csv"
         rows = [
