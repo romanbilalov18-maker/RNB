@@ -75,6 +75,26 @@ class PositionManager:
                 )
                 continue
 
+            # Persisted ATR/trailing stops are absolute market-price levels.
+            # They are checked before the legacy percentage guard and do not
+            # depend on strategy-analysis availability.
+            persisted_stop = getattr(position, "stop_price", None)
+            if (
+                isinstance(persisted_stop, (int, float))
+                and not isinstance(persisted_stop, bool)
+                and math.isfinite(persisted_stop)
+                and persisted_stop > 0
+                and price <= persisted_stop + 1e-12
+            ):
+                decisions.append(
+                    PositionDecision(
+                        ticker,
+                        "SELL",
+                        f"сработал сохранённый защитный Stop Loss по цене {persisted_stop:.6f}",
+                    )
+                )
+                continue
+
             # Use a tiny tolerance for the boundary comparison so that a
             # mathematically exact Stop Loss is not missed because of binary
             # floating-point rounding (e.g. -0.05 represented slightly above
