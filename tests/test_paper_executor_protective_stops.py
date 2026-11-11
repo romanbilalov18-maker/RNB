@@ -162,11 +162,12 @@ if __name__ == "__main__":
 
         self.assertEqual(len(buys), 1)
         position = portfolio.positions["AAA"]
-        self.assertEqual(position.stop_model, "ATR14_X2")
-        self.assertAlmostEqual(position.initial_stop_price, 94.0)
-        self.assertAlmostEqual(position.stop_price, 94.0)
+        self.assertEqual(position.stop_model, "ATR14_X2_WITH_HARD_5PCT_CAP")
+        expected_stop = 100.0 * 1.0005 * 0.95 / 0.9995
+        self.assertAlmostEqual(position.initial_stop_price, expected_stop)
+        self.assertAlmostEqual(position.stop_price, expected_stop)
         self.assertAlmostEqual(position.high_watermark, 100.0)
-        self.assertGreater(position.initial_stop_risk_per_share, 6.0)
+        self.assertGreater(position.initial_stop_risk_per_share, 5.0)
         self.assertLessEqual(
             position.quantity * position.initial_stop_risk_per_share,
             100.0 + 1e-9,
