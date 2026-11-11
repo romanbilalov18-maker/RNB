@@ -115,8 +115,8 @@ class PaperExecutor:
         risk_budget_pct: float = 0.01,
         take_profit_r_multiple: float | None = None,
         reentry_cooldown_sessions: int = 0,
-        estimated_slippage_bps: float = 5.0,
-        fallback_spread_pct: float = 0.001,
+        estimated_slippage_bps: float = 1.0,
+        fallback_spread_pct: float = 0.0002,
     ):
         if (
             isinstance(risk_budget_pct, bool)
