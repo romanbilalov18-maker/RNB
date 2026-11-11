@@ -145,6 +145,10 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertAlmostEqual(stats.worst_realized_trade, 97.9)
         self.assertAlmostEqual(stats.average_profitable_trade, 97.9)
         self.assertAlmostEqual(stats.average_losing_trade, 0.0)
+        self.assertAlmostEqual(stats.gross_profit, 97.9)
+        self.assertAlmostEqual(stats.gross_loss, 0.0)
+        self.assertIsNone(stats.profit_factor)
+        self.assertAlmostEqual(stats.expectancy_per_exit, 97.9)
         self.assertAlmostEqual(stats.max_drawdown, 500.0)
         self.assertAlmostEqual(stats.max_drawdown_pct, 5.0)
 
@@ -186,6 +190,32 @@ class TestVirtualPortfolio(unittest.TestCase):
             VirtualPortfolio(True)
         with self.assertRaises(ValueError):
             VirtualPortfolio(10_000, commission_rate=True)
+
+
+    def test_expectancy_and_profit_factor_include_partial_exit_events_and_costs(self):
+        timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(
+            10_000, commission_rate=0.001, profit_reserve_rate=0.0
+        )
+        portfolio.buy("TEST", 10, 100.0, timestamp)
+        first_exit = portfolio.sell("TEST", 4, 110.0, timestamp)
+        second_exit = portfolio.sell("TEST", 6, 90.0, timestamp)
+
+        stats = portfolio.statistics(current_equity=9_978.02)
+
+        self.assertAlmostEqual(first_exit.realized_pnl, 39.16)
+        self.assertAlmostEqual(second_exit.realized_pnl, -61.14)
+        self.assertAlmostEqual(stats.gross_profit, 39.16)
+        self.assertAlmostEqual(stats.gross_loss, 61.14)
+        self.assertAlmostEqual(stats.profit_factor, 39.16 / 61.14)
+        self.assertAlmostEqual(stats.expectancy_per_exit, -10.99)
+
+    def test_expectancy_is_zero_without_closed_positions(self):
+        stats = VirtualPortfolio(10_000).statistics(current_equity=10_000)
+        self.assertEqual(stats.expectancy_per_exit, 0.0)
+        self.assertEqual(stats.gross_profit, 0.0)
+        self.assertEqual(stats.gross_loss, 0.0)
+        self.assertIsNone(stats.profit_factor)
 
 
 if __name__ == "__main__":
