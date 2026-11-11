@@ -336,5 +336,40 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
         self.assertIn("PROTECTIVE OHLC GUARD UNAVAILABLE", output.getvalue())
         self.assertIn("BADBAR", portfolio.positions)
 
+    def test_executor_applies_net_profit_guard_to_sized_entry(self):
+        start = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        history = [
+            SimpleNamespace(time=start + timedelta(days=i), high=100.5,
+                low=99.5, close=100.0, is_complete=True)
+            for i in range(15)
+        ]
+        analysis = SimpleNamespace(ticker="AAA", volatility=0.1, score=0.9,
+            momentum=0.1, trend_strength=0.1)
+        portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)
+        scan = SimpleNamespace(
+            analyses={"AAA": analysis}, buy_candidates=[analysis],
+            current_prices={"AAA": 100.0}, previous_closes={"AAA": 99.0},
+            lot_sizes={"AAA": 1}, active_trading_tickers={"AAA"},
+            fresh_quote_tickers={"AAA"}, sellable_quote_tickers={"AAA"},
+            liquidity_spread_pct_by_ticker={"AAA": 0.001},
+            session_by_ticker={"AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}},
+            candle_history={"AAA": history}, market_closed_tickers=set(),
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, buys = PaperExecutor(
+                take_profit=0.0015, estimated_slippage_bps=5,
+                fallback_spread_pct=0.001,
+            ).execute(
+                portfolio, scan, eligible_buy_tickers={"AAA"},
+                eligible_buy_reasons={"AAA": "approved"},
+                as_of=start + timedelta(days=15),
+            )
+        self.assertEqual(sells, [])
+        self.assertEqual(buys, [])
+        self.assertEqual(portfolio.trades, [])
+        self.assertIn("NET PROFIT GUARD REJECTED: ticker=AAA", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
