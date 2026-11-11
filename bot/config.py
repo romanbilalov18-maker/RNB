@@ -12,6 +12,8 @@ class Config:
     profit_reserve_rate: float = 0.7
     portfolio_db_path: str = "data/virtual_portfolio.sqlite3"
     risk_budget_percent: float = 1.0
+    estimated_slippage_bps: float = 5.0
+    fallback_spread_percent: float = 0.10
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -34,6 +36,8 @@ class Config:
             take_profit = float(os.getenv("TAKE_PROFIT_PERCENT", "0.15"))
             reserve_rate = float(os.getenv("PROFIT_RESERVE_RATE", "0.7"))
             risk_budget_percent = float(os.getenv("VIRTUAL_RISK_BUDGET_PERCENT", "1.0"))
+            estimated_slippage_bps = float(os.getenv("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", "5"))
+            fallback_spread_percent = float(os.getenv("VIRTUAL_FALLBACK_SPREAD_PERCENT", "0.10"))
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("Virtual portfolio numeric settings must be valid numbers") from exc
 
@@ -48,6 +52,8 @@ class Config:
             ("TAKE_PROFIT_PERCENT", take_profit),
             ("PROFIT_RESERVE_RATE", reserve_rate),
             ("VIRTUAL_RISK_BUDGET_PERCENT", risk_budget_percent),
+            ("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", estimated_slippage_bps),
+            ("VIRTUAL_FALLBACK_SPREAD_PERCENT", fallback_spread_percent),
         ):
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be a finite number")
@@ -62,6 +68,10 @@ class Config:
             raise ValueError("PROFIT_RESERVE_RATE must be between 0 and 1")
         if not 0.0 < risk_budget_percent <= 100.0:
             raise ValueError("VIRTUAL_RISK_BUDGET_PERCENT must be in (0, 100]")
+        if not 0.0 <= estimated_slippage_bps <= 10000.0:
+            raise ValueError("VIRTUAL_ESTIMATED_SLIPPAGE_BPS must be in [0, 10000]")
+        if not 0.0 <= fallback_spread_percent <= 100.0:
+            raise ValueError("VIRTUAL_FALLBACK_SPREAD_PERCENT must be in [0, 100]")
         if not db_path:
             raise ValueError("VIRTUAL_PORTFOLIO_DB must not be empty")
 
@@ -72,5 +82,7 @@ class Config:
             take_profit_percent=take_profit,
             profit_reserve_rate=reserve_rate,
             risk_budget_percent=risk_budget_percent,
+            estimated_slippage_bps=estimated_slippage_bps,
+            fallback_spread_percent=fallback_spread_percent,
             portfolio_db_path=db_path,
         )
