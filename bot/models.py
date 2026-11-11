@@ -24,6 +24,14 @@ class VirtualPosition:
     last_health_candle_timestamp: str | None = None
     health_condition: str | None = None
     health_condition_since: str | None = None
+    # Persisted protective-stop state. None denotes a legacy position whose
+    # stop must be initialized from verified market data before adaptive logic.
+    initial_stop_price: float | None = None
+    stop_price: float | None = None
+    high_watermark: float | None = None
+    initial_stop_risk_per_share: float | None = None
+    stop_model: str | None = None
+    stop_updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
