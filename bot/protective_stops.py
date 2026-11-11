@@ -6,7 +6,7 @@ import math
 from bot.position_health import verified_completed_candles
 
 
-def _number(value: object) -> float | None:
+def market_price_number(value: object) -> float | None:
     if value is None:
         return None
     try:
@@ -37,9 +37,9 @@ def average_true_range(candles, period: int = 14) -> float | None:
     sample = completed[-(period + 1):]
     ranges = []
     for previous, current in zip(sample, sample[1:]):
-        high = _number(getattr(current, "high", None))
-        low = _number(getattr(current, "low", None))
-        previous_close = _number(getattr(previous, "close", None))
+        high = market_price_number(getattr(current, "high", None))
+        low = market_price_number(getattr(current, "low", None))
+        previous_close = market_price_number(getattr(previous, "close", None))
         if high is None or low is None or previous_close is None or high < low:
             return None
         ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
