@@ -39,6 +39,10 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
         self.assertFalse(comparison["live_orders_submitted"])
         self.assertEqual(replay.call_count, 40)
         self.assertEqual(
+            {call.kwargs["minimum_net_return_percent"] for call in replay.call_args_list},
+            {0.0, 0.025, 0.05, 0.075},
+        )
+        self.assertEqual(
             {row["take_profit_percent"] for row in comparison["scenarios"] if row["take_profit_r_multiple"] is None},
             {0.15, 0.5, 1.0},
         )
