@@ -34,6 +34,7 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
         manifest = {
             "data_source": data_source,
             "data_integrity_status": "duplicates_detected" if duplicate else "unique_symbol_timestamps",
+            "candle_completion_status": "verified_completed_only",
             "sample_start": rows[0][0],
             "sample_end": rows[-1][0],
             "selection_method": "current LiveMarketRunner scanner universe",
@@ -53,8 +54,20 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
         self.assertEqual(len(candles["AAA"]), 1)
         self.assertEqual(candles["AAA"][0].open, 100.0)
         self.assertEqual(candles["AAA"][0].close, 103.0)
+        self.assertIs(candles["AAA"][0].is_complete, True)
         self.assertEqual(metadata["AAA"]["lot"], 10)
         self.assertEqual(manifest["data_source"], "T-Invest API")
+
+
+    def test_rejects_dataset_without_verified_completed_candle_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self._write_dataset(Path(temp))
+            manifest_path = path.with_suffix(".csv.manifest.json")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest.pop("candle_completion_status")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "verified completed daily candles"):
+                load_dataset(path)
 
     def test_rejects_non_tinvest_data_source(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -138,6 +138,7 @@ def build_manifest(
         "duplicate_symbol_timestamp_count": duplicate_symbol_timestamps,
         "data_integrity_status": "duplicates_detected" if duplicate_symbol_timestamps else "unique_symbol_timestamps",
         "candle_interval": "daily",
+        "candle_completion_status": "verified_completed_only",
         "requested_lookback_days": days,
         "sample_start": min(row["timestamp"] for row in rows),
         "sample_end": max(row["timestamp"] for row in rows),

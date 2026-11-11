@@ -199,10 +199,6 @@ class TestPositionManager(unittest.TestCase):
         self.assertEqual(decisions[0].action, "SELL")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_duplicate_sell_decisions_execute_only_one_sale(self):
         timestamp = datetime(2026, 11, 10, tzinfo=timezone.utc)
         portfolio = VirtualPortfolio(10_000)
@@ -221,3 +217,6 @@ if __name__ == "__main__":
         self.assertEqual(len(trades), 1)
         self.assertEqual(len([trade for trade in portfolio.trades if trade.side == "SELL"]), 1)
         self.assertNotIn("AAA", portfolio.positions)
+
+if __name__ == "__main__":
+    unittest.main()

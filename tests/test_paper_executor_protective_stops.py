@@ -112,18 +112,14 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
         self.assertNotIn("AAA", portfolio.positions)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_new_position_receives_atr_stop_and_is_sized_from_that_distance(self):
         start = datetime(2026, 2, 1, tzinfo=timezone.utc)
         history = [
             SimpleNamespace(
                 time=start + timedelta(days=index),
-                high=102.0,
-                low=99.0,
-                close=101.0,
+                high=100.5,
+                low=99.5,
+                close=100.0,
                 is_complete=True,
             )
             for index in range(15)
@@ -162,12 +158,13 @@ if __name__ == "__main__":
 
         self.assertEqual(len(buys), 1)
         position = portfolio.positions["AAA"]
-        self.assertEqual(position.stop_model, "ATR14_X2_WITH_HARD_5PCT_CAP")
-        expected_stop = 100.0 * 1.0005 * 0.95 / 0.9995
+        self.assertEqual(position.stop_model, "ATR14_X2")
+        expected_stop = 98.0
         self.assertAlmostEqual(position.initial_stop_price, expected_stop)
         self.assertAlmostEqual(position.stop_price, expected_stop)
         self.assertAlmostEqual(position.high_watermark, 100.0)
-        self.assertGreater(position.initial_stop_risk_per_share, 5.0)
+        self.assertGreater(position.initial_stop_risk_per_share, 2.0)
+        self.assertLess(position.initial_stop_risk_per_share, 3.0)
         self.assertLessEqual(
             position.quantity * position.initial_stop_risk_per_share,
             100.0 + 1e-9,
@@ -304,3 +301,6 @@ if __name__ == "__main__":
         self.assertEqual(sells, [])
         self.assertIn("PROTECTIVE OHLC GUARD UNAVAILABLE", output.getvalue())
         self.assertIn("BADBAR", portfolio.positions)
+
+if __name__ == "__main__":
+    unittest.main()

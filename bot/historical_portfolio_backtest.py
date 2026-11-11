@@ -36,6 +36,8 @@ def load_dataset(
         raise ValueError("Historical replay accepts only datasets marked as T-Invest API")
     if manifest.get("data_integrity_status") != "unique_symbol_timestamps":
         raise ValueError("Dataset contains duplicate symbol/timestamp rows")
+    if manifest.get("candle_completion_status") != "verified_completed_only":
+        raise ValueError("Historical replay requires T-Invest verified completed daily candles")
 
     metadata = {
         str(item.get("ticker") or "").strip().upper(): item
@@ -73,7 +75,11 @@ def load_dataset(
             if key in seen:
                 raise ValueError(f"CSV line {line_number}: duplicate ticker/timestamp")
             seen.add(key)
-            candles.setdefault(ticker, []).append(SimpleNamespace(time=stamp, **values))
+            # The exporter only writes candles returned by the broker completion
+            # verifier; preserve that provenance for ATR and position-health checks.
+            candles.setdefault(ticker, []).append(
+                SimpleNamespace(time=stamp, is_complete=True, **values)
+            )
 
     if tickers is not None:
         requested = {
