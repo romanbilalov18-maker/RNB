@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from contextlib import redirect_stdout
+from io import StringIO
 from types import SimpleNamespace
 import unittest
 
@@ -91,14 +93,19 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
             market_closed_tickers=set(),
         )
 
-        sells, _ = PaperExecutor().execute(
-            portfolio,
-            scan,
-            eligible_buy_tickers=set(),
-            eligible_buy_reasons={},
-            as_of=timestamp + timedelta(minutes=1),
-        )
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, _ = PaperExecutor().execute(
+                portfolio,
+                scan,
+                eligible_buy_tickers=set(),
+                eligible_buy_reasons={},
+                as_of=timestamp + timedelta(minutes=1),
+            )
 
+        self.assertIn("STOP_EXIT_AUDIT", output.getvalue())
+        self.assertIn("actual_loss=", output.getvalue())
+        self.assertIn("initial_risk=", output.getvalue())
         self.assertEqual(len(sells), 1)
         self.assertEqual(sells[0].ticker, "AAA")
         self.assertIn("сохранённый защитный Stop Loss", sells[0].reason)
