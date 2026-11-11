@@ -33,9 +33,11 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
         ) as replay:
             comparison = run_scenario_comparison(Path("unused.csv"))
 
-        self.assertEqual(comparison["scenario_count"], 10)
+        self.assertEqual(comparison["scenario_count"], 40)
+        self.assertEqual(comparison["exit_scenario_count"], 10)
+        self.assertEqual(comparison["minimum_net_return_thresholds_percent"], [0.0, 0.025, 0.05, 0.075])
         self.assertFalse(comparison["live_orders_submitted"])
-        self.assertEqual(replay.call_count, 10)
+        self.assertEqual(replay.call_count, 40)
         self.assertEqual(
             {row["take_profit_percent"] for row in comparison["scenarios"] if row["take_profit_r_multiple"] is None},
             {0.15, 0.5, 1.0},
@@ -49,6 +51,11 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
             {0, 3},
         )
         self.assertTrue(all(row["win_rate_pct"] == 100.0 for row in comparison["scenarios"]))
+        self.assertEqual(
+            {row["minimum_net_return_percent"] for row in comparison["scenarios"]},
+            {0.0, 0.025, 0.05, 0.075},
+        )
+        self.assertTrue(all("_net" in row["name"] for row in comparison["scenarios"]))
 
 
     def _write_dataset(self, root: Path, *, data_source="T-Invest API", duplicate=False):
