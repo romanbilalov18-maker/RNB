@@ -107,3 +107,60 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_new_position_receives_atr_stop_and_is_sized_from_that_distance(self):
+        start = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        history = [
+            SimpleNamespace(
+                time=start + timedelta(days=index),
+                high=102.0,
+                low=99.0,
+                close=101.0,
+                is_complete=True,
+            )
+            for index in range(15)
+        ]
+        analysis = SimpleNamespace(
+            ticker="AAA",
+            volatility=0.1,
+            score=0.9,
+            momentum=0.1,
+            trend_strength=0.1,
+        )
+        portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)
+        scan = SimpleNamespace(
+            analyses={"AAA": analysis},
+            buy_candidates=[analysis],
+            current_prices={"AAA": 100.0},
+            previous_closes={"AAA": 99.0},
+            lot_sizes={"AAA": 1},
+            active_trading_tickers={"AAA"},
+            fresh_quote_tickers={"AAA"},
+            sellable_quote_tickers={"AAA"},
+            session_by_ticker={
+                "AAA": {"session": "REGULAR", "instrument_exchange": "MOEX"}
+            },
+            candle_history={"AAA": history},
+            market_closed_tickers=set(),
+        )
+
+        _, buys = PaperExecutor(take_profit=0.50).execute(
+            portfolio,
+            scan,
+            eligible_buy_tickers={"AAA"},
+            eligible_buy_reasons={"AAA": "approved"},
+            as_of=start + timedelta(days=15),
+        )
+
+        self.assertEqual(len(buys), 1)
+        position = portfolio.positions["AAA"]
+        self.assertEqual(position.stop_model, "ATR14_X2")
+        self.assertAlmostEqual(position.initial_stop_price, 94.0)
+        self.assertAlmostEqual(position.stop_price, 94.0)
+        self.assertAlmostEqual(position.high_watermark, 100.0)
+        self.assertGreater(position.initial_stop_risk_per_share, 6.0)
+        self.assertLessEqual(
+            position.quantity * position.initial_stop_risk_per_share,
+            100.0 + 1e-9,
+        )
