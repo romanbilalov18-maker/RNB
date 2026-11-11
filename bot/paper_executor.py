@@ -710,22 +710,30 @@ class PaperExecutor:
                 (getattr(scan, "candle_history", {}) or {}).get(ticker, ()),
                 period=14,
             )
+            rate = portfolio.commission_rate
+            entry_cost = entry_price * (1.0 + rate)
+            legacy_stop_price = (
+                entry_cost * (1.0 + self.position_manager.stop_loss)
+                / (1.0 - rate)
+            )
             if atr is not None:
                 try:
-                    stop_prices[ticker] = initial_atr_stop(entry_price, atr, 2.0)
-                    stop_models[ticker] = "ATR14_X2"
+                    atr_stop_price = initial_atr_stop(entry_price, atr, 2.0)
+                    # The ATR level may be wider than the existing hard 5%
+                    # net-loss guard. Persist and size from the tighter level.
+                    stop_prices[ticker] = max(atr_stop_price, legacy_stop_price)
+                    stop_models[ticker] = (
+                        "ATR14_X2"
+                        if atr_stop_price >= legacy_stop_price
+                        else "ATR14_X2_WITH_HARD_5PCT_CAP"
+                    )
                     continue
                 except ValueError:
                     print(
                         f"PROTECTIVE STOP FALLBACK: ticker={ticker} "
                         "reason=ATR level outside valid price range; using legacy 5% guard."
                     )
-            rate = portfolio.commission_rate
-            entry_cost = entry_price * (1.0 + rate)
-            stop_prices[ticker] = (
-                entry_cost * (1.0 + self.position_manager.stop_loss)
-                / (1.0 - rate)
-            )
+            stop_prices[ticker] = legacy_stop_price
             stop_models[ticker] = "FIXED_5PCT_FALLBACK"
 
         print(
