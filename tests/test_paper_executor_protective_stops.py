@@ -52,7 +52,7 @@ class PaperExecutorProtectiveStopTests(unittest.TestCase):
             execution_candles={"AAA": current_bar},
         )
 
-        sells, buys = PaperExecutor().execute(
+        sells, buys = PaperExecutor(take_profit=0.50).execute(
             portfolio,
             scan,
             eligible_buy_tickers=set(),
