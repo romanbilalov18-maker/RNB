@@ -1,6 +1,7 @@
 import unittest
 
 from bot.net_profit_guard import assess_net_profit
+from bot.paper_executor import PaperExecutor
 
 
 class NetProfitGuardTests(unittest.TestCase):
@@ -37,6 +38,16 @@ class NetProfitGuardTests(unittest.TestCase):
         )
         self.assertFalse(result.allowed)
         self.assertLess(result.expected_net_return, 0)
+
+    def test_paper_executor_accepts_and_stores_minimum_net_return(self):
+        executor = PaperExecutor(minimum_net_return=0.0005)
+        self.assertEqual(executor.minimum_net_return, 0.0005)
+
+    def test_paper_executor_rejects_invalid_minimum_net_return(self):
+        for value in (-0.001, 1.1, float("nan"), True):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    PaperExecutor(minimum_net_return=value)
 
     def test_invalid_inputs_fail_closed(self):
         cases = [
