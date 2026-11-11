@@ -645,3 +645,61 @@ class HistoricalReplayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_execution_open_and_ohlc_survive_strategy_analyzer_failure_for_held_position(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+        from bot.paper_executor import PaperExecutor
+
+        class BrokenAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                raise ValueError("deliberate analyzer failure")
+
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        bars = [
+            SimpleNamespace(time=start + timedelta(days=0), open=100.0, high=101.0, low=99.0, close=100.0),
+            SimpleNamespace(time=start + timedelta(days=1), open=100.0, high=102.0, low=99.0, close=101.0),
+            SimpleNamespace(time=start + timedelta(days=2), open=100.0, high=102.0, low=90.0, close=98.0),
+        ]
+        portfolio = VirtualPortfolio(initial_balance=10_000.0, commission_rate=0.0005)
+        portfolio.buy("AAA", 10, 100.0, start - timedelta(days=1))
+
+        with patch.object(analysis_module, "StockAnalyzer", BrokenAnalyzer), patch.object(
+            integration_module, "analyze_scan", lambda scan, portfolio=None: {}
+        ):
+            cycles = iter_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+                portfolio=portfolio,
+            )
+            next(cycles)
+            next(cycles)
+            cycle = next(cycles)
+
+        self.assertEqual(cycle.scan.analyses, {})
+        self.assertEqual(cycle.scan.current_prices["AAA"], 100.0)
+        self.assertIn("AAA", cycle.scan.execution_candles)
+
+        PaperExecutor().execute(
+            portfolio,
+            cycle.scan,
+            eligible_buy_tickers=set(),
+            eligible_buy_reasons={},
+            as_of=cycle.timestamp,
+            execution_candles=cycle.scan.execution_candles,
+        )
+
+        self.assertNotIn("AAA", portfolio.positions)
+        sell = portfolio.trades[-1]
+        self.assertEqual(sell.side, "SELL")
+        self.assertIn("Stop Loss", sell.reason)
+        self.assertLess(sell.price, 100.0)
