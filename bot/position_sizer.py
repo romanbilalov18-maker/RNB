@@ -18,6 +18,7 @@ class PositionPlan:
     target_weight: float
     actual_weight: float
     estimated_stop_loss_risk: float
+    stop_price: float | None = None
 
 
 class PositionSizer:
@@ -87,6 +88,7 @@ class PositionSizer:
         existing_positions=None,
         existing_values=None,
         total_equity: float | None = None,
+        stop_prices: dict[str, float] | None = None,
     ) -> list[PositionPlan]:
         if (
             isinstance(cash, bool)
@@ -142,6 +144,33 @@ class PositionSizer:
                 raise ValueError(f"lot size for {ticker} must be a positive integer")
             tickers.append(ticker)
 
+        validated_stop_prices = {}
+        if stop_prices is not None:
+            for ticker in tickers:
+                stop = stop_prices.get(ticker)
+                price = prices[ticker]
+                if (
+                    isinstance(stop, bool)
+                    or not isinstance(stop, (int, float))
+                    or not math.isfinite(stop)
+                    or stop <= 0
+                    or stop >= price
+                ):
+                    raise ValueError(f"stop price for {ticker} must be finite, positive, and below entry price")
+                validated_stop_prices[ticker] = float(stop)
+
+        risk_per_lot = None
+        if validated_stop_prices:
+            risk_per_lot = {
+                ticker: lot_sizes[ticker] * (
+                    prices[ticker] * (1.0 + self.commission_rate)
+                    - validated_stop_prices[ticker] * (1.0 - self.commission_rate)
+                )
+                for ticker in tickers
+            }
+            if any(not math.isfinite(value) or value <= 0 for value in risk_per_lot.values()):
+                raise ValueError("per-lot stop risk must be finite and positive")
+
         targets = self._target_weights(analyses)
         unit_costs = {
             analysis.ticker: prices[analysis.ticker]
@@ -167,12 +196,12 @@ class PositionSizer:
         if combinations <= self.EXACT_SEARCH_LIMIT:
             best = self._exhaustive_best(
                 tickers, ranges, unit_costs, existing_values, targets,
-                cash, total_equity,
+                cash, total_equity, risk_per_lot,
             )
         else:
             best = self._heuristic_best(
                 tickers, max_lots, unit_costs, existing_values, targets,
-                cash, total_equity,
+                cash, total_equity, risk_per_lot,
             )
 
         if best is None:
@@ -205,13 +234,16 @@ class PositionSizer:
                     target_weight=targets[ticker],
                     actual_weight=weights[ticker],
                     estimated_stop_loss_risk=(
-                        lots * unit_costs[ticker] / (1.0 + self.commission_rate)
+                        lots * risk_per_lot[ticker]
+                        if risk_per_lot is not None
+                        else lots * unit_costs[ticker] / (1.0 + self.commission_rate)
                         * (
                             self.stop_loss_pct
                             + 2.0 * self.commission_rate
                             - self.stop_loss_pct * self.commission_rate
                         )
                     ),
+                    stop_price=validated_stop_prices.get(ticker),
                 )
             )
 
@@ -219,7 +251,7 @@ class PositionSizer:
 
     def _evaluate(
         self, lot_counts, tickers, unit_costs, existing_values, targets,
-        cash, total_equity,
+        cash, total_equity, risk_per_lot=None,
     ):
         invested = sum(
             lots * unit_costs[ticker]
@@ -233,10 +265,14 @@ class PositionSizer:
             + 2.0 * self.commission_rate
             - self.stop_loss_pct * self.commission_rate
         )
-        estimated_stop_loss_risk = sum(
-            lots * unit_costs[ticker] / (1.0 + self.commission_rate)
-            * loss_rate_after_commission
-            for ticker, lots in zip(tickers, lot_counts)
+        estimated_stop_loss_risk = (
+            sum(lots * risk_per_lot[ticker] for ticker, lots in zip(tickers, lot_counts))
+            if risk_per_lot is not None
+            else sum(
+                lots * unit_costs[ticker] / (1.0 + self.commission_rate)
+                * loss_rate_after_commission
+                for ticker, lots in zip(tickers, lot_counts)
+            )
         )
         risk_budget = total_equity * self.risk_budget_pct if self.risk_budget_pct is not None else None
         if risk_budget is not None and estimated_stop_loss_risk > risk_budget + 1e-9:
@@ -265,13 +301,13 @@ class PositionSizer:
 
     def _exhaustive_best(
         self, tickers, ranges, unit_costs, existing_values, targets,
-        cash, total_equity,
+        cash, total_equity, risk_per_lot=None,
     ):
         best = None
         for lot_counts in product(*ranges):
             candidate = self._evaluate(
                 lot_counts, tickers, unit_costs, existing_values, targets,
-                cash, total_equity,
+                cash, total_equity, risk_per_lot,
             )
             if candidate is not None and (
                 best is None or candidate[:2] > best[:2]
@@ -281,7 +317,7 @@ class PositionSizer:
 
     def _heuristic_best(
         self, tickers, max_lots, unit_costs, existing_values, targets,
-        cash, total_equity,
+        cash, total_equity, risk_per_lot=None,
     ):
         counts = [0] * len(tickers)
         best = None
@@ -303,7 +339,7 @@ class PositionSizer:
                     trial[index] += batch
                     candidate = self._evaluate(
                         trial, tickers, unit_costs, existing_values, targets,
-                        cash, total_equity,
+                        cash, total_equity, risk_per_lot,
                     )
                     if candidate is not None and (
                         next_best is None or candidate[:2] > next_best[:2]
@@ -334,7 +370,7 @@ class PositionSizer:
                     trial[destination] += 1
                     candidate = self._evaluate(
                         trial, tickers, unit_costs, existing_values, targets,
-                        cash, total_equity,
+                        cash, total_equity, risk_per_lot,
                     )
                     if candidate is not None and candidate[:2] > improved[:2]:
                         improved = candidate
