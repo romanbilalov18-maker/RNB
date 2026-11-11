@@ -452,7 +452,21 @@ class PaperExecutor:
             ticker: {
                 "quantity": position.quantity,
                 "initial_stop_price": getattr(position, "initial_stop_price", None),
-                "stop_price": getattr(position, "stop_price", None),
+                "stop_price": max(
+                    float(getattr(position, "stop_price")),
+                    position.average_price * (1.0 + portfolio.commission_rate)
+                    * (1.0 + self.position_manager.stop_loss)
+                    / (1.0 - portfolio.commission_rate),
+                ) if (
+                    isinstance(getattr(position, "stop_price", None), (int, float))
+                    and not isinstance(getattr(position, "stop_price", None), bool)
+                    and math.isfinite(getattr(position, "stop_price"))
+                    and getattr(position, "stop_price") > 0
+                ) else (
+                    position.average_price * (1.0 + portfolio.commission_rate)
+                    * (1.0 + self.position_manager.stop_loss)
+                    / (1.0 - portfolio.commission_rate)
+                ),
                 "initial_stop_risk_per_share": getattr(
                     position, "initial_stop_risk_per_share", None
                 ),
