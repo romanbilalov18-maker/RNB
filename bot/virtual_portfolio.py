@@ -31,6 +31,10 @@ class PortfolioStatistics:
     worst_realized_trade: float
     average_profitable_trade: float
     average_losing_trade: float
+    gross_profit: float
+    gross_loss: float
+    profit_factor: float | None
+    expectancy_per_exit: float
     total_realized_pnl: float
     total_commissions: float
     current_equity: float
@@ -235,6 +239,14 @@ class VirtualPortfolio:
         buys = [trade for trade in self.trades if trade.side == "BUY"]
         profitable = [trade for trade in sells if trade.realized_pnl > 0]
         losing = [trade for trade in sells if trade.realized_pnl < 0]
+        gross_profit = sum(trade.realized_pnl for trade in profitable)
+        gross_loss = -sum(trade.realized_pnl for trade in losing)
+        # None represents an undefined/infinite ratio when there are no losses.
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else None
+        expectancy_per_exit = (
+            sum(trade.realized_pnl for trade in sells) / len(sells)
+            if sells else 0.0
+        )
 
         history = list(equity_history or [])
         if not history:
@@ -273,6 +285,10 @@ class VirtualPortfolio:
                 if losing
                 else 0.0
             ),
+            gross_profit=gross_profit,
+            gross_loss=gross_loss,
+            profit_factor=profit_factor,
+            expectancy_per_exit=expectancy_per_exit,
             total_realized_pnl=self.realized_pnl,
             total_commissions=self.commissions,
             current_equity=current_equity,
