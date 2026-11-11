@@ -117,6 +117,7 @@ class PaperExecutor:
         reentry_cooldown_sessions: int = 0,
         estimated_slippage_bps: float = 1.0,
         fallback_spread_pct: float = 0.0002,
+        minimum_net_return: float = 0.0,
     ):
         if (
             isinstance(risk_budget_pct, bool)
@@ -143,7 +144,9 @@ class PaperExecutor:
             commission_rate=0.0,
             spread_pct=fallback_spread_pct,
             slippage_bps=estimated_slippage_bps,
+            minimum_net_return=minimum_net_return,
         )
+        self.minimum_net_return = float(minimum_net_return)
         self.estimated_slippage_bps = float(estimated_slippage_bps)
         self.fallback_spread_pct = float(fallback_spread_pct)
 
@@ -927,6 +930,7 @@ class PaperExecutor:
                     commission_rate=portfolio.commission_rate,
                     spread_pct=float(spread_pct),
                     slippage_bps=self.estimated_slippage_bps,
+                    minimum_net_return=self.minimum_net_return,
                 )
                 if not assessment.allowed:
                     print(
