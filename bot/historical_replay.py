@@ -238,15 +238,15 @@ def iter_historical_cycles(
                 learning_by_ticker[ticker] = learning_by_ticker[ticker][-200:]
 
         # Analyze only completed bars from before this execution timestamp.
-        analyses, prices, previous_closes, visible_history, latest = {}, {}, {}, {}, {}
+        analyses, prices, execution_prices, previous_closes, visible_history, latest = {}, {}, {}, {}, {}, {}
         for ticker, bar in current_bars.items():
             bars = history[ticker]
-            # Execution evidence is independent of strategy analysis. A valid
-            # current-bar open must remain available to protect an existing
-            # holding even when history is short or the analyzer fails.
+            # Execution evidence is independent of strategy analysis. Keep a
+            # valid real open for protective exits without leaking it into
+            # signal inputs or the historical learning benchmark.
             execution_open = _number(getattr(bar, "open", None))
             if execution_open is not None and execution_open > 0:
-                prices[ticker] = execution_open
+                execution_prices[ticker] = execution_open
 
             prior_close = _number(getattr(bars[-1], "close", None)) if bars else None
             if prior_close is not None and prior_close > 0:
@@ -261,6 +261,7 @@ def iter_historical_cycles(
             except (TypeError, ValueError, ArithmeticError):
                 continue
             analyses[ticker] = result
+            prices[ticker] = execution_open
             visible_history[ticker] = list(bars)
             latest[ticker] = bars[-1]
 
@@ -333,9 +334,10 @@ def iter_historical_cycles(
             lot_sizes={ticker: lot_sizes[ticker] for ticker in analyses if ticker in lot_sizes},
             active_trading_tickers=set(prices) & set(tradable_tickers),
             fresh_quote_tickers=set(prices),
-            sellable_quote_tickers=set(prices),
+            sellable_quote_tickers=set(prices) | set(execution_prices),
             latest_candles=latest,
             candle_history=visible_history,
+            execution_prices=execution_prices,
             market_return=market_return,
             market_breadth=market_breadth,
             market_sample_count=len(observed_returns),
