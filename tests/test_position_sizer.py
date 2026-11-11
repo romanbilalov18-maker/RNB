@@ -495,3 +495,43 @@ class TestPositionSizer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_uses_instrument_specific_stop_price_for_risk_budget(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plan = PositionSizer(
+            commission_rate=0.0,
+            max_position_weight=0.35,
+            risk_budget_pct=0.01,
+            stop_loss_pct=0.05,
+        ).plan(
+            cash=10_000.0,
+            analyses=analysis,
+            prices={"A": 100.0},
+            lot_sizes={"A": 1},
+            total_equity=10_000.0,
+            stop_prices={"A": 90.0},
+        )
+
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0].stop_price, 90.0)
+        self.assertEqual(plan[0].quantity, 10)
+        self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 100.0)
+
+    def test_custom_stop_risk_includes_entry_and_exit_commissions(self):
+        analysis = [SimpleNamespace(ticker="A", volatility=0.1)]
+        plan = PositionSizer(
+            commission_rate=0.01,
+            risk_budget_pct=0.01,
+        ).plan(
+            cash=1_000.0,
+            analyses=analysis,
+            prices={"A": 100.0},
+            lot_sizes={"A": 1},
+            total_equity=1_000.0,
+            stop_prices={"A": 95.0},
+        )
+
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0].quantity, 8)
+        self.assertAlmostEqual(plan[0].estimated_stop_loss_risk, 8 * 6.95)
