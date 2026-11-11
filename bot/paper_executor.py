@@ -584,8 +584,10 @@ class PaperExecutor:
         # compatibility fallback rather than inventing volatility data.
         stop_prices = {}
         stop_models = {}
-        for analysis in eligible_analyses:
+        for analysis in scan.analyses.values():
             ticker = analysis.ticker
+            if not self._has_valid_market_sizing_data(scan, ticker):
+                continue
             entry_price = float(scan.current_prices[ticker])
             atr = average_true_range(
                 (getattr(scan, "candle_history", {}) or {}).get(ticker, ()),
