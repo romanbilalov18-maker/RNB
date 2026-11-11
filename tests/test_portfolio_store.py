@@ -495,3 +495,30 @@ class TestSQLitePortfolioStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_protective_stop_state_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("STOP", 3, 100.0, timestamp)
+            position = portfolio.positions["STOP"]
+            position.initial_stop_price = 94.5
+            position.stop_price = 97.25
+            position.high_watermark = 105.0
+            position.initial_stop_risk_per_share = 5.5
+            position.stop_model = "ATR_TRAILING_V1"
+            position.stop_updated_at = timestamp
+
+            store.save(portfolio)
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            restored_position = restored.positions["STOP"]
+
+            self.assertEqual(restored_position.initial_stop_price, 94.5)
+            self.assertEqual(restored_position.stop_price, 97.25)
+            self.assertEqual(restored_position.high_watermark, 105.0)
+            self.assertEqual(restored_position.initial_stop_risk_per_share, 5.5)
+            self.assertEqual(restored_position.stop_model, "ATR_TRAILING_V1")
+            self.assertEqual(restored_position.stop_updated_at, timestamp)
