@@ -30,6 +30,7 @@ class LiveScanResult:
     sellable_quote_tickers: set[str] = field(default_factory=set)
     liquidity_by_ticker: dict[str, float] = field(default_factory=dict)
     liquidity_spread_ticks_by_ticker: dict[str, float] = field(default_factory=dict)
+    liquidity_spread_pct_by_ticker: dict[str, float] = field(default_factory=dict)
     latest_candles: dict[str, object] = field(default_factory=dict)
     candle_history: dict[str, list[object]] = field(default_factory=dict)
     sector_by_ticker: dict[str, str] = field(default_factory=dict)
@@ -472,6 +473,7 @@ class LiveMarketRunner:
 
         liquidity_by_ticker = {}
         liquidity_spread_ticks_by_ticker = {}
+        liquidity_spread_pct_by_ticker = {}
         fresh_bid_by_ticker = {}
         sellable_quote_tickers = set()
         active_instrument_ids = set()
@@ -768,6 +770,9 @@ class LiveMarketRunner:
             normalized_spread_ticks = max(1.0, float(spread_ticks))
             liquidity_by_ticker[ticker] = max(0.0, min(1.0, 1.0 / normalized_spread_ticks))
             liquidity_spread_ticks_by_ticker[ticker] = float(spread_ticks)
+            midpoint = (best_bid + best_ask) / 2.0
+            if midpoint > 0:
+                liquidity_spread_pct_by_ticker[ticker] = (best_ask - best_bid) / midpoint
 
         previous_closes = {}
         for share in shares:
@@ -895,6 +900,7 @@ class LiveMarketRunner:
             sellable_quote_tickers=sellable_quote_tickers,
             liquidity_by_ticker=liquidity_by_ticker,
             liquidity_spread_ticks_by_ticker=liquidity_spread_ticks_by_ticker,
+            liquidity_spread_pct_by_ticker=liquidity_spread_pct_by_ticker,
             latest_candles=latest_candles,
             candle_history=candle_history,
             sector_by_ticker=sector_by_ticker,
