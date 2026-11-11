@@ -568,12 +568,21 @@ class PaperExecutor:
                 continue
             position.high_watermark = high_watermark
             current_mark = execution_prices.get(ticker)
+            candle_low = (
+                market_price_number(getattr(candle, "low", None))
+                if candle is not None
+                else None
+            )
             if (
                 not isinstance(current_mark, (int, float))
                 or isinstance(current_mark, bool)
                 or not math.isfinite(current_mark)
                 or current_mark <= 0
                 or raised_stop >= current_mark
+                or (
+                    candle is not None
+                    and (candle_low is None or candle_low <= raised_stop)
+                )
             ):
                 # Never create a stop above the currently executable mark.
                 # For daily OHLC, today's high is used only to prepare a future
