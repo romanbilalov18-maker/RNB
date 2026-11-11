@@ -261,3 +261,46 @@ if __name__ == "__main__":
         self.assertAlmostEqual(sells[0].price, expected_legacy_stop)
         self.assertIn("Stop Loss", sells[0].reason)
         self.assertNotIn("WIDE", portfolio.positions)
+
+
+    def test_invalid_daily_ohlc_is_reported_without_fabricating_an_exit(self):
+        timestamp = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000.0, commission_rate=0.0005)
+        portfolio.buy("BADBAR", 2, 100.0, timestamp)
+        position = portfolio.positions["BADBAR"]
+        position.initial_stop_price = 95.0
+        position.stop_price = 95.0
+        position.high_watermark = 100.0
+        position.initial_stop_risk_per_share = 5.0
+
+        candle = SimpleNamespace(
+            open=100.0, high=98.0, low=99.0, close=97.0
+        )
+        scan = SimpleNamespace(
+            analyses={},
+            buy_candidates=[],
+            current_prices={"BADBAR": 100.0},
+            previous_closes={"BADBAR": 100.0},
+            lot_sizes={},
+            active_trading_tickers={"BADBAR"},
+            fresh_quote_tickers={"BADBAR"},
+            sellable_quote_tickers={"BADBAR"},
+            session_by_ticker={},
+            candle_history={},
+            market_closed_tickers=set(),
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            sells, _ = PaperExecutor().execute(
+                portfolio,
+                scan,
+                eligible_buy_tickers=set(),
+                eligible_buy_reasons={},
+                as_of=timestamp + timedelta(days=1),
+                execution_candles={"BADBAR": candle},
+            )
+
+        self.assertEqual(sells, [])
+        self.assertIn("PROTECTIVE OHLC GUARD UNAVAILABLE", output.getvalue())
+        self.assertIn("BADBAR", portfolio.positions)
