@@ -181,10 +181,18 @@ class PaperExecutor:
                 and math.isfinite(current_stop)
                 and current_stop > 0
             ):
+                legacy_stop = (
+                    average_price * (1.0 + commission_rate)
+                    * (1.0 - stop_loss_pct)
+                    / (1.0 - commission_rate)
+                    if commission_rate < 1.0
+                    else current_stop
+                )
+                effective_stop = max(float(current_stop), legacy_stop)
                 current_loss_per_share = max(
                     0.0,
                     average_price * (1.0 + commission_rate)
-                    - current_stop * (1.0 - commission_rate),
+                    - effective_stop * (1.0 - commission_rate),
                 )
                 open_risk += quantity * current_loss_per_share
             else:
