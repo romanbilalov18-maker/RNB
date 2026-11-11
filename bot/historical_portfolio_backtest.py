@@ -184,6 +184,8 @@ def run_replay(
     reserve_rate: float = 0.7,
     risk_budget_percent: float = 1.0,
     take_profit_percent: float = 0.15,
+    estimated_slippage_bps: float = 5.0,
+    fallback_spread_percent: float = 0.10,
     take_profit_r_multiple: float | None = None,
     reentry_cooldown_sessions: int = 0,
     tickers: set[str] | None = None,
@@ -216,6 +218,8 @@ def run_replay(
     executor = PaperExecutor(
         take_profit=take_profit_percent / 100.0,
         risk_budget_pct=risk_budget_percent / 100.0,
+        estimated_slippage_bps=estimated_slippage_bps,
+        fallback_spread_pct=fallback_spread_percent / 100.0,
         take_profit_r_multiple=take_profit_r_multiple,
         reentry_cooldown_sessions=reentry_cooldown_sessions,
     )
@@ -251,6 +255,11 @@ def run_replay(
         "report_type": "RNB_HISTORICAL_PORTFOLIO_REPLAY",
         "data_source": "T-Invest API",
         "execution_mode": "VIRTUAL_ONLY",
+        "execution_cost_assumptions": {
+            "estimated_slippage_bps_each_side": estimated_slippage_bps,
+            "fallback_spread_percent_full": fallback_spread_percent,
+            "historical_order_book_spread_available": False,
+        },
         "live_orders_submitted": False,
         "historical_universe_reconstructed": False,
         "known_bias": "Current scanner universe and current catalog metadata; survivorship/selection bias and historical lot-size changes are not reconstructed.",
