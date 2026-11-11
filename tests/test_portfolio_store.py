@@ -522,3 +522,24 @@ if __name__ == "__main__":
             self.assertEqual(restored_position.initial_stop_risk_per_share, 5.5)
             self.assertEqual(restored_position.stop_model, "ATR_TRAILING_V1")
             self.assertEqual(restored_position.stop_updated_at, timestamp)
+
+
+    def test_rejects_corrupt_persisted_protective_stop_price(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            portfolio = VirtualPortfolio(10_000)
+            portfolio.buy("STOP", 2, 100.0, datetime.now(timezone.utc))
+            position = portfolio.positions["STOP"]
+            position.initial_stop_price = 95.0
+            position.stop_price = 95.0
+            position.high_watermark = 100.0
+            position.initial_stop_risk_per_share = 5.0
+            position.stop_model = "ATR14_X2"
+            store.save(portfolio)
+
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE positions SET stop_price=0 WHERE ticker='STOP'")
+
+            with self.assertRaisesRegex(ValueError, "stop_price"):
+                SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
