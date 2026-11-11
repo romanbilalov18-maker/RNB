@@ -101,7 +101,8 @@ jobs:
       - name: Export real T-Invest daily candles and current metadata snapshot
         run: |
           python -m bot.intelligence.levels.level_01.export_historical_data \
-            --output data/level_01_history.csv --days "${{ inputs.lookback_days }}"
+            --output data/level_01_history.csv --days "${{ inputs.lookback_days }}" \
+            --tickers "${{ inputs.ticker_universe }}"
       - name: Run portfolio backtest through PaperExecutor
         run: >-
           python -m bot.historical_portfolio_backtest
