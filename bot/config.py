@@ -12,8 +12,8 @@ class Config:
     profit_reserve_rate: float = 0.7
     portfolio_db_path: str = "data/virtual_portfolio.sqlite3"
     risk_budget_percent: float = 1.0
-    estimated_slippage_bps: float = 5.0
-    fallback_spread_percent: float = 0.10
+    estimated_slippage_bps: float = 1.0
+    fallback_spread_percent: float = 0.02
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -36,8 +36,8 @@ class Config:
             take_profit = float(os.getenv("TAKE_PROFIT_PERCENT", "0.15"))
             reserve_rate = float(os.getenv("PROFIT_RESERVE_RATE", "0.7"))
             risk_budget_percent = float(os.getenv("VIRTUAL_RISK_BUDGET_PERCENT", "1.0"))
-            estimated_slippage_bps = float(os.getenv("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", "5"))
-            fallback_spread_percent = float(os.getenv("VIRTUAL_FALLBACK_SPREAD_PERCENT", "0.10"))
+            estimated_slippage_bps = float(os.getenv("VIRTUAL_ESTIMATED_SLIPPAGE_BPS", "1"))
+            fallback_spread_percent = float(os.getenv("VIRTUAL_FALLBACK_SPREAD_PERCENT", "0.02"))
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("Virtual portfolio numeric settings must be valid numbers") from exc
 
