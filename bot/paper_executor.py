@@ -585,7 +585,9 @@ class PaperExecutor:
         stop_prices = {}
         stop_models = {}
         for analysis in scan.analyses.values():
-            ticker = analysis.ticker
+            ticker = getattr(analysis, "ticker", None)
+            if not isinstance(ticker, str) or not ticker.strip():
+                continue
             if not self._has_valid_market_sizing_data(scan, ticker):
                 continue
             entry_price = float(scan.current_prices[ticker])
