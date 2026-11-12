@@ -771,3 +771,39 @@ if __name__ == "__main__":
         self.assertEqual(sell.side, "SELL")
         self.assertIn("Stop Loss", sell.reason)
         self.assertLess(sell.price, 100.0)
+
+
+    def test_replay_exposes_point_in_time_shadow_expected_value_without_trading_effect(self):
+        from bot.historical_replay import _shadow_expected_value_snapshot
+        from bot.virtual_portfolio import VirtualPortfolio
+
+        portfolio = VirtualPortfolio(initial_balance=100_000, commission_rate=0.001)
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        for index in range(20):
+            ticker = f"T{index:02d}"
+            entry_time = start + timedelta(days=index * 2)
+            exit_time = entry_time + timedelta(days=1)
+            portfolio.buy(ticker, 10, 100.0, entry_time)
+            exit_price = 105.0 if index < 12 else 95.0
+            portfolio.sell(ticker, 10, exit_price, exit_time)
+
+        before_trade_count = len(portfolio.trades)
+        as_of = start + timedelta(days=50)
+        snapshot = _shadow_expected_value_snapshot(portfolio, as_of)
+
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["sample_count"], 20)
+        self.assertEqual(snapshot["wins"], 12)
+        self.assertEqual(snapshot["losses"], 8)
+        self.assertIsNotNone(snapshot["expected_gross_return"])
+        self.assertTrue(snapshot["shadow_only"])
+        self.assertFalse(snapshot["applied_to_trading"])
+
+        cycle_time = as_of + timedelta(days=1)
+        result = HistoricalReplay(portfolio, CapturingExecutor()).run([
+            _cycle(cycle_time)
+        ])
+        self.assertEqual(result.shadow_expected_value["sample_count"], 20)
+        self.assertEqual(len(result.shadow_expected_value_history), 1)
+        self.assertFalse(result.shadow_expected_value["applied_to_trading"])
+        self.assertEqual(len(portfolio.trades), before_trade_count)
