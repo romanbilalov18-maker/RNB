@@ -114,6 +114,23 @@ class Level11LearningTests(unittest.TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.consistency, 0.0)
 
+    def test_bayesian_confidence_is_exposed_but_not_added_to_trade_score(self):
+        observations = tuple(
+            LearningObservation(
+                outcome_return=0.02 if i >= 15 else -0.01,
+                correct=i >= 15,
+                outcome_horizon_sessions=3,
+            )
+            for i in range(30)
+        )
+        result = Level11Engine().analyze("AAA", observations)
+        self.assertIsNotNone(result.bayesian_confidence_result)
+        self.assertEqual(result.bayesian_confidence_result.analyzer, "bayesian_confidence")
+        self.assertEqual(result.bayesian_confidence_result.metrics["sample_count"], 30)
+        self.assertTrue(result.metadata["bayesian_confidence_is_diagnostic_only"])
+        self.assertFalse(result.bayesian_confidence_result.metrics["applied_to_trading"])
+        self.assertEqual(len(result.analyzer_results), 6)
+
     def test_no_predictive_signal_does_not_create_weights(self):
         observations = tuple(
             LearningObservation(outcome_return=0.01, correct=(i % 2 == 0),
