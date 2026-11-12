@@ -26,6 +26,7 @@ class Level11Result:
     weaknesses: Tuple[str, ...] = ()
     warnings: Tuple[str, ...] = ()
     metadata: Dict[str, Any] = field(default_factory=dict)
+    bayesian_confidence_result: AnalyzerResult | None = None
 
     def __post_init__(self) -> None:
         for name in (
