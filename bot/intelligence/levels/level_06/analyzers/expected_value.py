@@ -7,6 +7,7 @@ are eligible. No current commission rate is used to reconstruct historical fees.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import math
 from typing import Iterable
 
@@ -52,18 +53,26 @@ def estimate_expected_value(
     trades: Iterable[object],
     *,
     closed_episode_ids: set[str] | None = None,
+    as_of: datetime | None = None,
     minimum_samples: int = 20,
 ) -> ExpectedValueEstimate:
     """Estimate gross expectancy from completed episodes only.
 
     Each episode is one observation regardless of the number of partial exits.
-    The caller must pass IDs known to be fully closed at the decision time.
-    Historical entry commissions are taken from each persisted exit allocation;
+    The caller must pass IDs known to be fully closed at the decision time and
+    an aware as_of timestamp. Events at or after as_of are excluded to prevent
+    look-ahead leakage. Historical entry commissions are taken from each persisted exit allocation;
     exit commissions are taken from the exit itself. Legacy rows lacking this
     metadata are excluded rather than reverse-engineered with today's rate.
     """
     if closed_episode_ids is None or not isinstance(closed_episode_ids, set):
         raise ValueError("closed_episode_ids must be an explicit set")
+    if (
+        not isinstance(as_of, datetime)
+        or as_of.tzinfo is None
+        or as_of.utcoffset() is None
+    ):
+        raise ValueError("as_of must be a timezone-aware datetime")
     if any(not isinstance(item, str) or not item for item in closed_episode_ids):
         raise ValueError("closed_episode_ids must contain non-empty strings")
     if isinstance(minimum_samples, bool) or not isinstance(minimum_samples, int) or minimum_samples < 1:
@@ -80,13 +89,19 @@ def estimate_expected_value(
         realized_pnl = getattr(trade, "realized_pnl", None)
         exit_commission = getattr(trade, "commission", None)
         entry_commission = getattr(trade, "entry_commission", None)
+        timestamp = getattr(trade, "timestamp", None)
         values = (entry_price, realized_pnl, exit_commission, entry_commission)
         if (
             not isinstance(episode_id, str) or not episode_id
             or isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0
             or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in values)
             or entry_price <= 0 or exit_commission < 0 or entry_commission < 0
+            or not isinstance(timestamp, datetime)
+            or timestamp.tzinfo is None or timestamp.utcoffset() is None
         ):
+            excluded += 1
+            continue
+        if timestamp >= as_of:
             excluded += 1
             continue
         if episode_id not in closed_episode_ids:
