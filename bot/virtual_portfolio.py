@@ -148,12 +148,24 @@ class VirtualPortfolio:
             raise ValueError("insufficient virtual position")
         gross = quantity * price
         commission = gross * self.commission_rate
-        entry_commission = (
+        # A legacy open position has no persisted historical entry-fee basis.
+        # Keep the legacy accounting fallback for its P&L, but do not label that
+        # estimate as an actual historical fee in predictive training.
+        actual_entry_commission = (
             quantity * position.entry_commission_per_share
-            if position.entry_commission_per_share is not None
+            if position.entry_commission_per_share is not None else None
+        )
+        entry_commission_for_accounting = (
+            actual_entry_commission
+            if actual_entry_commission is not None
             else quantity * position.average_price * self.commission_rate
         )
-        realized_pnl = quantity * (price - position.average_price) - commission - entry_commission
+        if position.trade_episode_id is None:
+            position.trade_episode_id = uuid4().hex
+        realized_pnl = (
+            quantity * (price - position.average_price)
+            - commission - entry_commission_for_accounting
+        )
         # Move a fixed share of net realized profit into a protected reserve.
         # It is removed from spendable cash immediately and never included in
         # the cash available to PositionSizer.
@@ -170,7 +182,7 @@ class VirtualPortfolio:
             reason=reason, entry_price=position.average_price,
             reserve_transfer=reserve_transfer,
             trade_episode_id=position.trade_episode_id,
-            entry_commission=entry_commission,
+            entry_commission=actual_entry_commission,
         )
         self.trades.append(trade)
         return trade
