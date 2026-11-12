@@ -15,6 +15,7 @@ class LearningObservation:
     regime: Optional[str] = None
     decision_time: Optional[str] = None
     outcome_target_date: Optional[str] = None
+    outcome_horizon_sessions: Optional[int] = None
     realized_trade_return: Optional[float] = None
 
     def __post_init__(self) -> None:
@@ -44,6 +45,13 @@ class LearningObservation:
                     or not 0.0 <= value <= 1.0
                 ):
                     raise ValueError(f"{name}[{key}] must be a finite number between 0 and 1")
+
+        if self.outcome_horizon_sessions is not None and (
+            isinstance(self.outcome_horizon_sessions, bool)
+            or not isinstance(self.outcome_horizon_sessions, int)
+            or self.outcome_horizon_sessions not in (1, 3, 5)
+        ):
+            raise ValueError("outcome_horizon_sessions must be None, 1, 3, or 5")
 
         if self.realized_trade_return is not None and (
             isinstance(self.realized_trade_return, bool)
