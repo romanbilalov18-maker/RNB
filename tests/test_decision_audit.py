@@ -265,6 +265,7 @@ class DecisionAuditStoreTests(unittest.TestCase):
             self.assertEqual(observations[0].level_scores["L15"], .75)
             self.assertEqual(observations[0].analyzer_scores["L01:sample"], .05)
             self.assertEqual(observations[0].regime, "bullish")
+            self.assertEqual(observations[0].outcome_horizon_sessions, 3)
 
     def test_learning_observations_are_ordered_by_decision_time_not_maturity_time(self):
         with tempfile.TemporaryDirectory() as tmp:
