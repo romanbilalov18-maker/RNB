@@ -227,6 +227,18 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertEqual(closed_stats.losing_trades, 1)
         self.assertAlmostEqual(closed_stats.expectancy_per_exit, -21.98)
 
+    def test_averaging_into_legacy_position_does_not_invent_historical_entry_fee(self):
+        timestamp = datetime(2026, 11, 12, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        portfolio.buy("LEGACY", 5, 100.0, timestamp)
+        position = portfolio.positions["LEGACY"]
+        position.entry_commission_per_share = None
+        position.trade_episode_id = None
+        portfolio.buy("LEGACY", 5, 110.0, timestamp)
+        self.assertIsNone(position.entry_commission_per_share)
+        trade = portfolio.sell("LEGACY", 10, 120.0, timestamp)
+        self.assertIsNone(trade.entry_commission)
+
     def test_closed_episode_ids_excludes_still_open_partial_positions(self):
         timestamp = datetime(2026, 11, 12, tzinfo=timezone.utc)
         portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
