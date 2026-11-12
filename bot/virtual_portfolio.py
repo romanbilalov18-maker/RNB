@@ -258,6 +258,20 @@ class VirtualPortfolio:
 
         return result
 
+    def closed_trade_episode_ids(self) -> set[str]:
+        """Return holding lifecycle IDs that have exits and no remaining position."""
+        open_ids = {
+            position.trade_episode_id
+            for position in self.positions.values()
+            if position.trade_episode_id
+        }
+        exited_ids = {
+            trade.trade_episode_id
+            for trade in self.trades
+            if trade.side == "SELL" and trade.trade_episode_id
+        }
+        return exited_ids - open_ids
+
     def statistics(
         self,
         current_equity: float,
