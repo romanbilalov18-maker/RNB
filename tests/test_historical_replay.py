@@ -643,6 +643,73 @@ class HistoricalReplayTests(unittest.TestCase):
 
 
 
+    def test_matured_historical_feedback_is_tagged_as_three_session_forecast(self):
+        import bot.stock_analysis as analysis_module
+        import bot.intelligence.integration as integration_module
+        import bot.intelligence.decision_engine as decision_module
+        from bot.virtual_portfolio import VirtualPortfolio
+
+        observed_horizons = []
+
+        class FakeAnalyzer:
+            def __init__(self, **kwargs):
+                pass
+
+            def analyze(self, instrument_id, ticker, bars):
+                return SimpleNamespace(
+                    ticker=ticker, score=0.9, momentum=0.1, volatility=0.1
+                )
+
+        def fake_intelligence(scan, pipeline=None, learning_observations_by_ticker=None, portfolio=None):
+            for item in (learning_observations_by_ticker or {}).get("AAA", ()):
+                observed_horizons.append(item.outcome_horizon_sessions)
+            return {
+                "AAA": SimpleNamespace(
+                    overall_score=0.9,
+                    overall_confidence=0.8,
+                    overall_consistency=0.8,
+                )
+            }
+
+        class FakeDecisionEngine:
+            def evaluate(self, intelligence, held_tickers=()):
+                return {
+                    "AAA": SimpleNamespace(
+                        action="BUY", reason="test-approved", score=0.9,
+                        confidence=0.8, consistency=0.8,
+                    )
+                }
+
+        with patch.object(analysis_module, "StockAnalyzer", FakeAnalyzer), patch.object(
+            integration_module, "analyze_scan", side_effect=fake_intelligence
+        ), patch.object(decision_module, "DecisionEngine", FakeDecisionEngine):
+            start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+            bars = [
+                SimpleNamespace(
+                    time=start + timedelta(days=i),
+                    open=100.0 + i,
+                    high=101.0 + i,
+                    low=99.0 + i,
+                    close=100.0 + i,
+                    volume=1000,
+                )
+                for i in range(8)
+            ]
+            list(iter_historical_cycles(
+                {"AAA": bars},
+                instrument_ids={"AAA": "id"},
+                lot_sizes={"AAA": 1},
+                sessions_by_ticker={"AAA": {"instrument_exchange": "MOEX"}},
+                tradable_tickers={"AAA"},
+                min_history=2,
+                momentum_period=1,
+                portfolio=VirtualPortfolio(100_000),
+            ))
+
+        self.assertIn(3, observed_horizons)
+        self.assertTrue(all(value == 3 for value in observed_horizons))
+
+
 if __name__ == "__main__":
     unittest.main()
 
