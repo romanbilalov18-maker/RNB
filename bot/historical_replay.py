@@ -233,6 +233,7 @@ def iter_historical_cycles(
                     regime=item["regime"],
                     decision_time=item["decision_time"],
                     outcome_target_date=_historical_session_date(later[2]),
+                    outcome_horizon_sessions=3,
                 ))
                 pending_items.remove(item)
                 learning_by_ticker[ticker] = learning_by_ticker[ticker][-200:]
