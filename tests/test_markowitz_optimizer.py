@@ -55,6 +55,23 @@ class TestMarkowitzOptimizer(unittest.TestCase):
         with self.assertRaises(ValueError):
             optimize_markowitz({"A": [0.01, 0.02]}, risk_aversion=0.0)
 
+
+    def test_capped_simplex_projection_respects_caps_and_fully_invests(self):
+        returns = {
+            "A": [0.01, -0.01, 0.01, -0.01],
+            "B": [0.02, -0.02, 0.02, -0.02],
+            "C": [-0.01, 0.01, -0.01, 0.01],
+        }
+        result = optimize_markowitz(returns, max_weight=0.34)
+        self.assertTrue(all(weight <= 0.34 + 1e-9 for weight in result.weights.values()))
+        self.assertTrue(all(weight >= 0.0 for weight in result.weights.values()))
+        self.assertAlmostEqual(sum(result.weights.values()), 1.0, places=9)
+
+    def test_target_return_is_explicitly_a_soft_constraint(self):
+        returns = {"A": [0.001, 0.002, 0.001], "B": [0.0, 0.001, 0.0]}
+        result = optimize_markowitz(returns, target_return=0.50, annualization_factor=1)
+        self.assertIn("target_return_is_soft_penalty_not_hard_constraint", result.warnings)
+
     def test_one_asset_portfolio_is_fully_invested(self):
         result = optimize_markowitz({"ONLY": [0.01, -0.01, 0.02]}, max_weight=1.0)
         self.assertEqual(result.weights, {"ONLY": 1.0})
