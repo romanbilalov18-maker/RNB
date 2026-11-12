@@ -44,7 +44,7 @@ class ExpectedValueTests(unittest.TestCase):
                 entry_commission=1.0,
             ))
         result = estimate_expected_value(
-            trades, closed_episode_ids=closed, minimum_samples=20
+            trades, closed_episode_ids=closed, as_of=datetime(2026, 11, 2, tzinfo=timezone.utc), minimum_samples=20
         )
         self.assertTrue(result.available)
         self.assertEqual(result.sample_count, 20)
@@ -65,7 +65,7 @@ class ExpectedValueTests(unittest.TestCase):
                          entry_price=100.0),
         ]
         result = estimate_expected_value(
-            trades, closed_episode_ids=set(), minimum_samples=1
+            trades, closed_episode_ids=set(), as_of=datetime(2026, 11, 2, tzinfo=timezone.utc), minimum_samples=1
         )
         self.assertFalse(result.available)
         self.assertEqual(result.sample_count, 0)
@@ -85,10 +85,32 @@ class ExpectedValueTests(unittest.TestCase):
         ]
         result = estimate_expected_value(
             trades, closed_episode_ids={str(i) for i in range(20)},
-            minimum_samples=20,
+            as_of=datetime(2026, 11, 2, tzinfo=timezone.utc), minimum_samples=20,
         )
         self.assertFalse(result.available)
         self.assertEqual(result.reason, "both_win_and_loss_outcomes_required")
+
+    def test_excludes_future_events_at_or_after_decision_time(self):
+        decision_time = datetime(2026, 11, 2, tzinfo=timezone.utc)
+        future_trade = VirtualTrade(
+            decision_time, "FUTURE", "SELL", 1, 110.0, 0.1, 9.8,
+            entry_price=100.0, trade_episode_id="FUTURE",
+            entry_commission=0.1,
+        )
+        result = estimate_expected_value(
+            [future_trade], closed_episode_ids={"FUTURE"},
+            as_of=decision_time, minimum_samples=1,
+        )
+        self.assertEqual(result.sample_count, 0)
+        self.assertEqual(result.excluded_count, 1)
+        self.assertFalse(result.available)
+
+    def test_rejects_naive_as_of_timestamp(self):
+        with self.assertRaises(ValueError):
+            estimate_expected_value(
+                [], closed_episode_ids=set(),
+                as_of=datetime(2026, 11, 2), minimum_samples=1,
+            )
 
     def test_rejects_invalid_configuration(self):
         for minimum in (True, 0, -1, 1.5):
