@@ -30,6 +30,30 @@ class TestSQLitePortfolioStore(unittest.TestCase):
             self.assertEqual(len(restored.trades), 1)
             self.assertEqual(restored.trades[0].ticker, "TEST")
 
+    def test_trade_episode_and_historical_entry_commissions_survive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.sqlite3"
+            store = SQLitePortfolioStore(path)
+            timestamp = datetime(2026, 11, 12, tzinfo=timezone.utc)
+            portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+            portfolio.buy("TEST", 10, 100.0, timestamp)
+            episode_id = portfolio.positions["TEST"].trade_episode_id
+            portfolio.sell("TEST", 4, 110.0, timestamp)
+            store.save(portfolio)
+
+            restored = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            self.assertEqual(restored.positions["TEST"].trade_episode_id, episode_id)
+            self.assertAlmostEqual(restored.positions["TEST"].entry_commission_per_share, 0.1)
+            self.assertEqual(restored.trades[0].trade_episode_id, episode_id)
+            self.assertEqual(restored.trades[1].trade_episode_id, episode_id)
+            self.assertAlmostEqual(restored.trades[1].entry_commission, 0.4)
+
+            restored.sell("TEST", 6, 90.0, timestamp)
+            store.save(restored)
+            final = SQLitePortfolioStore(path).load_or_create(1.0, 0.0)
+            self.assertEqual(final.trades[-1].trade_episode_id, episode_id)
+            self.assertAlmostEqual(final.trades[-1].entry_commission, 0.6)
+
     def test_rejects_corrupt_persisted_position_quantity(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
