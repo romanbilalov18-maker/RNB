@@ -435,7 +435,7 @@ class DecisionAuditStore:
             rows = db.execute("""
                 WITH eligible_audit AS (
                     SELECT a.id, a.ticker, a.recommendation, a.recorded_at, a.anchor_session_date,
-                           o.target_session_date, o.raw_return_pct, o.net_return_pct, o.direction_correct,
+                           o.target_session_date, o.horizon_sessions, o.raw_return_pct, o.net_return_pct, o.direction_correct,
                            a.virtual_action, a.virtual_quantity, a.realized_pnl, a.entry_price,
                            s.level_scores_json, s.analyzer_scores_json, s.regime,
                            ROW_NUMBER() OVER (
@@ -455,7 +455,7 @@ class DecisionAuditStore:
                       AND a.recommendation IN ('BUY', 'SELL')
                 )
                 SELECT ticker, recommendation, recorded_at, anchor_session_date,
-                       target_session_date, raw_return_pct, net_return_pct, direction_correct,
+                       target_session_date, horizon_sessions, raw_return_pct, net_return_pct, direction_correct,
                        virtual_action, virtual_quantity, realized_pnl, entry_price,
                        level_scores_json, analyzer_scores_json, regime
                 FROM eligible_audit
@@ -483,6 +483,7 @@ class DecisionAuditStore:
                     regime=row["regime"],
                     decision_time=row["recorded_at"],
                     outcome_target_date=row["target_session_date"],
+                    outcome_horizon_sessions=int(row["horizon_sessions"]),
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 # Ignore malformed legacy/corrupt records rather than breaking a live cycle.
