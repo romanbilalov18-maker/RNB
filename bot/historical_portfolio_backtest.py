@@ -305,6 +305,13 @@ def run_replay(
             "max_drawdown_pct": result.max_drawdown_pct,
             "warnings": list(result.warnings),
             "decision_diagnostics": result.decision_diagnostics,
+            "shadow_expected_value": result.shadow_expected_value,
+            "shadow_expected_value_history": {
+                "snapshots": len(result.shadow_expected_value_history),
+                "ready_snapshots": sum(bool(item.get("available")) for item in result.shadow_expected_value_history),
+                "maximum_sample_count": max((int(item.get("sample_count", 0)) for item in result.shadow_expected_value_history), default=0),
+                "latest_as_of": result.shadow_expected_value_history[-1].get("as_of") if result.shadow_expected_value_history else None,
+            },
         },
         "trades": [
             {
