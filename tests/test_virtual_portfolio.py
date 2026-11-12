@@ -227,6 +227,16 @@ class TestVirtualPortfolio(unittest.TestCase):
         self.assertEqual(closed_stats.losing_trades, 1)
         self.assertAlmostEqual(closed_stats.expectancy_per_exit, -21.98)
 
+    def test_closed_episode_ids_excludes_still_open_partial_positions(self):
+        timestamp = datetime(2026, 11, 12, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001)
+        portfolio.buy("OPEN", 10, 100.0, timestamp)
+        open_id = portfolio.positions["OPEN"].trade_episode_id
+        portfolio.sell("OPEN", 4, 110.0, timestamp)
+        self.assertEqual(portfolio.closed_trade_episode_ids(), set())
+        portfolio.sell("OPEN", 6, 110.0, timestamp)
+        self.assertEqual(portfolio.closed_trade_episode_ids(), {open_id})
+
     def test_expectancy_is_zero_without_closed_positions(self):
         stats = VirtualPortfolio(10_000).statistics(current_equity=10_000)
         self.assertEqual(stats.expectancy_per_exit, 0.0)
