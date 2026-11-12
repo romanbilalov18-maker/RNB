@@ -61,13 +61,17 @@ def calculate_fractional_kelly(
     full_kelly = float(win_probability) - loss_probability / payoff_ratio
     edge = float(win_probability) * float(average_win) - loss_probability * float(average_loss)
     warnings = []
-    if full_kelly <= 0.0:
+    if win_probability in (0.0, 1.0):
+        # A boundary estimate usually means a finite sample had no outcomes
+        # on one side. Treating it as a known probability can produce unsafe
+        # full-Kelly sizing (especially p=1), so require non-boundary evidence.
+        warnings.append("extreme_win_probability_requires_validation")
+        recommended = 0.0
+    elif full_kelly <= 0.0:
         warnings.append("non_positive_kelly_edge")
         recommended = 0.0
     else:
         recommended = min(float(max_capital_fraction), full_kelly * float(kelly_fraction))
-    if win_probability in (0.0, 1.0):
-        warnings.append("extreme_win_probability_requires_validation")
 
     return FractionalKellyResult(
         win_probability=float(win_probability),
