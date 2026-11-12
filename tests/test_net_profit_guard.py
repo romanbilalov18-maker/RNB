@@ -13,9 +13,22 @@ class NetProfitGuardTests(unittest.TestCase):
             slippage_bps=5,
             minimum_net_return=.01,
         )
-        # Round-trip commission .001 + full spread .002 + round-trip slippage .001
+        # Commission = .0005 entry + .00051 exit; spread .002;
+        # round-trip slippage .001.
         self.assertTrue(result.allowed)
-        self.assertAlmostEqual(result.expected_net_return, .016)
+        self.assertAlmostEqual(result.round_trip_commission, .00101)
+        self.assertAlmostEqual(result.expected_net_return, .01599)
+
+    def test_exit_commission_scales_with_expected_exit_notional(self):
+        result = assess_net_profit(
+            expected_gross_return=.10,
+            commission_rate=.01,
+            spread_pct=0.0,
+            slippage_bps=0.0,
+        )
+        # Entry fee 1% + exit fee 1% of 110% notional = 2.1%.
+        self.assertAlmostEqual(result.round_trip_commission, .021)
+        self.assertAlmostEqual(result.expected_net_return, .079)
 
     def test_costs_block_profitable_gross_signal(self):
         result = assess_net_profit(
@@ -39,6 +52,16 @@ class NetProfitGuardTests(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertLess(result.expected_net_return, 0)
 
+    def test_zero_costs_preserve_gross_return(self):
+        result = assess_net_profit(
+            expected_gross_return=.025,
+            commission_rate=0.0,
+            spread_pct=0.0,
+            slippage_bps=0.0,
+        )
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.expected_net_return, .025)
+
     def test_paper_executor_accepts_and_stores_minimum_net_return(self):
         executor = PaperExecutor(minimum_net_return=0.0005)
         self.assertEqual(executor.minimum_net_return, 0.0005)
@@ -53,6 +76,7 @@ class NetProfitGuardTests(unittest.TestCase):
         cases = [
             ("expected_gross_return", float("nan")),
             ("commission_rate", -.1),
+            ("commission_rate", 1.0),
             ("spread_pct", 1.1),
             ("slippage_bps", -1),
             ("minimum_net_return", True),
