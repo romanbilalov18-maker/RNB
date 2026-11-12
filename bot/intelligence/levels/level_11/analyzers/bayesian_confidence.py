@@ -96,6 +96,7 @@ def analyze(observations, *, min_samples: int = DEFAULT_MIN_SAMPLES) -> Analyzer
     forecast_observations = [
         item for item in observations
         if getattr(item, "realized_trade_return", None) is None
+        and getattr(item, "outcome_horizon_sessions", None) == 3
         and isinstance(getattr(item, "correct", None), bool)
     ]
     successes = sum(1 for item in forecast_observations if item.correct)
@@ -120,6 +121,11 @@ def analyze(observations, *, min_samples: int = DEFAULT_MIN_SAMPLES) -> Analyzer
             "evidence_confidence": estimate.evidence_confidence,
             "minimum_samples": min_samples,
             "ready": estimate.ready,
+            "non_three_session_forecast_observations_excluded": sum(
+                1 for item in observations
+                if getattr(item, "realized_trade_return", None) is None
+                and getattr(item, "outcome_horizon_sessions", None) != 3
+            ),
             "closed_trade_observations_excluded": sum(
                 1 for item in observations
                 if getattr(item, "realized_trade_return", None) is not None
