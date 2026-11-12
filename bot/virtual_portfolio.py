@@ -113,9 +113,13 @@ class VirtualPortfolio:
         if total > self.cash:
             raise ValueError("insufficient virtual cash")
         position = self.positions.get(ticker)
+        is_new_position = position is None
         if position is None:
             position = VirtualPosition(ticker, 0, 0.0)
             self.positions[ticker] = position
+        had_complete_fee_basis = (
+            is_new_position or position.entry_commission_per_share is not None
+        )
         old_value = position.quantity * position.average_price
         old_fee_total = (
             position.quantity * position.entry_commission_per_share
@@ -124,8 +128,9 @@ class VirtualPortfolio:
         position.quantity += quantity
         position.average_price = (old_value + gross) / position.quantity
         position.entry_commission_per_share = (
-            old_fee_total + commission
-        ) / position.quantity
+            (old_fee_total + commission) / position.quantity
+            if had_complete_fee_basis else None
+        )
         if position.trade_episode_id is None:
             position.trade_episode_id = uuid4().hex
         self.cash -= total
