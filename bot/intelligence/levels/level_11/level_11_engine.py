@@ -6,6 +6,7 @@ from bot.intelligence.levels.level_11.analyzers import (
     outcome_quality,
     regime_adaptation,
     weight_adaptation,
+    bayesian_confidence,
 )
 from bot.intelligence.levels.level_11.models.learning_observation import LearningObservation
 from bot.intelligence.levels.level_11.models.level_11_result import Level11Result
@@ -23,6 +24,7 @@ class Level11Engine:
             weight_adaptation.analyze(observations),
         )
         confidence = learning_confidence.analyze(observations, results)
+        bayesian = bayesian_confidence.analyze(observations)
         all_results = results + (confidence,)
 
         # A zero-confidence analyzer has no usable evidence. Exclude it from
@@ -69,5 +71,8 @@ class Level11Engine:
                 "weights_applied_to_trading": False,
                 "proposal_status": results[4].metrics.get("proposal_status", "insufficient_history"),
                 "aggregation_excludes_zero_confidence": True,
+                "bayesian_confidence_is_diagnostic_only": True,
+                "bayesian_confidence": dict(bayesian.metrics),
             },
+            bayesian_confidence_result=bayesian,
         )
