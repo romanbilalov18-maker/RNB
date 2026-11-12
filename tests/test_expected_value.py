@@ -28,10 +28,10 @@ class ExpectedValueTests(unittest.TestCase):
             # Two partial exits, same holding lifecycle. Actual entry fees sum
             # to 1.00; exit fees are supplied per fill.
             trades.extend([
-                VirtualTrade(ts, episode, "SELL", 4, 104.0, 0.416, 15.584,
+                VirtualTrade(ts, episode, "SELL", 4, 104.0, 0.416, 15.184,
                              entry_price=100.0, trade_episode_id=episode,
                              entry_commission=0.4),
-                VirtualTrade(ts, episode, "SELL", 6, 104.0, 0.624, 23.376,
+                VirtualTrade(ts, episode, "SELL", 6, 104.0, 0.624, 22.776,
                              entry_price=100.0, trade_episode_id=episode,
                              entry_commission=0.6),
             ])
