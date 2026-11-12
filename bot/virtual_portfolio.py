@@ -254,15 +254,38 @@ class VirtualPortfolio:
         """Return cumulative trading and equity statistics."""
         sells = [trade for trade in self.trades if trade.side == "SELL"]
         buys = [trade for trade in self.trades if trade.side == "BUY"]
-        profitable = [trade for trade in sells if trade.realized_pnl > 0]
-        losing = [trade for trade in sells if trade.realized_pnl < 0]
-        gross_profit = sum(trade.realized_pnl for trade in profitable)
-        gross_loss = -sum(trade.realized_pnl for trade in losing)
+
+        # New records are aggregated by holding lifecycle, not by partial fill.
+        # Still-open episodes are excluded until the position is fully closed.
+        open_episode_ids = {
+            position.trade_episode_id
+            for position in self.positions.values()
+            if position.trade_episode_id
+        }
+        episode_pnl: dict[str, float] = {}
+        legacy_exit_pnl: list[float] = []
+        for trade in sells:
+            if trade.trade_episode_id:
+                episode_pnl[trade.trade_episode_id] = (
+                    episode_pnl.get(trade.trade_episode_id, 0.0) + trade.realized_pnl
+                )
+            else:
+                # Legacy records cannot be reliably regrouped. Keep their old
+                # per-exit semantics rather than guessing their lifecycle.
+                legacy_exit_pnl.append(trade.realized_pnl)
+        closed_outcomes = [
+            pnl for episode_id, pnl in episode_pnl.items()
+            if episode_id not in open_episode_ids
+        ] + legacy_exit_pnl
+        profitable = [pnl for pnl in closed_outcomes if pnl > 0]
+        losing = [pnl for pnl in closed_outcomes if pnl < 0]
+        gross_profit = sum(profitable)
+        gross_loss = -sum(losing)
         # None represents an undefined/infinite ratio when there are no losses.
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else None
         expectancy_per_exit = (
-            sum(trade.realized_pnl for trade in sells) / len(sells)
-            if sells else 0.0
+            sum(closed_outcomes) / len(closed_outcomes)
+            if closed_outcomes else 0.0
         )
 
         history = list(equity_history or [])
@@ -289,16 +312,16 @@ class VirtualPortfolio:
             sell_trades=len(sells),
             profitable_trades=len(profitable),
             losing_trades=len(losing),
-            win_rate_pct=(len(profitable) / len(sells) * 100.0) if sells else 0.0,
-            best_realized_trade=max((trade.realized_pnl for trade in sells), default=0.0),
-            worst_realized_trade=min((trade.realized_pnl for trade in sells), default=0.0),
+            win_rate_pct=(len(profitable) / len(closed_outcomes) * 100.0) if closed_outcomes else 0.0,
+            best_realized_trade=max(closed_outcomes, default=0.0),
+            worst_realized_trade=min(closed_outcomes, default=0.0),
             average_profitable_trade=(
-                sum(trade.realized_pnl for trade in profitable) / len(profitable)
+                sum(profitable) / len(profitable)
                 if profitable
                 else 0.0
             ),
             average_losing_trade=(
-                sum(trade.realized_pnl for trade in losing) / len(losing)
+                sum(losing) / len(losing)
                 if losing
                 else 0.0
             ),
