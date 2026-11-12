@@ -192,7 +192,7 @@ class TestVirtualPortfolio(unittest.TestCase):
             VirtualPortfolio(10_000, commission_rate=True)
 
 
-    def test_expectancy_and_profit_factor_include_partial_exit_events_and_costs(self):
+    def test_expectancy_and_profit_factor_aggregate_partial_exits_by_episode(self):
         timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
         portfolio = VirtualPortfolio(
             10_000, commission_rate=0.001, profit_reserve_rate=0.0
@@ -205,10 +205,27 @@ class TestVirtualPortfolio(unittest.TestCase):
 
         self.assertAlmostEqual(first_exit.realized_pnl, 39.16)
         self.assertAlmostEqual(second_exit.realized_pnl, -61.14)
-        self.assertAlmostEqual(stats.gross_profit, 39.16)
-        self.assertAlmostEqual(stats.gross_loss, 61.14)
-        self.assertAlmostEqual(stats.profit_factor, 39.16 / 61.14)
-        self.assertAlmostEqual(stats.expectancy_per_exit, -10.99)
+        self.assertEqual(stats.gross_profit, 0.0)
+        self.assertAlmostEqual(stats.gross_loss, 21.98)
+        self.assertEqual(stats.profit_factor, 0.0)
+        self.assertAlmostEqual(stats.expectancy_per_exit, -21.98)
+        self.assertEqual(stats.profitable_trades, 0)
+        self.assertEqual(stats.losing_trades, 1)
+
+    def test_open_partial_episode_is_not_counted_until_fully_closed(self):
+        timestamp = datetime(2026, 10, 20, tzinfo=timezone.utc)
+        portfolio = VirtualPortfolio(10_000, commission_rate=0.001, profit_reserve_rate=0.0)
+        portfolio.buy("TEST", 10, 100.0, timestamp)
+        portfolio.sell("TEST", 4, 110.0, timestamp)
+        partial_stats = portfolio.statistics(current_equity=10_000.0)
+        self.assertEqual(partial_stats.profitable_trades, 0)
+        self.assertEqual(partial_stats.losing_trades, 0)
+        self.assertEqual(partial_stats.expectancy_per_exit, 0.0)
+        portfolio.sell("TEST", 6, 90.0, timestamp)
+        closed_stats = portfolio.statistics(current_equity=9_978.02)
+        self.assertEqual(closed_stats.profitable_trades, 0)
+        self.assertEqual(closed_stats.losing_trades, 1)
+        self.assertAlmostEqual(closed_stats.expectancy_per_exit, -21.98)
 
     def test_expectancy_is_zero_without_closed_positions(self):
         stats = VirtualPortfolio(10_000).statistics(current_equity=10_000)
