@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import math
+from uuid import uuid4
 
 from bot.models import VirtualPosition, VirtualTrade
 
@@ -116,13 +117,23 @@ class VirtualPortfolio:
             position = VirtualPosition(ticker, 0, 0.0)
             self.positions[ticker] = position
         old_value = position.quantity * position.average_price
+        old_fee_total = (
+            position.quantity * position.entry_commission_per_share
+            if position.entry_commission_per_share is not None else 0.0
+        )
         position.quantity += quantity
         position.average_price = (old_value + gross) / position.quantity
+        position.entry_commission_per_share = (
+            old_fee_total + commission
+        ) / position.quantity
+        if position.trade_episode_id is None:
+            position.trade_episode_id = uuid4().hex
         self.cash -= total
         self.commissions += commission
         trade = VirtualTrade(
             timestamp, ticker, "BUY", quantity, price, commission, 0.0,
             reason=reason, entry_price=price, reserve_transfer=0.0,
+            trade_episode_id=position.trade_episode_id,
         )
         self.trades.append(trade)
         return trade
@@ -137,7 +148,11 @@ class VirtualPortfolio:
             raise ValueError("insufficient virtual position")
         gross = quantity * price
         commission = gross * self.commission_rate
-        entry_commission = quantity * position.average_price * self.commission_rate
+        entry_commission = (
+            quantity * position.entry_commission_per_share
+            if position.entry_commission_per_share is not None
+            else quantity * position.average_price * self.commission_rate
+        )
         realized_pnl = quantity * (price - position.average_price) - commission - entry_commission
         # Move a fixed share of net realized profit into a protected reserve.
         # It is removed from spendable cash immediately and never included in
@@ -154,6 +169,8 @@ class VirtualPortfolio:
             timestamp, ticker, "SELL", quantity, price, commission, realized_pnl,
             reason=reason, entry_price=position.average_price,
             reserve_transfer=reserve_transfer,
+            trade_episode_id=position.trade_episode_id,
+            entry_commission=entry_commission,
         )
         self.trades.append(trade)
         return trade
