@@ -89,7 +89,9 @@ class SQLitePortfolioStore:
                     high_watermark REAL,
                     initial_stop_risk_per_share REAL,
                     stop_model TEXT,
-                    stop_updated_at TEXT
+                    stop_updated_at TEXT,
+                    trade_episode_id TEXT,
+                    entry_commission_per_share REAL
                 );
 
                 CREATE TABLE IF NOT EXISTS trades (
@@ -103,7 +105,9 @@ class SQLitePortfolioStore:
                     realized_pnl REAL NOT NULL,
                     reason TEXT NOT NULL DEFAULT 'not recorded',
                     entry_price REAL,
-                    reserve_transfer REAL
+                    reserve_transfer REAL,
+                    trade_episode_id TEXT,
+                    entry_commission REAL
                 );
 
                 CREATE TABLE IF NOT EXISTS equity_history (
@@ -166,6 +170,14 @@ class SQLitePortfolioStore:
                 db.execute("ALTER TABLE trades ADD COLUMN entry_price REAL")
             if "reserve_transfer" not in trade_columns:
                 db.execute("ALTER TABLE trades ADD COLUMN reserve_transfer REAL")
+            if "trade_episode_id" not in trade_columns:
+                db.execute("ALTER TABLE trades ADD COLUMN trade_episode_id TEXT")
+            if "entry_commission" not in trade_columns:
+                db.execute("ALTER TABLE trades ADD COLUMN entry_commission REAL")
+            if "trade_episode_id" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN trade_episode_id TEXT")
+            if "entry_commission_per_share" not in position_columns:
+                db.execute("ALTER TABLE positions ADD COLUMN entry_commission_per_share REAL")
 
     def load_or_create(
         self,
@@ -275,6 +287,13 @@ class SQLitePortfolioStore:
                             f"position {position['ticker']} stop_updated_at",
                         ) if position["stop_updated_at"] else None
                     ),
+                    trade_episode_id=position["trade_episode_id"],
+                    entry_commission_per_share=(
+                        _validate_persisted_number(
+                            position["entry_commission_per_share"],
+                            f"position {position['ticker']} entry_commission_per_share",
+                        ) if position["entry_commission_per_share"] is not None else None
+                    ),
                 )
                 if not isinstance(position["ticker"], str) or not position["ticker"].strip():
                     raise ValueError("corrupt portfolio data: position ticker must not be empty")
@@ -344,6 +363,13 @@ class SQLitePortfolioStore:
                                 f"trade {trade['id']} reserve_transfer",
                             )
                             if trade["reserve_transfer"] is not None else None
+                        ),
+                        trade_episode_id=trade["trade_episode_id"],
+                        entry_commission=(
+                            _validate_persisted_number(
+                                trade["entry_commission"],
+                                f"trade {trade['id']} entry_commission",
+                            ) if trade["entry_commission"] is not None else None
                         ),
                     )
                 )
@@ -435,9 +461,10 @@ class SQLitePortfolioStore:
                     stagnant_sessions, last_health_status, last_health_candle_timestamp,
                     health_condition, health_condition_since, initial_stop_price,
                     stop_price, high_watermark, initial_stop_risk_per_share,
-                    stop_model, stop_updated_at
+                    stop_model, stop_updated_at, trade_episode_id,
+                    entry_commission_per_share
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (p.ticker, p.quantity, p.average_price,
@@ -448,7 +475,8 @@ class SQLitePortfolioStore:
                      p.health_condition, p.health_condition_since,
                      p.initial_stop_price, p.stop_price, p.high_watermark,
                      p.initial_stop_risk_per_share, p.stop_model,
-                     p.stop_updated_at.isoformat() if p.stop_updated_at else None)
+                     p.stop_updated_at.isoformat() if p.stop_updated_at else None,
+                     p.trade_episode_id, p.entry_commission_per_share)
                     for p in portfolio.positions.values()
                 ],
             )
@@ -458,8 +486,9 @@ class SQLitePortfolioStore:
                 """
                 INSERT INTO trades
                     (timestamp, ticker, side, quantity, price,
-                     commission, realized_pnl, reason, entry_price, reserve_transfer)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     commission, realized_pnl, reason, entry_price, reserve_transfer,
+                     trade_episode_id, entry_commission)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -473,6 +502,8 @@ class SQLitePortfolioStore:
                         trade.reason,
                         trade.entry_price,
                         trade.reserve_transfer,
+                        trade.trade_episode_id,
+                        trade.entry_commission,
                     )
                     for trade in portfolio.trades
                 ],
