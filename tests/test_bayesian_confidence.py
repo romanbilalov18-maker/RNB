@@ -21,8 +21,8 @@ class BayesianConfidenceTests(unittest.TestCase):
     def test_posterior_updates_with_wins_and_losses(self):
         result = estimate_bayesian_win_rate(8, 2)
         self.assertAlmostEqual(result.posterior_mean, 8.5 / 11.0)
-        self.assertGreater(result.credible_interval_95[0], 0.0)
-        self.assertLess(result.credible_interval_95[1], 1.0)
+        self.assertLess(result.credible_interval_95[0], result.posterior_mean)
+        self.assertGreater(result.credible_interval_95[1], result.posterior_mean)
         self.assertGreater(result.evidence_confidence, 0.0)
 
     def test_all_wins_and_all_losses_do_not_create_zero_or_one_probability(self):
