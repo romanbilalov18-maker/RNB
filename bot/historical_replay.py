@@ -49,6 +49,9 @@ class HistoricalReplayResult:
     equity_curve: tuple[HistoricalEquityPoint, ...]
     warnings: tuple[str, ...]
     decision_diagnostics: dict = field(default_factory=dict)
+    # Point-in-time shadow EV snapshots; never consumed by DecisionEngine.
+    shadow_expected_value: dict = field(default_factory=dict)
+    shadow_expected_value_history: tuple[dict, ...] = ()
 
 
 class HistoricalReplay:
@@ -81,8 +84,16 @@ class HistoricalReplay:
         curve = []
         warnings = set()
         decision_records = []
+        expected_value_history = []
         for cycle in self._validate_cycles(cycles):
             decision_records.extend(cycle.decision_diagnostics or ())
+            # The portfolio contains only fills from earlier cycles. The current
+            # cycle has not executed yet, so this snapshot cannot see its outcome.
+            expected_value_snapshot = _shadow_expected_value_snapshot(
+                self.portfolio, cycle.timestamp
+            )
+            expected_value_snapshot["as_of"] = cycle.timestamp.isoformat()
+            expected_value_history.append(expected_value_snapshot)
             if isinstance(self.executor, PaperExecutor):
                 self.executor.execute(
                     self.portfolio,
@@ -148,6 +159,8 @@ class HistoricalReplay:
             equity_curve=tuple(curve),
             warnings=tuple(sorted(warnings)),
             decision_diagnostics=_summarize_decision_diagnostics(decision_records),
+            shadow_expected_value=(expected_value_history[-1] if expected_value_history else {}),
+            shadow_expected_value_history=tuple(expected_value_history),
         )
 
 
@@ -546,6 +559,48 @@ def _summarize_decision_diagnostics(records: list[dict]) -> dict:
             "minimum_consistency": 0.50,
             "thresholds_changed": False,
         },
+    }
+
+
+def _shadow_expected_value_snapshot(portfolio: object, as_of: datetime) -> dict:
+    """Calculate closed-episode expectancy from fills known before the cutoff.
+
+    Diagnostic-only: never passed into Intelligence, DecisionEngine, sizing,
+    or PaperExecutor, so this calculation cannot alter replay trades.
+    """
+    if portfolio is None or not hasattr(portfolio, "trades") or not hasattr(
+        portfolio, "closed_trade_episode_ids"
+    ):
+        return {
+            "available": False, "sample_count": 0, "wins": 0, "losses": 0,
+            "win_probability": None, "average_win_return": None,
+            "average_loss_return": None, "expected_gross_return": None,
+            "excluded_count": 0, "reason": "portfolio_history_unavailable",
+            "shadow_only": True, "applied_to_trading": False,
+        }
+
+    from bot.intelligence.levels.level_06.analyzers.expected_value import (
+        estimate_expected_value,
+    )
+    estimate = estimate_expected_value(
+        portfolio.trades,
+        closed_episode_ids=portfolio.closed_trade_episode_ids(),
+        as_of=as_of,
+        minimum_samples=20,
+    )
+    return {
+        "available": estimate.available,
+        "sample_count": estimate.sample_count,
+        "wins": estimate.wins,
+        "losses": estimate.losses,
+        "win_probability": estimate.win_probability,
+        "average_win_return": estimate.average_win_return,
+        "average_loss_return": estimate.average_loss_return,
+        "expected_gross_return": estimate.expected_gross_return,
+        "excluded_count": estimate.excluded_count,
+        "reason": estimate.reason,
+        "shadow_only": True,
+        "applied_to_trading": False,
     }
 
 
