@@ -59,6 +59,26 @@ def _project_simplex(values: list[float]) -> list[float]:
     return [value / total for value in projected]
 
 
+def _project_capped_simplex(values: list[float], cap: float) -> list[float]:
+    """Project onto weights in [0, cap] whose sum is exactly one."""
+    if len(values) * cap < 1.0 - 1e-12:
+        raise ValueError("cap makes a fully-invested portfolio impossible")
+    low = min(values) - cap
+    high = max(values)
+    for _ in range(100):
+        threshold = (low + high) / 2.0
+        total = sum(min(cap, max(0.0, value - threshold)) for value in values)
+        if total > 1.0:
+            low = threshold
+        else:
+            high = threshold
+    projected = [min(cap, max(0.0, value - (low + high) / 2.0)) for value in values]
+    total = sum(projected)
+    if total <= 0.0:
+        return [1.0 / len(values)] * len(values)
+    return [value / total for value in projected]
+
+
 def optimize_markowitz(
     asset_returns: Mapping[str, Sequence[float]],
     *,
@@ -146,20 +166,10 @@ def optimize_markowitz(
                 if shortfall > 0.0:
                     penalty = 10.0
                     gradient = [gradient[i] - 2.0 * penalty * shortfall * means[i] * annualization_factor for i in range(n)]
-        candidate = _project_simplex([weights[i] - step * gradient[i] for i in range(n)])
-        # Enforce per-asset upper bounds by capped-simplex projection.
-        for _cap in range(n + 1):
-            excess = sum(max(0.0, value - max_weight) for value in candidate)
-            if excess <= tolerance:
-                break
-            capped = [min(value, max_weight) for value in candidate]
-            free = [i for i, value in enumerate(capped) if value < max_weight - tolerance]
-            free_total = sum(capped[i] for i in free)
-            if not free or free_total >= 1.0:
-                candidate = capped
-                break
-            for i in free:
-                candidate[i] += (1.0 - sum(capped)) * candidate[i] / free_total
+        candidate = _project_capped_simplex(
+            [weights[i] - step * gradient[i] for i in range(n)],
+            max_weight,
+        )
         delta = max(abs(candidate[i] - weights[i]) for i in range(n))
         weights = candidate
         if delta < tolerance:
@@ -170,8 +180,10 @@ def optimize_markowitz(
     expected_return = sum(means[i] * weights[i] for i in range(n)) * annualization_factor
     variance = sum(weights[i] * covariance[i][j] * weights[j] for i in range(n) for j in range(n)) * annualization_factor
     volatility = math.sqrt(max(0.0, variance))
-    if target_return is not None and expected_return + 1e-8 < target_return:
-        warnings.append("target_return_not_reached")
+    if target_return is not None:
+        warnings.append("target_return_is_soft_penalty_not_hard_constraint")
+        if expected_return + 1e-8 < target_return:
+            warnings.append("target_return_not_reached")
     return MarkowitzResult(
         assets=tuple(assets),
         weights={asset: weights[i] for i, asset in enumerate(assets)},
