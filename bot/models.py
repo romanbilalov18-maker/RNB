@@ -32,6 +32,10 @@ class VirtualPosition:
     initial_stop_risk_per_share: float | None = None
     stop_model: str | None = None
     stop_updated_at: datetime | None = None
+    # Stable ID for one continuous holding lifecycle; shared by partial exits.
+    trade_episode_id: str | None = None
+    # Weighted entry fee per share at the time each buy was executed.
+    entry_commission_per_share: float | None = None
 
 
 @dataclass(frozen=True)
@@ -47,3 +51,7 @@ class VirtualTrade:
     entry_price: float | None = None
     # None means a legacy trade whose historical reserve transfer was not recorded.
     reserve_transfer: float | None = None
+    # None denotes legacy records that cannot be grouped reliably.
+    trade_episode_id: str | None = None
+    # Actual allocated entry fee for this exit; None for legacy positions.
+    entry_commission: float | None = None
