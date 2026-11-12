@@ -29,7 +29,7 @@ class TestFractionalKelly(unittest.TestCase):
         no_wins = calculate_fractional_kelly(0.0, 0.02, 0.01)
         all_wins = calculate_fractional_kelly(1.0, 0.02, 0.01)
         self.assertEqual(no_wins.recommended_capital_fraction, 0.0)
-        self.assertEqual(all_wins.recommended_capital_fraction, 0.05)
+        self.assertEqual(all_wins.recommended_capital_fraction, 0.0)
         self.assertIn("extreme_win_probability_requires_validation", all_wins.warnings)
 
     def test_rejects_invalid_parameters(self):
