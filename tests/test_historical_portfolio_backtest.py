@@ -6,6 +6,7 @@ import unittest
 
 from bot.historical_portfolio_backtest import (
     _build_open_position_report, load_dataset, run_scenario_comparison,
+    run_learning_feedback_comparison,
 )
 from unittest.mock import patch
 from bot.virtual_portfolio import VirtualPortfolio
@@ -204,6 +205,50 @@ class HistoricalPortfolioDatasetTests(unittest.TestCase):
             summary["unpriced_ticker_cycle_counts"],
             {"AAA": 1, "BBB": 2},
         )
+
+
+    def test_learning_feedback_comparison_runs_paired_modes_with_identical_settings(self):
+        base = {
+            "dataset": {"symbols": 2, "candle_rows": 100, "start": "2025-01-01"},
+            "portfolio": {
+                "final_equity": 100_100.0, "total_return_pct": 0.1,
+                "realized_pnl": 100.0, "commissions": 20.0,
+                "max_drawdown": 50.0, "max_drawdown_pct": 0.05,
+                "total_trades": 4, "buy_trades": 2, "sell_trades": 2,
+                "protected_cash": 70.0, "spendable_cash": 90_000.0,
+                "open_positions": 0, "warnings": [],
+            },
+        }
+        learning = {
+            **base,
+            "portfolio": {**base["portfolio"], "final_equity": 100_250.0,
+                          "total_return_pct": 0.25, "total_trades": 5},
+        }
+        with patch(
+            "bot.historical_portfolio_backtest.run_replay",
+            side_effect=[base, learning],
+        ) as replay:
+            comparison = run_learning_feedback_comparison(
+                Path("same.csv"), initial_balance=100_000,
+                commission_rate=0.001, estimated_slippage_bps=2.0,
+                fallback_spread_percent=0.03, tickers={"AAA", "BBB"},
+            )
+
+        self.assertEqual(replay.call_count, 2)
+        self.assertFalse(replay.call_args_list[0].kwargs["enable_learning_feedback"])
+        self.assertTrue(replay.call_args_list[1].kwargs["enable_learning_feedback"])
+        first = dict(replay.call_args_list[0].kwargs)
+        second = dict(replay.call_args_list[1].kwargs)
+        first.pop("enable_learning_feedback")
+        second.pop("enable_learning_feedback")
+        self.assertEqual(first, second)
+        self.assertTrue(comparison["same_dataset"])
+        self.assertTrue(comparison["same_initial_balance_and_execution_costs"])
+        self.assertFalse(comparison["live_orders_submitted"])
+        self.assertEqual(comparison["comparison_dimension"], "matured_L11_learning_feedback_only")
+        self.assertEqual(comparison["delta_learning_minus_baseline"]["final_equity"], 150.0)
+        self.assertEqual(comparison["delta_learning_minus_baseline"]["total_trades"], 1)
+        self.assertIn("diagnostic_only", comparison["forecast_ev_and_bayesian_confidence"])
 
 
 if __name__ == "__main__":
