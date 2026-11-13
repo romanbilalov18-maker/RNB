@@ -190,7 +190,10 @@ def run_replay(
     take_profit_r_multiple: float | None = None,
     reentry_cooldown_sessions: int = 0,
     tickers: set[str] | None = None,
+    enable_learning_feedback: bool = True,
 ) -> dict:
+    if not isinstance(enable_learning_feedback, bool):
+        raise ValueError("enable_learning_feedback must be boolean")
     if not math.isfinite(minimum_net_return_percent) or not 0 <= minimum_net_return_percent <= 1:
         raise ValueError("minimum_net_return_percent must be finite and in [0, 1]")
     if take_profit_r_multiple is not None and (
@@ -236,6 +239,7 @@ def run_replay(
         min_history=20,
         momentum_period=10,
         portfolio=portfolio,
+        enable_learning_feedback=enable_learning_feedback,
         sectors_by_ticker={
             ticker: str(item.get("sector")).strip()
             for ticker, item in metadata.items()
@@ -305,6 +309,7 @@ def run_replay(
             "max_drawdown_pct": result.max_drawdown_pct,
             "warnings": list(result.warnings),
             "decision_diagnostics": result.decision_diagnostics,
+            "learning_feedback_enabled": enable_learning_feedback,
             "shadow_expected_value": result.shadow_expected_value,
             "shadow_expected_value_history": {
                 "snapshots": len(result.shadow_expected_value_history),
