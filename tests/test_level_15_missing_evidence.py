@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 import unittest
 
+from bot.intelligence.core.models.analysis_result import AnalyzerResult
+from bot.intelligence.levels.level_15.analyzers import learning_quality
 from bot.intelligence.levels.level_15.level_15_engine import Level15Engine
 
 
@@ -43,6 +45,40 @@ class Level15MissingEvidenceTests(unittest.TestCase):
         self.assertIn("learning_quality", without_learning.metadata["excluded_unavailable_analyzers"])
         self.assertGreater(with_learning.score, 0.0)
 
+    def test_partial_l11_history_is_excluded_until_minimum_samples(self):
+        engine = Level15Engine()
+        baseline = engine.analyze(*inputs())
+        partial = inputs(learning_confidence=0.03)
+        partial[2].sample_count = 1
+        partial[2].analyzer_results = (
+            AnalyzerResult("outcome_quality", 1.0, 0.05),
+            AnalyzerResult("learning_confidence", 0.0025, 0.05),
+        )
+
+        result = engine.analyze(*partial)
+        self.assertAlmostEqual(result.score, baseline.score)
+        self.assertAlmostEqual(result.confidence, baseline.confidence)
+        self.assertIn("learning_quality", result.metadata["excluded_unavailable_analyzers"])
+
+    def test_learning_quality_does_not_average_unavailable_zero_components(self):
+        l11 = SimpleNamespace(
+            sample_count=20,
+            confidence=0.8,
+            analyzer_results=(
+                AnalyzerResult("outcome_quality", 0.8, 1.0),
+                AnalyzerResult("level_effectiveness", 0.6, 0.6),
+                AnalyzerResult("analyzer_effectiveness", 0.0, 0.0),
+                AnalyzerResult("learning_confidence", 0.7, 0.8),
+            ),
+        )
+        result = learning_quality.analyze(l11)
+        expected = (0.8 * 1.0 + 0.6 * 0.6 + 0.7 * 0.8) / (1.0 + 0.6 + 0.8)
+        self.assertAlmostEqual(result.score, expected)
+        self.assertEqual(result.metrics["available_components"], [
+            "outcome_quality", "level_effectiveness", "learning_confidence"
+        ])
+        self.assertNotIn("analyzer_effectiveness", result.metrics["available_components"])
+
     def test_final_consistency_uses_cross_level_agreement(self):
         result = Level15Engine().analyze(*inputs())
         self.assertAlmostEqual(result.consistency, 0.7)
@@ -68,7 +104,7 @@ class Level15MissingEvidenceTests(unittest.TestCase):
         l6, l10, l11, l12, l13, l14 = inputs()
         for item in (l6, l10, l12, l13, l14):
             item.confidence = 0.0
-        result = Level15Engine().analyze(l6, l10, l11, l12, l13, l14)
+        result = Level15Engine().analyze(l6, l10, l12, l13, l14, l14)
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.score, 0.0)
 
