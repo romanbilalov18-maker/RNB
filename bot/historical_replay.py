@@ -175,6 +175,7 @@ def iter_historical_cycles(
     momentum_period: int = 10,
     portfolio: VirtualPortfolio | None = None,
     sectors_by_ticker: dict[str, str] | None = None,
+    enable_learning_feedback: bool = True,
 ):
     """Build point-in-time scans and execute at the next bar's opening price.
 
@@ -369,7 +370,7 @@ def iter_historical_cycles(
             ticker: tuple(items)
             for ticker, items in learning_by_ticker.items()
             if items
-        }
+        } if enable_learning_feedback else {}
         if observations:
             intelligence = analyze_scan(
                 scan,
@@ -391,6 +392,8 @@ def iter_historical_cycles(
         # anchor. Outcomes are admitted only after three later sessions close.
         from bot.decision_audit import DecisionAuditStore
         for ticker, decision in decisions.items():
+            if not enable_learning_feedback:
+                continue
             anchor = _number(prices.get(ticker))
             intelligence_item = intelligence.get(ticker)
             if decision.action not in {"BUY", "SELL"} or anchor is None or anchor <= 0 or intelligence_item is None:
@@ -443,6 +446,7 @@ def build_historical_cycles(
     min_history: int = 20,
     momentum_period: int = 10,
     sectors_by_ticker: dict[str, str] | None = None,
+    enable_learning_feedback: bool = True,
 ) -> list[HistoricalReplayCycle]:
     """Compatibility wrapper returning prepared cycles without portfolio context.
 
@@ -458,6 +462,7 @@ def build_historical_cycles(
         min_history=min_history,
         momentum_period=momentum_period,
         sectors_by_ticker=sectors_by_ticker,
+        enable_learning_feedback=enable_learning_feedback,
     ))
 
 
