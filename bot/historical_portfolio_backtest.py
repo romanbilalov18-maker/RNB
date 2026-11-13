@@ -539,6 +539,7 @@ def main() -> None:
     parser.add_argument("--take-profit-r-multiple", type=float, default=None)
     parser.add_argument("--reentry-cooldown-sessions", type=int, default=0)
     parser.add_argument("--comparison-output", type=Path, default=None)
+    parser.add_argument("--learning-comparison-output", type=Path, default=None)
     parser.add_argument(
         "--tickers",
         default="",
@@ -581,6 +582,27 @@ def main() -> None:
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.learning_comparison_output is not None:
+        learning_comparison = run_learning_feedback_comparison(
+            args.csv, initial_balance=args.initial_balance,
+            commission_rate=args.commission_rate, reserve_rate=args.reserve_rate,
+            risk_budget_percent=args.risk_budget_percent,
+            take_profit_percent=args.take_profit_percent,
+            minimum_net_return_percent=args.minimum_net_return_percent,
+            take_profit_r_multiple=args.take_profit_r_multiple,
+            reentry_cooldown_sessions=args.reentry_cooldown_sessions,
+            tickers=(
+                {item.strip().upper() for item in args.tickers.split(",") if item.strip()}
+                if args.tickers.strip() else None
+            ),
+        )
+        args.learning_comparison_output.parent.mkdir(parents=True, exist_ok=True)
+        args.learning_comparison_output.write_text(
+            json.dumps(learning_comparison, indent=2, ensure_ascii=False) + "\\n",
+            encoding="utf-8",
+        )
+        print(f"LEARNING_FEEDBACK_COMPARISON={args.learning_comparison_output}")
+
     if args.comparison_output is not None:
         comparison = run_scenario_comparison(
             args.csv, initial_balance=args.initial_balance,
