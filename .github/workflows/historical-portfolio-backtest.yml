@@ -124,6 +124,7 @@ jobs:
           --tickers "${{ inputs.ticker_universe }}"
           --output data/historical_portfolio_report.json
           --comparison-output data/historical_scenario_comparison.json
+          --learning-comparison-output data/historical_learning_feedback_comparison.json
       - name: Upload full historical backtest report
         if: always()
         uses: actions/upload-artifact@v4
@@ -135,5 +136,6 @@ jobs:
             data/level_01_history.csv.coverage.json
             data/historical_portfolio_report.json
             data/historical_scenario_comparison.json
+            data/historical_learning_feedback_comparison.json
           if-no-files-found: warn
           retention-days: 30
