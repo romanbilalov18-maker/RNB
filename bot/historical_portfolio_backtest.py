@@ -355,6 +355,109 @@ def run_replay(
 
 
 
+
+def run_learning_feedback_comparison(
+    csv_path: Path, *, initial_balance: float = 100_000.0,
+    commission_rate: float = 0.0005, reserve_rate: float = 0.7,
+    risk_budget_percent: float = 1.0, take_profit_percent: float = 0.15,
+    estimated_slippage_bps: float = 1.0, fallback_spread_percent: float = 0.02,
+    minimum_net_return_percent: float = 0.0,
+    take_profit_r_multiple: float | None = None,
+    reentry_cooldown_sessions: int = 0,
+    tickers: set[str] | None = None,
+) -> dict:
+    """Paired virtual replay: same strategy/settings, with vs without L11 feedback.
+
+    This isolates the effect of matured learning observations. It does not
+    claim to isolate Forecast EV or Bayesian confidence, both diagnostic-only.
+    """
+    shared = {
+        "initial_balance": initial_balance,
+        "commission_rate": commission_rate,
+        "reserve_rate": reserve_rate,
+        "risk_budget_percent": risk_budget_percent,
+        "take_profit_percent": take_profit_percent,
+        "estimated_slippage_bps": estimated_slippage_bps,
+        "fallback_spread_percent": fallback_spread_percent,
+        "minimum_net_return_percent": minimum_net_return_percent,
+        "take_profit_r_multiple": take_profit_r_multiple,
+        "reentry_cooldown_sessions": reentry_cooldown_sessions,
+        "tickers": tickers,
+    }
+    baseline = run_replay(
+        csv_path, **shared, enable_learning_feedback=False
+    )
+    learning = run_replay(
+        csv_path, **shared, enable_learning_feedback=True
+    )
+
+    def metrics(report):
+        p = report["portfolio"]
+        return {
+            "final_equity": p["final_equity"],
+            "total_return_pct": p["total_return_pct"],
+            "realized_pnl": p["realized_pnl"],
+            "commissions": p["commissions"],
+            "max_drawdown": p["max_drawdown"],
+            "max_drawdown_pct": p["max_drawdown_pct"],
+            "total_trades": p["total_trades"],
+            "buy_trades": p["buy_trades"],
+            "sell_trades": p["sell_trades"],
+            "protected_reserve": p["protected_cash"],
+            "spendable_cash": p["spendable_cash"],
+            "open_positions": p["open_positions"],
+            "warnings": p["warnings"],
+        }
+
+    baseline_metrics = metrics(baseline)
+    learning_metrics = metrics(learning)
+    comparable = baseline["dataset"] == learning["dataset"]
+    deltas = {}
+    for key in (
+        "final_equity", "total_return_pct", "realized_pnl", "commissions",
+        "max_drawdown", "max_drawdown_pct", "total_trades", "buy_trades",
+        "sell_trades", "protected_reserve", "spendable_cash", "open_positions",
+    ):
+        left, right = baseline_metrics[key], learning_metrics[key]
+        deltas[key] = (
+            right - left
+            if isinstance(left, (int, float)) and not isinstance(left, bool)
+            and isinstance(right, (int, float)) and not isinstance(right, bool)
+            else None
+        )
+    return {
+        "report_type": "RNB_LEARNING_FEEDBACK_PAIRED_COMPARISON",
+        "data_source": "T-Invest API",
+        "execution_mode": "VIRTUAL_ONLY",
+        "live_orders_submitted": False,
+        "comparison_dimension": "matured_L11_learning_feedback_only",
+        "forecast_ev_and_bayesian_confidence": "diagnostic_only_not_applied_to_decisions",
+        "same_dataset": comparable,
+        "dataset": baseline["dataset"],
+        "same_initial_balance_and_execution_costs": True,
+        "settings": {
+            "initial_balance": initial_balance,
+            "commission_rate_per_side": commission_rate,
+            "estimated_slippage_bps_each_side": estimated_slippage_bps,
+            "fallback_spread_percent_full": fallback_spread_percent,
+            "reserve_rate": reserve_rate,
+            "risk_budget_percent": risk_budget_percent,
+            "take_profit_percent": take_profit_percent,
+            "minimum_net_return_percent": minimum_net_return_percent,
+            "take_profit_r_multiple": take_profit_r_multiple,
+            "reentry_cooldown_sessions": reentry_cooldown_sessions,
+        },
+        "baseline_without_learning_feedback": baseline_metrics,
+        "with_learning_feedback": learning_metrics,
+        "delta_learning_minus_baseline": deltas,
+        "interpretation": (
+            "Paired result isolates historical L11 learning feedback. "
+            "It is not a comparison of every new formula and does not establish "
+            "profitability or justify real-money deployment."
+        ),
+    }
+
+
 def run_scenario_comparison(
     csv_path: Path, *, initial_balance: float = 100_000.0,
     commission_rate: float = 0.0005, reserve_rate: float = 0.7,
