@@ -31,8 +31,18 @@ def build_report(database: str | Path, train_fraction: float = 0.6) -> dict:
         ticker: report for ticker, report in ticker_reports.items()
         if report["multiple_windows"].get("status") == "evaluated"
     }
+    audit_summary = store.summary()
+    learning_readiness = {
+        "pipeline": audit_summary["learning_pipeline"],
+        "data_quality": audit_summary["learning_data_quality"],
+        "outcome_readiness": audit_summary["outcome_readiness"],
+        "outcomes_ready_but_missing": audit_summary["outcomes_ready_but_missing"],
+        "forward_outcomes": audit_summary["forward_outcomes"],
+        "trainable_observations": audit_summary["learning_observations"],
+    }
     return {
         "database": str(database),
+        "learning_readiness": learning_readiness,
         "train_fraction": train_fraction,
         "ticker_count": len(ticker_reports),
         "evaluated_ticker_count": len(evaluated),
