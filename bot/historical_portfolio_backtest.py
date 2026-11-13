@@ -598,7 +598,7 @@ def main() -> None:
         )
         args.learning_comparison_output.parent.mkdir(parents=True, exist_ok=True)
         args.learning_comparison_output.write_text(
-            json.dumps(learning_comparison, indent=2, ensure_ascii=False) + "\\n",
+            json.dumps(learning_comparison, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         print(f"LEARNING_FEEDBACK_COMPARISON={args.learning_comparison_output}")
