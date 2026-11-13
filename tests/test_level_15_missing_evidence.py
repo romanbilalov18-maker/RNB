@@ -102,9 +102,9 @@ class Level15MissingEvidenceTests(unittest.TestCase):
 
     def test_all_missing_evidence_returns_zero_confidence(self):
         l6, l10, l11, l12, l13, l14 = inputs()
-        for item in (l6, l10, l12, l13, l14):
+        for item in (l6, l10, l11, l12, l13, l14):
             item.confidence = 0.0
-        result = Level15Engine().analyze(l6, l10, l12, l13, l14, l14)
+        result = Level15Engine().analyze(l6, l10, l11, l12, l13, l14)
         self.assertEqual(result.confidence, 0.0)
         self.assertEqual(result.score, 0.0)
 
