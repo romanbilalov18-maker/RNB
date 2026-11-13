@@ -38,6 +38,11 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> Level3Result:
     strengths = tuple(r.analyzer for r in results if r.confidence > 0 and r.score >= 0.70)
     weaknesses = tuple(r.analyzer for r in results if r.confidence > 0 and r.score <= 0.30)
     warnings = tuple(dict.fromkeys((*level2.warnings, *(w for r in results for w in r.warnings))))
+    regime_result = next((r for r in results if r.analyzer == "market_regime"), None)
+    regime_metrics = getattr(regime_result, "metrics", {}) or {}
+    # Preserve the explicit directional consensus for downstream learning.
+    # None means the required trend/structure evidence was not available.
+    regime = regime_metrics.get("regime")
 
     return Level3Result(
         symbol=snapshot.symbol,
@@ -51,7 +56,7 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> Level3Result:
         weaknesses=weaknesses,
         warnings=warnings,
         metadata={
-            "version": "1.1",
+            "version": "1.2",
             "weights": dict(zip((r.analyzer for r in results), WEIGHTS)),
             "effective_weights": dict(zip((r.analyzer for r in results), effective_weights)),
             "level2_confidence": level2.confidence,
@@ -61,5 +66,11 @@ def analyze(snapshot: MarketSnapshot, level2: Level2Result) -> Level3Result:
             ),
             "analyzers_with_evidence": [r.analyzer for r in results if r.confidence > 0],
             "analyzers_without_evidence": [r.analyzer for r in results if r.confidence == 0],
+            "regime": regime,
+            "regime_method": regime_metrics.get("regime_method"),
+            "regime_evidence": {
+                "trend_score": regime_metrics.get("trend_score"),
+                "structure_score": regime_metrics.get("structure_score"),
+            },
         },
     )
