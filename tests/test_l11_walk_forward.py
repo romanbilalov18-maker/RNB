@@ -194,5 +194,20 @@ class L11WalkForwardTests(unittest.TestCase):
         self.assertIsNotNone(result["levels"]["equal_weight_baseline"]["auc"])
 
 
+    def test_report_explains_why_learning_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = build_report(Path(tmp) / "empty-audit.sqlite")
+        readiness = report["learning_readiness"]
+        self.assertEqual(readiness["trainable_observations"], 0)
+        self.assertEqual(readiness["pipeline"]["total_decisions"], 0)
+        self.assertEqual(readiness["outcome_readiness"]["anchors"], 0)
+        self.assertEqual(readiness["outcomes_ready_but_missing"], {"1": 0, "3": 0, "5": 0})
+        self.assertEqual(
+            [(row["horizon_sessions"], row["evaluated"], row["scored"])
+             for row in readiness["forward_outcomes"]],
+            [(1, 0, 0), (3, 0, 0), (5, 0, 0)],
+        )
+        self.assertFalse(report["deployment_allowed"])
+
 if __name__ == "__main__":
     unittest.main()
